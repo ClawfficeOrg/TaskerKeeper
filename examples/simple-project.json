@@ -1,0 +1,155 @@
+{
+  "schema_version": "1.0.0",
+  "project": {
+    "name": "My Simple Project",
+    "version": {
+      "milestone": "v1",
+      "release_version": "0.1.0"
+    },
+    "description": "A minimal example showing TaskerKeeper basics."
+  },
+  "phases": [
+    {
+      "id": "1.0",
+      "title": "Foundation",
+      "goal": "Set up project structure and core utilities.",
+      "tasks": [
+        {
+          "id": "1.0.1",
+          "title": "Initialize project",
+          "status": "done",
+          "goal": "Create the basic project skeleton with Cargo.toml and main.rs.",
+          "touches": [
+            "Cargo.toml",
+            "src/main.rs"
+          ],
+          "success": [
+            "cargo build succeeds",
+            "cargo run prints hello"
+          ],
+          "tests": "cargo test passes (no tests yet, just compilation check)",
+          "complexity": "Low",
+          "agent": "basic_dev_agent",
+          "created_at": "2026-08-27T10:00:00Z",
+          "updated_at": "2026-08-27T10:15:00Z",
+          "_phase_id": "1.0"
+        },
+        {
+          "id": "1.0.2",
+          "title": "Add CLI argument parsing",
+          "status": "in_progress",
+          "goal": "Use clap to parse command-line arguments for subcommands.",
+          "touches": [
+            "Cargo.toml",
+            "src/cli.rs"
+          ],
+          "success": [
+            "--help shows usage",
+            "subcommands are recognized"
+          ],
+          "tests": "Run: cargo run -- --help",
+          "prerequisites": [
+            "1.0.1"
+          ],
+          "complexity": "Low",
+          "agent": "basic_dev_agent",
+          "created_at": "2026-08-27T10:00:00Z",
+          "updated_at": "2026-08-27T10:20:00Z",
+          "_phase_id": "1.0"
+        },
+        {
+          "id": "1.0.3",
+          "title": "Implement config file loading",
+          "status": "in_progress",
+          "goal": "Load project-specific settings from a .toml config file.",
+          "touches": [
+            "src/config.rs"
+          ],
+          "success": [
+            "Config is loaded from .toml",
+            "Defaults are applied when file is missing"
+          ],
+          "prerequisites": [
+            "1.0.1"
+          ],
+          "complexity": "Medium",
+          "agent": "mid_dev_agent",
+          "_phase_id": "1.0",
+          "updated_at": "2026-08-27T15:30:02.134305+00:00"
+        }
+      ]
+    },
+    {
+      "id": "1.1",
+      "title": "Features",
+      "goal": "Implement core features with parallel workstreams.",
+      "prerequisites": [
+        "1.0"
+      ],
+      "tasks": [
+        {
+          "id": "1.1.1",
+          "title": "Add JSON import",
+          "status": "pending",
+          "goal": "Read and parse JSON input files.",
+          "touches": [
+            "src/import.rs"
+          ],
+          "success": [
+            "Valid JSON is parsed",
+            "Invalid JSON gives clear error"
+          ],
+          "prerequisites": [
+            "1.0.2",
+            "1.0.3"
+          ],
+          "parallel_group": "features",
+          "complexity": "Medium",
+          "agent": "mid_dev_agent",
+          "_phase_id": "1.1"
+        },
+        {
+          "id": "1.1.2",
+          "title": "Add Markdown export",
+          "status": "pending",
+          "goal": "Export data as formatted markdown.",
+          "touches": [
+            "src/export.rs"
+          ],
+          "success": [
+            "Output is valid markdown",
+            "Tables are formatted correctly"
+          ],
+          "prerequisites": [
+            "1.0.2",
+            "1.0.3"
+          ],
+          "parallel_group": "features",
+          "complexity": "Medium",
+          "agent": "mid_dev_agent",
+          "_phase_id": "1.1"
+        },
+        {
+          "id": "1.1.3",
+          "title": "Add search functionality",
+          "status": "pending",
+          "goal": "Full-text search across all loaded data.",
+          "touches": [
+            "src/search.rs"
+          ],
+          "success": [
+            "Search returns relevant results",
+            "Search is case-insensitive"
+          ],
+          "prerequisites": [
+            "1.1.1"
+          ],
+          "parallel_group": "search",
+          "complexity": "High",
+          "agent": "pro_dev_agent",
+          "_phase_id": "1.1"
+        }
+      ]
+    }
+  ]
+}

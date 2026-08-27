@@ -1,0 +1,206 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "taskerkeeper/todo-v1",
+  "title": "TaskerKeeper Todo (JSON)",
+  "description": "Structured JSON alternative to markdown todo-v*.md files. Stable IDs, dependency DAG, parallel tracks, machine-readable. Maps planning milestones to semver releases.",
+  "type": "object",
+  "required": ["schema_version", "project", "phases"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "project": {
+      "type": "object",
+      "required": ["name", "version", "description"],
+      "properties": {
+        "name": { "type": "string", "description": "Project name (e.g. 'ZoidMatter')" },
+        "version": {
+          "type": "object",
+          "required": ["milestone", "release_version"],
+          "description": "Maps this roadmap milestone to a semver release version. The milestone is the planning label (v7 from todo-v7.md); the release_version is what gets tagged (0.7.0).",
+          "properties": {
+            "milestone": {
+              "type": "string",
+              "description": "Internal roadmap identifier (e.g. 'v7'). Matches the todo-v*.md filename."
+            },
+            "release_version": {
+              "type": "string",
+              "description": "Semver version when this milestone ships (e.g. '0.7.0'). Pre-1.0 while project is unstable."
+            },
+            "next_milestone": {
+              "type": "string",
+              "description": "The next roadmap file (e.g. 'todo-v8.md')"
+            }
+          }
+        },
+        "description": { "type": "string", "description": "One-paragraph milestone goal" },
+        "prerequisites": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Completed milestones from prior versions (e.g. ['v4', 'v5', 'v6'])"
+        }
+      }
+    },
+    "phases": {
+      "type": "array",
+      "description": "Ordered list of phases. Each phase groups related tasks.",
+      "items": { "$ref": "#/$defs/phase" }
+    },
+    "agent_config": {
+      "$ref": "#/$defs/agent_config"
+    },
+    "meta": {
+      "type": "object",
+      "description": "Freeform metadata (tallies, planning notes, etc.)",
+      "additionalProperties": true
+    }
+  },
+  "$defs": {
+    "phase": {
+      "type": "object",
+      "required": ["id", "title", "goal", "tasks"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+$",
+          "description": "Phase ID (e.g. '7.0', '7.1'). Dotted major.minor. This is a PLANNING id, not a release version."
+        },
+        "title": { "type": "string" },
+        "goal": { "type": "string", "description": "One-paragraph deliverable description" },
+        "prerequisites": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Phase IDs that must complete before this phase starts"
+        },
+        "release": {
+          "type": "object",
+          "description": "Release configuration. Only the FINAL phase of a milestone should have this. Intermediate phases are just planning groups.",
+          "properties": {
+            "version": {
+              "type": "string",
+              "description": "Semver version to tag (e.g. '0.7.0')"
+            },
+            "tag_on_complete": {
+              "type": "boolean",
+              "description": "If true, ralph creates a git tag when all tasks in this phase are done"
+            },
+            "release_notes": {
+              "type": "string",
+              "description": "Summary for the release"
+            },
+            "changelog_entries": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Individual changelog lines (auto-populated from completed tasks)"
+            }
+          }
+        },
+        "tasks": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/task" }
+        }
+      }
+    },
+    "task": {
+      "type": "object",
+      "required": ["id", "title", "status"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Stable task ID. Format: PHASE.SEQUENCE (e.g. '7.0.1'). Never changes regardless of insertion order.",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        },
+        "title": { "type": "string" },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "in_progress", "done", "cancelled", "moved"],
+          "default": "pending"
+        },
+        "goal": { "type": "string", "description": "Detailed implementation description" },
+        "touches": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "File paths this task owns"
+        },
+        "success": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Acceptance criteria / verification steps"
+        },
+        "tests": { "type": "string", "description": "What to run and expected outcomes" },
+        "prerequisites": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Task IDs that must be 'done' before this task can start. Enables DAG, not linear."
+        },
+        "parallel_group": {
+          "type": "string",
+          "description": "Tasks in the same group CAN run in parallel (all deps satisfied). Different groups run sequentially within a phase."
+        },
+        "complexity": {
+          "type": "string",
+          "enum": ["Low", "Medium", "High", "Very High"]
+        },
+        "agent": {
+          "type": "string",
+          "enum": ["basic_dev_agent", "mid_dev_agent", "pro_dev_agent", "flagship"],
+          "description": "Which agent tier handles this task"
+        },
+        "moved_to": {
+          "type": "string",
+          "description": "If status='moved', the new task ID"
+        },
+        "changelog": {
+          "type": "string",
+          "description": "One-line changelog entry (auto-collected into phase release.changelog_entries)"
+        },
+        "security_notes": { "type": "string" },
+        "manual_note_refs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "References to manual testing notes"
+        },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "agent_config": {
+      "type": "object",
+      "description": "Agent tier configuration for ralph",
+      "properties": {
+        "tiers": {
+          "type": "object",
+          "properties": {
+            "basic_dev_agent": {
+              "type": "object",
+              "properties": {
+                "complexity_range": { "type": "string" },
+                "duration_minutes": { "type": "string" }
+              }
+            },
+            "mid_dev_agent": {
+              "type": "object",
+              "properties": {
+                "complexity_range": { "type": "string" },
+                "duration_minutes": { "type": "string" }
+              }
+            },
+            "pro_dev_agent": {
+              "type": "object",
+              "properties": {
+                "complexity_range": { "type": "string" },
+                "duration_minutes": { "type": "string" }
+              }
+            }
+          }
+        },
+        "required_reading": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Files ralph must read before starting any task"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,163 @@
+{
+  "schema_version": "1.0.0",
+  "project": {
+    "name": "ZoidMatter",
+    "version": {
+      "milestone": "v7",
+      "release_version": "0.7.0",
+      "next_milestone": "todo-v8.md"
+    },
+    "description": "Multi-language client SDKs for ZoidMatter and production deployment tooling (Helm, Kubernetes). Moved from v4 (4.1.1–4.1.4, 4.2.3) to decouple SDK work from the core memory intelligence milestones.",
+    "prerequisites": ["v4", "v5", "v6"]
+  },
+  "agent_config": {
+    "tiers": {
+      "basic_dev_agent": { "complexity_range": "Low", "duration_minutes": "5-15" },
+      "mid_dev_agent": { "complexity_range": "Medium", "duration_minutes": "15-45" },
+      "pro_dev_agent": { "complexity_range": "High–Very High", "duration_minutes": "45-120+" }
+    },
+    "required_reading": [
+      "README.md",
+      "docs/plan.md",
+      "docs/todo.md",
+      "docs/memory.md",
+      "docs/learnings.md"
+    ]
+  },
+  "phases": [
+    {
+      "id": "7.0",
+      "title": "Multi-Language Client SDKs",
+      "goal": "Ship idiomatic client SDKs for Go, Ruby, Swift, and JVM (Java/Kotlin) generated from OpenAPI spec. Each SDK published to its native registry with tests and examples.",
+      "prerequisites": [],
+      "tasks": [
+        {
+          "id": "7.0.1",
+          "title": "Go client SDK",
+          "status": "pending",
+          "goal": "`go get github.com/clawffice/zoidmatter-go` — idiomatic Go client generated from openapi.json (3.4.3) and hand-curated. Struct types for all request/response shapes. `ZoidMatterClient` with methods: Retain, Recall, Graph, BankImport, BankExport. Context-aware (accepts context.Context). Retry with exponential backoff. Published to pkg.go.dev. Ships with examples under examples/ and a README.md. Lives in packages/go/.",
+          "touches": ["packages/go/", "Makefile"],
+          "success": [
+            "go build ./... passes",
+            "go test ./... passes with mock server",
+            "Example code compiles and runs against a live instance"
+          ],
+          "prerequisites": [],
+          "parallel_group": "sdks",
+          "complexity": "Medium",
+          "agent": "mid_dev_agent",
+          "changelog": "Go client SDK (go get github.com/clawffice/zoidmatter-go)",
+          "created_at": "2026-08-12T00:00:00Z",
+          "updated_at": "2026-08-12T00:00:00Z"
+        },
+        {
+          "id": "7.0.2",
+          "title": "Ruby client SDK",
+          "status": "pending",
+          "goal": "`gem install zoidmatter` — Ruby gem generated from OpenAPI spec + hand-curated. `Zoidmatter::Client` with retain, recall, graph, bank_import, bank_export. Supports Ruby 3.2+. Typed with Sorbet type signatures. Published to rubygems.org. Lives in packages/ruby/.",
+          "touches": ["packages/ruby/"],
+          "success": [
+            "Gem installs and passes tests",
+            "Sorbet typechecks",
+            "Example script runs"
+          ],
+          "prerequisites": [],
+          "parallel_group": "sdks",
+          "complexity": "Medium",
+          "agent": "mid_dev_agent",
+          "changelog": "Ruby client SDK (gem install zoidmatter)",
+          "created_at": "2026-08-12T00:00:00Z",
+          "updated_at": "2026-08-12T00:00:00Z"
+        },
+        {
+          "id": "7.0.3",
+          "title": "Swift client SDK (iOS / macOS agents)",
+          "status": "pending",
+          "goal": "Swift Package Manager package ZoidMatterClient for use in Swift agent apps and iOS/macOS projects. async/await API throughout. ZoidMatterClient struct with retain, recall, graph. Codable response types. Published as SPM package at github.com/clawffice/zoidmatter-swift. Lives in packages/swift/. Target use case: on-device agent apps on Apple Silicon that use ZoidMatter as the memory backend for a local LLM (MLX + ZoidMatter).",
+          "touches": ["packages/swift/"],
+          "success": [
+            "swift build passes",
+            "XCTest suite passes",
+            "Example iOS SwiftUI app builds and can call a local ZoidMatter instance"
+          ],
+          "prerequisites": [],
+          "parallel_group": "sdks",
+          "complexity": "Medium",
+          "agent": "mid_dev_agent",
+          "changelog": "Swift client SDK for iOS/macOS agent apps",
+          "created_at": "2026-08-12T00:00:00Z",
+          "updated_at": "2026-08-12T00:00:00Z"
+        },
+        {
+          "id": "7.0.4",
+          "title": "Java / Kotlin client SDK (JVM agents)",
+          "status": "pending",
+          "goal": "Maven/Gradle artifact io.clawffice:zoidmatter-client for JVM-based agent frameworks (LangChain4J, Spring AI). Kotlin-first with Java compatibility. Coroutines for async. Types: ZoidMatterClient, RetainRequest, RecallResult, GraphResponse. Published to Maven Central. Lives in packages/jvm/.",
+          "touches": ["packages/jvm/"],
+          "success": [
+            "Published artifact resolves",
+            "Kotlin unit tests pass",
+            "Java interop example compiles"
+          ],
+          "prerequisites": [],
+          "parallel_group": "sdks",
+          "complexity": "Medium",
+          "agent": "mid_dev_agent",
+          "changelog": "Java/Kotlin client SDK for JVM agent frameworks",
+          "created_at": "2026-08-12T00:00:00Z",
+          "updated_at": "2026-08-12T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "7.1",
+      "title": "Production Deployment",
+      "goal": "Ship a production Helm chart and merge to main. This is the final phase of milestone v7 — ships release 0.7.0.",
+      "prerequisites": ["7.0"],
+      "release": {
+        "version": "0.7.0",
+        "tag_on_complete": true,
+        "release_notes": "ZoidMatter v0.7.0 — Multi-language client SDKs (Go, Ruby, Swift, JVM) and production Kubernetes deployment via Helm.",
+        "changelog_entries": []
+      },
+      "tasks": [
+        {
+          "id": "7.1.1",
+          "title": "Helm chart and Kubernetes deployment",
+          "status": "pending",
+          "goal": "Ship helm/zoidmatter/ — a production Helm chart that deploys ZoidMatter + PostgreSQL + reranker on Kubernetes. Values: replicas, resource limits, image tags, ingress config, external DB option. make helm-package and make helm-install targets. Ship a docs/kubernetes-setup.md guide.",
+          "touches": ["helm/zoidmatter/", "docs/kubernetes-setup.md", "Makefile"],
+          "success": [
+            "helm install zoidmatter ./helm/zoidmatter deploys a working instance",
+            "kubectl get pods shows all pods healthy",
+            "Smoke test passes"
+          ],
+          "prerequisites": ["7.0.1", "7.0.2", "7.0.3", "7.0.4"],
+          "complexity": "High",
+          "agent": "pro_dev_agent",
+          "changelog": "Helm chart for Kubernetes deployment (helm install zoidmatter)",
+          "created_at": "2026-08-12T00:00:00Z",
+          "updated_at": "2026-08-12T00:00:00Z"
+        },
+        {
+          "id": "7.1.2",
+          "title": "Phase merge: release/7.0 → main",
+          "status": "pending",
+          "goal": "Phase review passes, branch merges cleanly.",
+          "touches": ["CI", "docs/todo-v7.json"],
+          "success": ["All 7.x.x tasks have status 'done'"],
+          "prerequisites": ["7.1.1"],
+          "complexity": "Low",
+          "agent": "flagship",
+          "changelog": null,
+          "created_at": "2026-08-12T00:00:00Z",
+          "updated_at": "2026-08-12T00:00:00Z"
+        }
+      ]
+    }
+  ],
+  "meta": {
+    "created_from": "docs/todo-v7.md",
+    "conversion_notes": "Converted from markdown todo-v7.md for PoC. Original markdown file preserved. Version mapping: milestone v7 → release 0.7.0."
+  }
+}
