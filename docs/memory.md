@@ -49,12 +49,8 @@ pyproject.toml                setuptools packaging, console script `taskerkeeper
 
 ## Known Gaps / Next
 
-- **Doc drift:** `docs/integration-guide.md` and `skills/taskerkeeper/SKILL.md`
-  reference commands that don't exist: `status`, `convert-md`, `convert-json`,
-  `add-task`, and a positional-phase form of `add`. Actual CLI is
-  `validate next done list parallel deps add`; `add` takes `--phase --title`.
 - `ralph/ralph-json.sh` and the Hermes skill are written but not end-to-end
   tested against the CLI.
 - No tests. No CI validation hook (see philosophy.md "Future Directions").
 - `convert` (markdown <-> JSON) mentioned in README structure but not
-  implemented in the CLI.
+  implemented in the CLI. Docs point this out; migration is manual.

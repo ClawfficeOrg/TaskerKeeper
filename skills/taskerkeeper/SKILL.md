@@ -175,8 +175,11 @@ python scripts/taskerkeeper.py list docs/todo-v7.json
 # Show parallel groups
 python scripts/taskerkeeper.py parallel docs/todo-v7.json
 
-# Add task
-python scripts/taskerkeeper.py add docs/todo-v7.json 7.2 --title "New feature"
+# Show a task's dependency chain
+python scripts/taskerkeeper.py deps docs/todo-v7.json 7.0.1
+
+# Add task (phase via --phase; new ID is the phase's max sequence + 1)
+python scripts/taskerkeeper.py add docs/todo-v7.json --phase 7.2 --title "New feature"
 ```
 
 ## Ralph Integration

@@ -23,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `errors="replace"`; files are read/written as UTF-8.
 - Schema rejected task `changelog: null`. The field now allows
   `["string", "null"]`, so the zoidmatter-v7 example validates.
+- Docs aligned with the actual CLI — removed references to unimplemented
+  `status`, `convert-md`, `convert-json`, and `add-task` commands and the
+  positional-phase `add` form.
 
 ### Changed
 

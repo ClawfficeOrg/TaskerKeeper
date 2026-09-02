@@ -23,8 +23,8 @@ python3 scripts/taskerkeeper.py done my-todo.json 7.0.1
 # Show all tasks
 python3 scripts/taskerkeeper.py list my-todo.json
 
-# Show statistics
-python3 scripts/taskerkeeper.py status my-todo.json
+# Show a task's dependency chain
+python3 scripts/taskerkeeper.py deps my-todo.json 7.0.1
 ```
 
 ### Using ralph-json.sh
@@ -36,7 +36,7 @@ The bash script variant provides the same functionality with `jq`:
 ./ralph/ralph-json.sh done my-todo.json 7.0.1
 ./ralph/ralph-json.sh list my-todo.json
 ./ralph/ralph-json.sh parallel my-todo.json
-./ralph/ralph-json.sh status my-todo.json
+./ralph/ralph-json.sh deps my-todo.json 7.0.1
 ```
 
 ## Integration with ZoidMatter
@@ -70,17 +70,12 @@ that ralph consumes.
 
 ### Migration from Markdown
 
-If you have existing `docs/todo-v*.md` files:
+If you have existing `docs/todo-v*.md` files, automatic conversion is not yet
+implemented in the CLI. Migrate by hand: model the roadmap as a JSON file
+using the schema (see `examples/simple-project.json`), then validate:
 
 ```bash
-# Convert markdown to JSON
-python3 scripts/taskerkeeper.py convert-md docs/todo-v7.md
-
-# Verify the result
 python3 scripts/taskerkeeper.py validate docs/todo-v7.json
-
-# Compare side by side
-diff <(python3 scripts/taskerkeeper.py convert-json docs/todo-v7.json) docs/todo-v7.md
 ```
 
 ### File Layout
@@ -163,12 +158,13 @@ jq '.phases[].tasks[] |
 ### Adding Tasks Programmatically
 
 ```bash
-# Add a task with prerequisites
-python3 scripts/taskerkeeper.py add-task my-todo.json 7.1 \
-  "Add logging" \
-  --prereqs 7.0.1,7.0.2 \
-  --complexity Medium \
-  --agent mid_dev_agent
+# Add a task to a phase (new ID is the phase's max sequence + 1)
+python3 scripts/taskerkeeper.py add my-todo.json --phase 7.1 \
+  --title "Add logging" \
+  --goal "Emit structured logs with level filtering."
+
+# Add defaults to: prerequisites=[], complexity=Medium, agent=mid_dev_agent
+# Set prerequisites / complexity / agent by editing the file afterwards.
 ```
 
 ### Batch Status Updates
