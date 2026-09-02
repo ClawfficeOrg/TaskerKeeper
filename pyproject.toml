@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "taskerkeeper"
+version = "0.1.0"
+description = "Structured task management for autonomous agents"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+keywords = ["todo", "tasks", "agents", "json", "ralph"]
+dependencies = [
+    "jsonschema>=4.0",
+]
+
+[project.scripts]
+taskerkeeper = "taskerkeeper.cli:main"
+
+[tool.setuptools]
+packages = ["taskerkeeper"]

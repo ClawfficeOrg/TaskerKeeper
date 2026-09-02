@@ -152,8 +152,8 @@
           "description": "If status='moved', the new task ID"
         },
         "changelog": {
-          "type": "string",
-          "description": "One-line changelog entry (auto-collected into phase release.changelog_entries)"
+          "type": ["string", "null"],
+          "description": "One-line changelog entry (auto-collected into phase release.changelog_entries). Null means no entry."
         },
         "security_notes": { "type": "string" },
         "manual_note_refs": {
