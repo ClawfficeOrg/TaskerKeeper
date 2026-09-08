@@ -47,6 +47,8 @@ Without installing, `python -m taskerkeeper <command>` and `python scripts/taske
 | `add <file> --phase <id> --title <t>` | Append a task. Accepts `--goal`, `--prereq` (repeatable), `--complexity`, `--agent`, `--parallel-group`, `--touches`, `--success` |
 | `convert <file>` | Render the JSON as markdown for human review (one-way) |
 | `agents show` | The resolved provider/model for every agent tier, and where each setting came from |
+| `agents providers` | List the built-in provider presets and which one is active |
+| `agents use <provider>` | Point a scope at a provider preset — switches every tier at once |
 | `agents set <tier>` | Point a tier at a provider/model. `--scope user` (default), `repo`, or `todo` |
 | `agents unset <tier>` | Drop a tier, or `--key` one setting, from a scope |
 | `agents path` | Print the config file a scope writes to |
@@ -64,20 +66,43 @@ A task names an agent tier (`basic_dev_agent`, `mid_dev_agent`, `pro_dev_agent`,
 a supervisor reading `ready --json` can dispatch without a second lookup.
 
 ```bash
-taskerkeeper agents show
-taskerkeeper agents set mid_dev_agent --provider anthropic --model claude-sonnet-5
+taskerkeeper agents providers                 # the presets on offer
+taskerkeeper agents use opencode-go           # switch every tier at once
+taskerkeeper agents show                      # what that resolved to, and why
 taskerkeeper agents set pro_dev_agent --model claude-opus-5 --scope repo
 ```
+
+### Provider presets
+
+A preset is a whole tier table for one provider, so moving providers is one
+command rather than four:
+
+| Tier | `anthropic` | `opencode-go` |
+|------|-------------|---------------|
+| `basic_dev_agent` | `claude-haiku-4-5` | `glm-5.3-flash` |
+| `mid_dev_agent` | `claude-sonnet-5` | `glm-5.3-flash` |
+| `pro_dev_agent` | `claude-opus-5` | `deepseek-v4-pro` |
+| `flagship` | `claude-fable-5-1` | `qwen3.8-max` |
+
+`anthropic` is the preset in force until a scope selects another one.
+`agents use <provider> --scope repo` pins a project to one; `agents use --clear`
+drops a scope's selection.
+
+### Layers
 
 Configuration is layered, last wins:
 
 | Layer | Where | For |
 |-------|-------|-----|
-| built-in | `taskerkeeper/agents.py` | Sensible defaults so it works unconfigured |
+| built-in | the `anthropic` preset in `taskerkeeper/agents.py` | Works unconfigured |
 | user | `~/.config/taskerkeeper/agents.json` (under `%APPDATA%` on Windows) | Your machine's normal choice |
 | repo | `<repo>/.taskerkeeper/agents.json` | A project pinning something different |
-| todo | the todo file's `agent_config.tiers` | One milestone pinning something different |
+| todo | the todo file's `agent_config` | One milestone pinning something different |
 | task | a task's own `provider` / `model` | The one task that needs a specific model |
+
+Each of the user, repo, and todo layers contributes twice: the preset it names
+(`provider`), then its own per-tier settings (`tiers`). So `agents use` moves
+every tier in a scope while an `agents set` in that same scope still wins.
 
 `agents show` prints the source of every resolved setting, so you can see which
 layer won. Set `TASKERKEEPER_CONFIG_HOME` to relocate the user config.

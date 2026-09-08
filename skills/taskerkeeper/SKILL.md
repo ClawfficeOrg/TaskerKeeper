@@ -1,7 +1,7 @@
 ---
 name: taskerkeeper
 description: "Use when creating, reading, or managing TaskerKeeper JSON todo files. Structured task management with dependency DAG, parallel groups, and semver mapping."
-version: 2.1.0
+version: 2.2.0
 author: KITT (ClawfficeOrg)
 license: MIT
 metadata:
@@ -207,17 +207,22 @@ taskerkeeper convert docs/todo-v7.json -o docs/todo-v7.md
 
 # Which provider/model runs each tier, and where each setting came from
 taskerkeeper agents show --todo docs/todo-v7.json
-taskerkeeper agents set mid_dev_agent --provider anthropic --model claude-sonnet-5
+taskerkeeper agents providers                  # presets: anthropic, opencode-go
+taskerkeeper agents use opencode-go            # switch every tier at once
 taskerkeeper agents set pro_dev_agent --model claude-opus-5 --scope repo
 ```
 
 ## Choosing the Model for a Task
 
 A task names an agent tier; the tier resolves to a provider and model through
-layered config — built-in defaults, then the user config
+layered config — the built-in `anthropic` preset, then the user config
 (`~/.config/taskerkeeper/agents.json`), then the repo config
-(`<repo>/.taskerkeeper/agents.json`), then the todo file's
-`agent_config.tiers`, and finally a task's own `provider`/`model`. Last wins.
+(`<repo>/.taskerkeeper/agents.json`), then the todo file's `agent_config`, and
+finally a task's own `provider`/`model`. Last wins.
+
+Each of those config layers can name a provider preset (a whole tier table —
+`anthropic` or `opencode-go`) as well as individual tiers. The preset applies
+first, so a hand-set tier in the same scope still wins.
 
 `ready --json` and `next --json` carry the resolved values on every task, so a
 supervisor dispatches in one lookup:

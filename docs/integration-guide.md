@@ -113,6 +113,8 @@ your-project/
 Each task names an agent tier; the tier resolves to a provider and model:
 
 ```bash
+taskerkeeper agents providers                               # presets on offer
+taskerkeeper agents use opencode-go                         # switch every tier at once
 taskerkeeper agents show                                    # current mapping + sources
 taskerkeeper agents set mid_dev_agent --model claude-sonnet-5
 taskerkeeper agents set pro_dev_agent --model claude-opus-5 --scope repo
@@ -120,13 +122,27 @@ taskerkeeper agents unset mid_dev_agent --key model
 taskerkeeper agents path --scope repo                       # which file that writes
 ```
 
+A preset is a whole tier table for one provider:
+
+| Tier | `anthropic` | `opencode-go` |
+|------|-------------|---------------|
+| `basic_dev_agent` | `claude-haiku-4-5` | `glm-5.3-flash` |
+| `mid_dev_agent` | `claude-sonnet-5` | `glm-5.3-flash` |
+| `pro_dev_agent` | `claude-opus-5` | `deepseek-v4-pro` |
+| `flagship` | `claude-fable-5-1` | `qwen3.8-max` |
+
 Layers, last wins:
 
-1. built-in defaults
+1. the built-in `anthropic` preset
 2. `~/.config/taskerkeeper/agents.json` (`--scope user`, the default)
 3. `<repo>/.taskerkeeper/agents.json` (`--scope repo`)
-4. the todo file's `agent_config.tiers` (`--scope todo --todo <file>`)
+4. the todo file's `agent_config` (`--scope todo --todo <file>`)
 5. a task's own `provider` / `model`
+
+Within a scope, the preset it names applies first and its own `tiers` entries
+override it — so `agents use opencode-go` followed by
+`agents set mid_dev_agent --model glm-5.3-pro` leaves the other three tiers on
+the preset.
 
 Model choice is normally a property of the machine running the agents, not of
 the roadmap, so the user scope is the right home for it. Use the repo or todo

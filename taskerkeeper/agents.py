@@ -6,10 +6,14 @@ turns that tier into a concrete provider and model, so a supervisor reading
 
 Configuration is layered, last wins:
 
-    1. built-in defaults          (this file)
+    1. built-in defaults          the `anthropic` preset in this file
     2. user config                ~/.config/taskerkeeper/agents.json
     3. repo config                <repo>/.taskerkeeper/agents.json
-    4. the todo file itself       agent_config.tiers
+    4. the todo file itself       agent_config
+
+Each of layers 2-4 contributes twice: first the preset named by its `provider`
+key, then its own per-tier settings. So a scope can switch every tier at once
+(`agents use opencode-go`) and still override one tier by hand.
 
 Model choice is a property of whoever is running the agents, not of the roadmap,
 so the user layer is the normal place for it. The repo layer lets a project pin
@@ -32,15 +36,35 @@ LAYER_TODO = "todo"
 
 SCOPES = (LAYER_USER, LAYER_REPO, LAYER_TODO)
 
-#: The tiers the schema's `agent` enum allows, mapped to sensible defaults.
-#: Cheap-and-fast at the bottom, most capable at the top. Override per machine
-#: with `taskerkeeper agents set`; nothing here is a recommendation about cost.
-DEFAULT_TIERS: dict[str, dict[str, str]] = {
-    "basic_dev_agent": {"provider": "anthropic", "model": "claude-haiku-4-5"},
-    "mid_dev_agent": {"provider": "anthropic", "model": "claude-sonnet-5"},
-    "pro_dev_agent": {"provider": "anthropic", "model": "claude-opus-5"},
-    "flagship": {"provider": "anthropic", "model": "claude-fable-5-1"},
+#: A whole tier table per provider, so switching providers is one command rather
+#: than four. Every preset covers every tier the schema's `agent` enum allows,
+#: cheap-and-fast at the bottom and most capable at the top. Starting points,
+#: not recommendations — override any tier with `agents set`.
+PROVIDER_PRESETS: dict[str, dict[str, dict[str, str]]] = {
+    "anthropic": {
+        "basic_dev_agent": {"provider": "anthropic", "model": "claude-haiku-4-5"},
+        "mid_dev_agent": {"provider": "anthropic", "model": "claude-sonnet-5"},
+        "pro_dev_agent": {"provider": "anthropic", "model": "claude-opus-5"},
+        "flagship": {"provider": "anthropic", "model": "claude-fable-5-1"},
+    },
+    "opencode-go": {
+        "basic_dev_agent": {"provider": "opencode-go", "model": "glm-5.3-flash"},
+        "mid_dev_agent": {"provider": "opencode-go", "model": "glm-5.3-flash"},
+        "pro_dev_agent": {"provider": "opencode-go", "model": "deepseek-v4-pro"},
+        "flagship": {"provider": "opencode-go", "model": "qwen3.8-max"},
+    },
 }
+
+#: The preset used when no layer selects one.
+DEFAULT_PROVIDER = "anthropic"
+
+#: Kept as a name because it reads well at call sites and in the docs.
+DEFAULT_TIERS = PROVIDER_PRESETS[DEFAULT_PROVIDER]
+
+
+def preset_tiers(provider: str) -> dict[str, dict[str, str]]:
+    """A fresh copy of one provider's tier table, empty for an unknown name."""
+    return {tier: dict(cfg) for tier, cfg in PROVIDER_PRESETS.get(provider, {}).items()}
 
 CONFIG_FILENAME = "agents.json"
 REPO_CONFIG_DIR = ".taskerkeeper"
@@ -113,29 +137,60 @@ def _ancestors(start: str | Path | None):
 # ---------------------------------------------------------------------------
 
 
-def read_config(path: str | Path) -> dict[str, dict]:
-    """The `tiers` mapping from a config file, or empty if there is none."""
+def read_config(path: str | Path) -> dict:
+    """A config file, or an empty config if there is none."""
     try:
         data = read_json(path)
     except (FileNotFoundError, NotADirectoryError):
         return {}
-    tiers = data.get("tiers")
+    return data if isinstance(data, dict) else {}
+
+
+def read_tiers(path: str | Path) -> dict[str, dict]:
+    """Just the `tiers` mapping from a config file."""
+    tiers = read_config(path).get("tiers")
     return tiers if isinstance(tiers, dict) else {}
 
 
-def layers(todo_data: dict | None = None, todo_path: str | Path | None = None) -> list[tuple[str, dict]]:
-    """Every configuration layer, lowest priority first."""
+def scoped_configs(todo_data: dict | None = None,
+                   todo_path: str | Path | None = None) -> list[tuple[str, dict]]:
+    """The user, repo, and todo configs, lowest priority first."""
     start = todo_path or Path.cwd()
-    out = [
-        (LAYER_BUILTIN, {tier: dict(cfg) for tier, cfg in DEFAULT_TIERS.items()}),
-        (LAYER_USER, read_config(user_config_path())),
-    ]
     repo = find_repo_config(start)
-    out.append((LAYER_REPO, read_config(repo) if repo else {}))
+    out = [
+        (LAYER_USER, read_config(user_config_path())),
+        (LAYER_REPO, read_config(repo) if repo else {}),
+    ]
     if todo_data:
-        config = todo_data.get("agent_config") or {}
+        config = todo_data.get("agent_config")
+        out.append((LAYER_TODO, config if isinstance(config, dict) else {}))
+    return out
+
+
+def active_provider(todo_data: dict | None = None,
+                    todo_path: str | Path | None = None) -> tuple[str, str]:
+    """The selected preset and the layer that selected it."""
+    provider, source = DEFAULT_PROVIDER, LAYER_BUILTIN
+    for label, config in scoped_configs(todo_data, todo_path):
+        if config.get("provider"):
+            provider, source = config["provider"], label
+    return provider, source
+
+
+def layers(todo_data: dict | None = None, todo_path: str | Path | None = None) -> list[tuple[str, dict]]:
+    """Every configuration layer, lowest priority first.
+
+    A scope that names a provider contributes that preset just below its own
+    per-tier settings, so `agents use` moves every tier while a hand-set tier in
+    the same scope still wins.
+    """
+    out = [(LAYER_BUILTIN, preset_tiers(DEFAULT_PROVIDER))]
+    for label, config in scoped_configs(todo_data, todo_path):
+        provider = config.get("provider")
+        if provider:
+            out.append((f"{label} preset", preset_tiers(provider)))
         tiers = config.get("tiers")
-        out.append((LAYER_TODO, tiers if isinstance(tiers, dict) else {}))
+        out.append((label, tiers if isinstance(tiers, dict) else {}))
     return out
 
 
@@ -186,6 +241,37 @@ def scope_path(scope: str, todo_path: str | Path | None = None) -> Path:
             raise ValueError("the todo scope needs a todo file")
         return Path(todo_path)
     raise ValueError(f"unknown scope: {scope}")
+
+
+def set_provider(scope: str, provider: str, todo_path: str | Path | None = None) -> Path:
+    """Point a scope at a provider preset. Returns the file written."""
+    path = scope_path(scope, todo_path)
+    with FileLock(path):
+        if scope == LAYER_TODO:
+            data = read_json(path)
+            data.setdefault("agent_config", {})["provider"] = provider
+        else:
+            data = _read_config_file(path)
+            data["provider"] = provider
+        write_json(data, path)
+    return path
+
+
+def clear_provider(scope: str, todo_path: str | Path | None = None) -> tuple[Path, bool]:
+    """Drop a scope's preset selection. Returns (path, changed)."""
+    path = scope_path(scope, todo_path)
+    with FileLock(path):
+        if scope == LAYER_TODO:
+            data = read_json(path)
+            target = data.get("agent_config") or {}
+        else:
+            data = _read_config_file(path)
+            target = data
+        if "provider" not in target:
+            return path, False
+        del target["provider"]
+        write_json(data, path)
+    return path, True
 
 
 def set_tier(scope: str, tier: str, settings: dict[str, str], todo_path: str | Path | None = None) -> Path:

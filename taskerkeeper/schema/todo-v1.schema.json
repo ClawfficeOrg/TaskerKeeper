@@ -177,6 +177,10 @@
       "type": "object",
       "description": "Agent tier configuration for ralph. Provider/model settings here are the highest-priority layer, above the repo config (.taskerkeeper/agents.json), the user config, and the built-in defaults. Pin a model here only when this milestone genuinely needs one.",
       "properties": {
+        "provider": {
+          "type": "string",
+          "description": "Provider preset this milestone uses, e.g. 'anthropic' or 'opencode-go'. Sets every tier at once; entries under `tiers` still override it."
+        },
         "tiers": {
           "type": "object",
           "properties": {

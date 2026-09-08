@@ -28,11 +28,11 @@ examples/                                simple-project, zoidmatter-v7
 pyproject.toml                           setuptools packaging, console script
 ```
 
-## Current State (2026-09-08, v0.3.0)
+## Current State (2026-09-08, v0.4.0)
 
 - v0.1 scaffold (Aug 27 2026) → hardened (Sep 2) → v0.2.0 rework (Sep 8),
   which fixed everything raised in the `docs/notes.md` review → v0.3.0 (Sep 8),
-  which added the agent provider/model config.
+  which added the agent provider/model config → v0.4.0 (Sep 8), provider presets.
 - Schema now ships as package data, so `pip install .` works, not just
   `pip install -e .`. Verified from site-packages in a clean venv.
 - Scheduling is complete: `ready` lists every runnable task, `start` claims one,
@@ -45,17 +45,24 @@ pyproject.toml                           setuptools packaging, console script
 - All read commands support `--json`, and task output carries the resolved
   provider/model (v0.3.0).
 - Writes are lock-guarded (`<file>.lock`) and atomic (temp + rename).
-- 56 tests, stdlib `unittest`, run on Linux and Windows in CI against a
+- 68 tests, stdlib `unittest`, run on Linux and Windows in CI against a
   non-editable install.
 
-## Agent Model Config (v0.3.0)
+## Agent Model Config (v0.3.0, presets in v0.4.0)
 
 - A task names a tier (`task.agent`); `taskerkeeper/agents.py` resolves that
   tier to a provider and model, and `next` / `ready` / `parallel --json` carry
   the resolved values so a supervisor dispatches in one lookup.
-- Layers, last wins: built-in defaults -> user config -> repo config -> the todo
-  file's `agent_config.tiers` -> a task's own `provider`/`model`.
-- `agents show` reports which layer supplied each setting.
+- Layers, last wins: built-in `anthropic` preset -> user config -> repo config
+  -> the todo file's `agent_config` -> a task's own `provider`/`model`.
+- Each config layer contributes twice: the preset it names via `provider`, then
+  its own `tiers` entries. So `agents use` moves a whole scope and `agents set`
+  in that scope still wins.
+- `PROVIDER_PRESETS` ships `anthropic` and `opencode-go` (glm-5.3-flash for
+  basic/mid, deepseek-v4-pro for pro, qwen3.8-max for flagship). Adding a
+  provider is a dict entry plus a README row.
+- `agents show` reports which layer supplied each setting, and which preset is
+  active. `agents providers` lists the presets.
 - `TASKERKEEPER_CONFIG_HOME` relocates the user config; the tests rely on it.
 
 ## Decisions

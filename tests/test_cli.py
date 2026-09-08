@@ -392,10 +392,10 @@ class AgentConfigTest(unittest.TestCase):
     def test_unset_removes_a_key_then_the_tier(self):
         run("agents", "set", "mid_dev_agent", "--model", "m", "--provider", "p")
         run("agents", "unset", "mid_dev_agent", "--key", "model")
-        stored = agents.read_config(agents.user_config_path())
+        stored = agents.read_tiers(agents.user_config_path())
         self.assertEqual(stored["mid_dev_agent"], {"provider": "p"})
         run("agents", "unset", "mid_dev_agent")
-        self.assertNotIn("mid_dev_agent", agents.read_config(agents.user_config_path()))
+        self.assertNotIn("mid_dev_agent", agents.read_tiers(agents.user_config_path()))
 
     def test_unset_reports_when_there_is_nothing_to_remove(self):
         self.assertEqual(run("agents", "unset", "mid_dev_agent")[0], 1)
@@ -406,7 +406,7 @@ class AgentConfigTest(unittest.TestCase):
         self.assertIn("needs a todo file", out)
 
     def test_missing_config_file_is_not_an_error(self):
-        self.assertEqual(agents.read_config(self.root / "nope" / "agents.json"), {})
+        self.assertEqual(agents.read_tiers(self.root / "nope" / "agents.json"), {})
 
     def test_ready_json_carries_the_resolved_model(self):
         path = self.write_todo(todo(phase("1.0",
@@ -445,10 +445,102 @@ class AgentConfigTest(unittest.TestCase):
         found = agents.repo_config_path(nested / "todo.json")
         self.assertEqual(found, self.repo_dir / ".taskerkeeper" / "agents.json")
 
+    def test_every_preset_covers_every_tier(self):
+        schema = json.loads(cli.SCHEMA_PATH.read_text(encoding="utf-8"))
+        allowed = set(schema["$defs"]["task"]["properties"]["agent"]["enum"])
+        for name, preset in agents.PROVIDER_PRESETS.items():
+            with self.subTest(provider=name):
+                self.assertEqual(set(preset), allowed)
+                for tier, config in preset.items():
+                    self.assertEqual(config["provider"], name, tier)
+                    self.assertTrue(config["model"], tier)
+
+    def test_use_switches_every_tier_at_once(self):
+        path = self.write_todo(todo(phase("1.0", task("1.0.1", agent="pro_dev_agent"))))
+        run("agents", "use", "opencode-go")
+        tiers, sources = agents.resolve_tiers(json.loads(Path(path).read_text()), path)
+        self.assertEqual(tiers["pro_dev_agent"], {"provider": "opencode-go",
+                                                  "model": "deepseek-v4-pro"})
+        self.assertEqual(tiers["flagship"]["model"], "qwen3.8-max")
+        self.assertEqual(tiers["basic_dev_agent"]["model"], "glm-5.3-flash")
+        self.assertEqual(tiers["mid_dev_agent"]["model"], "glm-5.3-flash")
+        self.assertEqual(sources["pro_dev_agent"]["model"], f"{agents.LAYER_USER} preset")
+
+    def test_hand_set_tier_beats_the_preset_in_the_same_scope(self):
+        path = self.write_todo(todo(phase("1.0", task("1.0.1", agent="mid_dev_agent"))))
+        run("agents", "use", "opencode-go")
+        run("agents", "set", "mid_dev_agent", "--model", "glm-5.3-pro")
+        tiers, sources = agents.resolve_tiers(json.loads(Path(path).read_text()), path)
+        self.assertEqual(tiers["mid_dev_agent"]["model"], "glm-5.3-pro")
+        self.assertEqual(sources["mid_dev_agent"]["model"], agents.LAYER_USER)
+        # the tier it did not touch still comes from the preset
+        self.assertEqual(tiers["flagship"]["model"], "qwen3.8-max")
+
+    def test_repo_preset_beats_a_user_tier(self):
+        path = self.write_todo(todo(phase("1.0", task("1.0.1", agent="flagship"))))
+        run("agents", "set", "flagship", "--model", "user-model")
+        run("agents", "use", "opencode-go", "--scope", "repo", "--todo", path)
+        tiers, _ = agents.resolve_tiers(json.loads(Path(path).read_text()), path)
+        self.assertEqual(tiers["flagship"]["model"], "qwen3.8-max")
+
+    def test_todo_preset_beats_the_repo_preset(self):
+        path = self.write_todo(todo(phase("1.0", task("1.0.1", agent="flagship"))))
+        run("agents", "use", "opencode-go", "--scope", "repo", "--todo", path)
+        run("agents", "use", "anthropic", "--scope", "todo", "--todo", path)
+        data = json.loads(Path(path).read_text())
+        self.assertEqual(agents.active_provider(data, path), ("anthropic", agents.LAYER_TODO))
+        tiers, _ = agents.resolve_tiers(data, path)
+        self.assertEqual(tiers["flagship"]["model"],
+                         agents.PROVIDER_PRESETS["anthropic"]["flagship"]["model"])
+
+    def test_default_provider_when_nothing_selects_one(self):
+        self.assertEqual(agents.active_provider(), (agents.DEFAULT_PROVIDER,
+                                                    agents.LAYER_BUILTIN))
+
+    def test_use_rejects_an_unknown_preset(self):
+        code, out = run("agents", "use", "not-a-provider")
+        self.assertEqual(code, 1)
+        self.assertIn("opencode-go", out)
+        self.assertEqual(agents.read_config(agents.user_config_path()), {})
+
+    def test_use_needs_a_provider_or_clear(self):
+        self.assertEqual(run("agents", "use")[0], 1)
+
+    def test_clear_restores_the_default_preset(self):
+        run("agents", "use", "opencode-go")
+        code, _ = run("agents", "use", "--clear")
+        self.assertEqual(code, 0)
+        self.assertEqual(agents.active_provider()[0], agents.DEFAULT_PROVIDER)
+        # clearing twice reports that there was nothing to clear
+        self.assertEqual(run("agents", "use", "--clear")[0], 1)
+
+    def test_providers_json_lists_presets_and_the_active_one(self):
+        run("agents", "use", "opencode-go")
+        _, out = run("agents", "providers", "--json")
+        payload = json.loads(out)
+        self.assertEqual(payload["active"], "opencode-go")
+        self.assertEqual(set(payload["presets"]), set(agents.PROVIDER_PRESETS))
+
+    def test_ready_json_reflects_the_active_preset(self):
+        path = self.write_todo(todo(phase("1.0", task("1.0.1", agent="flagship"))))
+        run("agents", "use", "opencode-go")
+        _, out = run("ready", path, "--json")
+        entry = json.loads(out)["ready"][0]
+        self.assertEqual((entry["provider"], entry["model"]), ("opencode-go", "qwen3.8-max"))
+
+    def test_show_json_reports_the_active_preset(self):
+        path = self.write_todo(todo(phase("1.0", task("1.0.1", agent="mid_dev_agent"))))
+        run("agents", "use", "opencode-go", "--scope", "repo", "--todo", path)
+        _, out = run("agents", "show", "--todo", path, "--json")
+        payload = json.loads(out)
+        self.assertEqual(payload["provider"], "opencode-go")
+        self.assertEqual(payload["provider_source"], agents.LAYER_REPO)
+
     def test_configured_todo_still_validates(self):
         path = self.write_todo(todo(phase("1.0", task("1.0.1", agent="mid_dev_agent"))))
         run("agents", "set", "mid_dev_agent", "--model", "claude-opus-5",
             "--scope", "todo", "--todo", path)
+        run("agents", "use", "opencode-go", "--scope", "todo", "--todo", path)
         self.assertEqual(run("validate", path)[0], 0)
 
 

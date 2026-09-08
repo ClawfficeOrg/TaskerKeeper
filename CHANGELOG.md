@@ -5,6 +5,37 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] — 2026-09-08
+
+### Added
+
+- Provider presets — a whole tier table per provider, so switching providers is
+  one command instead of four.
+
+  | Tier | `anthropic` | `opencode-go` |
+  |------|-------------|---------------|
+  | `basic_dev_agent` | `claude-haiku-4-5` | `glm-5.3-flash` |
+  | `mid_dev_agent` | `claude-sonnet-5` | `glm-5.3-flash` |
+  | `pro_dev_agent` | `claude-opus-5` | `deepseek-v4-pro` |
+  | `flagship` | `claude-fable-5-1` | `qwen3.8-max` |
+
+- `agents use <provider>` points a scope at a preset; `agents use --clear` drops
+  a scope's selection. `agents providers` lists the presets and marks the active
+  one. Both honour `--scope user` (default) / `repo` / `todo`.
+- `agents show` reports the active preset and the layer that selected it, and
+  labels preset-supplied settings as `<scope> preset` in the source column.
+  `--json` gains `provider` and `provider_source`.
+- Schema: `agent_config.provider` selects a preset for one todo file.
+
+### Changed
+
+- Each config layer now contributes twice — the preset it names, then its own
+  `tiers` entries — so `agents set` still wins over `agents use` in the same
+  scope, while a higher scope's preset wins over a lower scope's tier.
+- `agents.read_config()` returns the whole config file; the old tiers-only
+  behavior is `agents.read_tiers()`. `DEFAULT_TIERS` is now
+  `PROVIDER_PRESETS["anthropic"]` and keeps working.
+
 ## [0.3.0] — 2026-09-08
 
 ### Added

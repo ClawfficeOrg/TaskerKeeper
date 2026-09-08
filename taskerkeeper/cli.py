@@ -846,10 +846,54 @@ def cmd_agents(args) -> int:
         print(agents.scope_path(args.scope, todo_path))
         return 0
 
+    if args.agents_command == "providers":
+        current, _ = agents.active_provider(todo_data, todo_path)
+        if args.json:
+            emit_json({"active": current, "presets": agents.PROVIDER_PRESETS})
+            return 0
+        print("Provider presets")
+        print("═" * 62)
+        for name, preset in agents.PROVIDER_PRESETS.items():
+            marker = "  (active)" if name == current else ""
+            print(f"\n{name}{marker}")
+            for tier in sorted(preset):
+                print(f"  {tier:<18} {preset[tier].get('model', '-')}")
+        print("\nSwitch with: taskerkeeper agents use <provider>")
+        return 0
+
+    if args.agents_command == "use":
+        if not args.clear and not args.provider:
+            print("Error: name a provider, or pass --clear to drop the current one")
+            return 1
+        if args.clear:
+            path, changed = agents.clear_provider(args.scope, todo_path)
+            if not changed:
+                print(f"Nothing to clear: the {args.scope} scope names no provider")
+                return 1
+            print(f"✓ Cleared the provider preset from the {args.scope} scope")
+            print(f"  {path}")
+            return 0
+        if args.provider not in agents.PROVIDER_PRESETS:
+            known = ", ".join(agents.PROVIDER_PRESETS)
+            print(f"Error: no preset named {args.provider!r}. Known presets: {known}")
+            print("Set individual tiers instead: taskerkeeper agents set <tier> "
+                  "--provider ... --model ...")
+            return 1
+        path = agents.set_provider(args.scope, args.provider, todo_path)
+        preset = agents.PROVIDER_PRESETS[args.provider]
+        print(f"✓ {args.scope} scope now uses the {args.provider} preset")
+        for tier in sorted(preset):
+            print(f"    {tier:<18} {preset[tier].get('model', '-')}")
+        print(f"  {path}")
+        return 0
+
     if args.agents_command == "show":
         tiers, sources = agents.resolve_tiers(todo_data, todo_path)
+        provider, provider_source = agents.active_provider(todo_data, todo_path)
         if args.json:
             emit_json({
+                "provider": provider,
+                "provider_source": provider_source,
                 "tiers": {t: dict(cfg, _sources=sources.get(t, {})) for t, cfg in tiers.items()},
                 "overrides": [
                     {"id": task["id"], **{k: task[k] for k in ("provider", "model") if k in task}}
@@ -859,6 +903,8 @@ def cmd_agents(args) -> int:
             })
             return 0
 
+        print(f"Provider preset: {provider} (from {provider_source})")
+        print()
         print("Agent tiers")
         print("═" * 62)
         print(f"  {'tier':<18} {'provider':<12} {'model':<22} source")
@@ -1068,6 +1114,17 @@ def build_agents_parser(sub) -> None:
     show = inner.add_parser("show", help="Resolved tiers and where each setting came from")
     show.add_argument("--json", action="store_true", help="Machine-readable output")
     add_todo(show, "Include this todo file as the highest-priority layer")
+
+    providers = inner.add_parser("providers", help="List the built-in provider presets")
+    providers.add_argument("--json", action="store_true", help="Machine-readable output")
+    add_todo(providers, "Todo file, to report which preset is active for it")
+
+    use = inner.add_parser("use", help="Point a scope at a provider preset")
+    use.add_argument("provider", nargs="?", help=f"One of: {', '.join(agents.PROVIDER_PRESETS)}")
+    use.add_argument("--clear", action="store_true", help="Drop this scope's preset instead")
+    use.add_argument("--scope", choices=agents.SCOPES, default=agents.LAYER_USER,
+                     help="Which config layer to edit (default: user)")
+    add_todo(use, "Todo file to edit, required for --scope todo")
 
     for name, help_text in (("set", "Set provider/model for a tier"),
                             ("unset", "Remove a tier, or keys from it")):

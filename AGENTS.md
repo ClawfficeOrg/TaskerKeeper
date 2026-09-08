@@ -69,9 +69,16 @@ Model IDs in `DEFAULT_TIERS` are data, not endorsements; keep them current but
 do not build logic around specific ones.
 
 **Config layering is last-wins, and the order is fixed:** built-in, user, repo,
-todo file, then a task's own `provider`/`model`. `agents show` reports the
+todo file, then a task's own `provider`/`model`. Each config layer contributes
+twice — the preset it names, then its own per-tier settings — so an
+`agents set` beats an `agents use` in the same scope. `agents show` reports the
 source of every resolved setting; keep that attribution working when you touch
-`resolve_tiers`.
+`resolve_tiers` or `layers`.
+
+**Every provider preset covers every tier.** `PROVIDER_PRESETS` is keyed by
+provider, and each preset must define all four tiers in the schema's `agent`
+enum, with its own name as the `provider` on each. A test enforces both. Adding
+a provider is a new entry there and a row in the README table — no code.
 
 **Validation has two layers.** JSON Schema checks shape; `semantic_errors`
 checks meaning — duplicate IDs, dangling prerequisites, cycles, task IDs that
