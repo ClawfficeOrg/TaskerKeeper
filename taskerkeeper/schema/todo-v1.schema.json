@@ -147,6 +147,14 @@
           "enum": ["basic_dev_agent", "mid_dev_agent", "pro_dev_agent", "flagship"],
           "description": "Which agent tier handles this task"
         },
+        "provider": {
+          "type": "string",
+          "description": "Overrides the provider its agent tier resolves to. Rarely needed — configure the tier instead."
+        },
+        "model": {
+          "type": "string",
+          "description": "Overrides the model its agent tier resolves to, for a task that needs a specific one."
+        },
         "moved_to": {
           "type": "string",
           "description": "If status='moved', the new task ID"
@@ -167,7 +175,7 @@
     },
     "agent_config": {
       "type": "object",
-      "description": "Agent tier configuration for ralph",
+      "description": "Agent tier configuration for ralph. Provider/model settings here are the highest-priority layer, above the repo config (.taskerkeeper/agents.json), the user config, and the built-in defaults. Pin a model here only when this milestone genuinely needs one.",
       "properties": {
         "tiers": {
           "type": "object",
@@ -176,29 +184,41 @@
               "type": "object",
               "properties": {
                 "complexity_range": { "type": "string" },
-                "duration_minutes": { "type": "string" }
-              }
+                "duration_minutes": { "type": "string" },
+                "provider": { "type": "string", "description": "Provider that runs this tier, e.g. 'anthropic'" },
+                "model": { "type": "string", "description": "Model ID this tier resolves to, e.g. 'claude-opus-5'" }
+              },
+              "additionalProperties": true
             },
             "mid_dev_agent": {
               "type": "object",
               "properties": {
                 "complexity_range": { "type": "string" },
-                "duration_minutes": { "type": "string" }
-              }
+                "duration_minutes": { "type": "string" },
+                "provider": { "type": "string", "description": "Provider that runs this tier, e.g. 'anthropic'" },
+                "model": { "type": "string", "description": "Model ID this tier resolves to, e.g. 'claude-opus-5'" }
+              },
+              "additionalProperties": true
             },
             "pro_dev_agent": {
               "type": "object",
               "properties": {
                 "complexity_range": { "type": "string" },
-                "duration_minutes": { "type": "string" }
-              }
+                "duration_minutes": { "type": "string" },
+                "provider": { "type": "string", "description": "Provider that runs this tier, e.g. 'anthropic'" },
+                "model": { "type": "string", "description": "Model ID this tier resolves to, e.g. 'claude-opus-5'" }
+              },
+              "additionalProperties": true
             },
             "flagship": {
               "type": "object",
               "properties": {
                 "complexity_range": { "type": "string" },
-                "duration_minutes": { "type": "string" }
-              }
+                "duration_minutes": { "type": "string" },
+                "provider": { "type": "string", "description": "Provider that runs this tier, e.g. 'anthropic'" },
+                "model": { "type": "string", "description": "Model ID this tier resolves to, e.g. 'claude-opus-5'" }
+              },
+              "additionalProperties": true
             }
           }
         },

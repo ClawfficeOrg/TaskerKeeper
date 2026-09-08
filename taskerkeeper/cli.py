@@ -27,12 +27,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
-import tempfile
-import time
 from datetime import datetime, timezone
 from pathlib import Path
+
+from taskerkeeper import agents
+from taskerkeeper.jsonio import FileLock, LockTimeout, read_json, write_json
 
 for _stream in (sys.stdout, sys.stderr):
     try:
@@ -95,70 +95,18 @@ def utc_now() -> str:
 
 
 # ---------------------------------------------------------------------------
-# File IO — atomic writes plus a lock, so concurrent agents cannot silently
-# overwrite each other.
+# File IO — see taskerkeeper/jsonio.py for the lock and the atomic write.
 # ---------------------------------------------------------------------------
-
-
-class LockTimeout(RuntimeError):
-    """Another process holds the lock and did not release it in time."""
-
-
-class FileLock:
-    """Cooperative lock on <todo>.lock via exclusive create."""
-
-    def __init__(self, target: str, timeout: float = 10.0, poll: float = 0.05):
-        self.path = Path(str(target) + ".lock")
-        self.timeout = timeout
-        self.poll = poll
-        self._fd: int | None = None
-
-    def __enter__(self) -> "FileLock":
-        deadline = time.monotonic() + self.timeout
-        while True:
-            try:
-                self._fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-                os.write(self._fd, str(os.getpid()).encode("ascii"))
-                return self
-            except FileExistsError:
-                if time.monotonic() >= deadline:
-                    raise LockTimeout(
-                        f"could not acquire {self.path} within {self.timeout:g}s; "
-                        f"delete it if no other agent is running"
-                    )
-                time.sleep(self.poll)
-
-    def __exit__(self, *exc_info) -> None:
-        if self._fd is not None:
-            os.close(self._fd)
-            self._fd = None
-        try:
-            self.path.unlink()
-        except FileNotFoundError:
-            pass
 
 
 def load_todo(path: str) -> dict:
     """Load and parse a todo JSON file."""
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
+    return read_json(path)
 
 
 def save_todo(data: dict, path: str) -> None:
-    """Write the todo file atomically: temp file in the same dir, then rename."""
-    target = Path(path)
-    fd, tmp = tempfile.mkstemp(dir=str(target.parent), prefix=target.name, suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-            f.write("\n")
-        os.replace(tmp, target)
-    except BaseException:
-        try:
-            os.unlink(tmp)
-        except FileNotFoundError:
-            pass
-        raise
+    """Write the todo file atomically."""
+    write_json(data, path)
 
 
 # ---------------------------------------------------------------------------
@@ -501,17 +449,28 @@ def add_task(data: dict, phase_id: str, title: str, **fields) -> dict | None:
 # ---------------------------------------------------------------------------
 
 
-def task_summary(task: dict) -> dict:
-    """The task fields an agent actually consumes, for --json output."""
+def task_summary(task: dict, tiers: dict[str, dict] | None = None) -> dict:
+    """The task fields an agent actually consumes, for --json output.
+
+    With `tiers`, the resolved provider/model are folded in so a supervisor can
+    dispatch straight from this output.
+    """
     keys = ("id", "title", "status", "goal", "touches", "success", "tests",
             "prerequisites", "parallel_group", "complexity", "agent")
-    return {k: task[k] for k in keys if k in task}
+    summary = {k: task[k] for k in keys if k in task}
+    if tiers is not None:
+        summary.update(agents.resolve_task(task, tiers))
+    return summary
 
 
-def print_task(task: dict, header: str) -> None:
+def print_task(task: dict, header: str, tiers: dict[str, dict] | None = None) -> None:
     print(f"{header}: {task['id']} — {task.get('title', '')}")
     print(f"\nGoal:\n{task.get('goal', 'No goal specified')}")
     print(f"\nComplexity: {task.get('complexity', 'unset')} | Agent: {task.get('agent', 'unset')}")
+    if tiers is not None:
+        resolved = agents.resolve_task(task, tiers)
+        if resolved.get("model"):
+            print(f"Model: {resolved.get('provider', '?')} / {resolved['model']}")
     if task.get("parallel_group"):
         print(f"Parallel group: {task['parallel_group']}")
     if task.get("touches"):
@@ -701,8 +660,13 @@ def emit_json(payload) -> None:
     print(json.dumps(payload, indent=2, ensure_ascii=False))
 
 
+def resolved_tiers(data: dict, todo_path: str) -> dict[str, dict]:
+    return agents.resolve_tiers(data, todo_path)[0]
+
+
 def cmd_next(args) -> int:
     data = load_todo(args.todo_file)
+    tiers = resolved_tiers(data, args.todo_file)
     task = find_next(data, resume=not args.no_resume)
     if task is None:
         if args.json:
@@ -712,21 +676,23 @@ def cmd_next(args) -> int:
             print_blocked(data)
         return 1
     if args.json:
-        emit_json({"task": task_summary(task), "resumed": task.get("status") == "in_progress"})
+        emit_json({"task": task_summary(task, tiers),
+                   "resumed": task.get("status") == "in_progress"})
     else:
         header = "Resume task" if task.get("status") == "in_progress" else "Next task"
-        print_task(task, header)
+        print_task(task, header, tiers)
     return 0
 
 
 def cmd_ready(args) -> int:
     data = load_todo(args.todo_file)
+    tiers = resolved_tiers(data, args.todo_file)
     ready = ready_tasks(data)
     running = in_progress_tasks(data)
     if args.json:
         emit_json({
-            "ready": [task_summary(t) for t in ready],
-            "in_progress": [task_summary(t) for t in running],
+            "ready": [task_summary(t, tiers) for t in ready],
+            "in_progress": [task_summary(t, tiers) for t in running],
             "blocked": blocked_report(data),
         })
         return 0 if ready or running else 1
@@ -737,8 +703,9 @@ def cmd_ready(args) -> int:
         print("  (none)")
     for task in ready:
         group = f" [group: {task['parallel_group']}]" if task.get("parallel_group") else ""
+        model = agents.resolve_task(task, tiers).get("model", "unset")
         print(f"  {task['id']} — {task.get('title', '')} "
-              f"[{task.get('agent', 'unset')}]{group}")
+              f"[{task.get('agent', 'unset')} → {model}]{group}")
     if running:
         print("\nAlready claimed (in_progress):")
         for task in running:
@@ -859,14 +826,99 @@ def cmd_list(args) -> int:
 def cmd_parallel(args) -> int:
     data = load_todo(args.todo_file)
     if args.json:
+        tiers = resolved_tiers(data, args.todo_file)
         ready_ids = {t["id"] for t in ready_tasks(data)}
         emit_json({
-            name: [dict(task_summary(t), ready=t["id"] in ready_ids) for t in tasks]
+            name: [dict(task_summary(t, tiers), ready=t["id"] in ready_ids) for t in tasks]
             for name, tasks in parallel_groups(data).items()
         })
     else:
         show_parallel(data)
     return 0
+
+
+def cmd_agents(args) -> int:
+    """Show or edit the tier → provider/model mapping."""
+    todo_path = getattr(args, "todo", None)
+    todo_data = load_todo(todo_path) if todo_path else None
+
+    if args.agents_command == "path":
+        print(agents.scope_path(args.scope, todo_path))
+        return 0
+
+    if args.agents_command == "show":
+        tiers, sources = agents.resolve_tiers(todo_data, todo_path)
+        if args.json:
+            emit_json({
+                "tiers": {t: dict(cfg, _sources=sources.get(t, {})) for t, cfg in tiers.items()},
+                "overrides": [
+                    {"id": task["id"], **{k: task[k] for k in ("provider", "model") if k in task}}
+                    for task in (all_tasks(todo_data) if todo_data else [])
+                    if task.get("provider") or task.get("model")
+                ],
+            })
+            return 0
+
+        print("Agent tiers")
+        print("═" * 62)
+        print(f"  {'tier':<18} {'provider':<12} {'model':<22} source")
+        for tier in sorted(tiers):
+            config = tiers[tier]
+            origin = sources.get(tier, {})
+            print(f"  {tier:<18} {config.get('provider', '-'):<12} "
+                  f"{config.get('model', '-'):<22} {origin.get('model', '-')}")
+            extras = {k: v for k, v in config.items() if k not in ("provider", "model")}
+            for key, value in sorted(extras.items()):
+                print(f"      {key} = {value} ({origin.get(key, '-')})")
+
+        if todo_data:
+            overrides = [t for t in all_tasks(todo_data) if t.get("provider") or t.get("model")]
+            if overrides:
+                print("\nPer-task overrides:")
+                for task in overrides:
+                    resolved = agents.resolve_task(task, tiers)
+                    print(f"  {task['id']} → {resolved.get('provider', '?')} / "
+                          f"{resolved.get('model', '?')}")
+        print(f"\nConfig files (last wins):")
+        print(f"  user  {agents.user_config_path()}")
+        print(f"  repo  {agents.repo_config_path(todo_path)}")
+        if todo_path:
+            print(f"  todo  {todo_path}")
+        return 0
+
+    if args.agents_command == "set":
+        settings = {}
+        if args.provider:
+            settings["provider"] = args.provider
+        if args.model:
+            settings["model"] = args.model
+        for pair in args.option or []:
+            key, _, value = pair.partition("=")
+            if not _:
+                print(f"Error: --option expects key=value, got {pair!r}")
+                return 1
+            settings[key] = value
+        if not settings:
+            print("Error: nothing to set. Pass --provider, --model, or --option key=value")
+            return 1
+        path = agents.set_tier(args.scope, args.tier, settings, todo_path)
+        pairs = ", ".join(f"{k}={v}" for k, v in settings.items())
+        print(f"✓ {args.tier}: {pairs} ({args.scope} scope)")
+        print(f"  {path}")
+        return 0
+
+    if args.agents_command == "unset":
+        path, changed = agents.unset_tier(args.scope, args.tier, args.key, todo_path)
+        if not changed:
+            print(f"Nothing to remove: {args.tier} is not set in the {args.scope} scope")
+            return 1
+        target = f"{args.tier} {', '.join(args.key)}" if args.key else args.tier
+        print(f"✓ Removed {target} from the {args.scope} scope")
+        print(f"  {path}")
+        return 0
+
+    print(f"Error: unknown agents command {args.agents_command}")
+    return 1
 
 
 def cmd_deps(args) -> int:
@@ -1000,7 +1052,42 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-o", "--output", help="Write to this file instead of stdout")
     p.set_defaults(func=cmd_convert)
 
+    build_agents_parser(sub)
     return parser
+
+
+def build_agents_parser(sub) -> None:
+    """`taskerkeeper agents ...` — the provider/model mapping per agent tier."""
+    p = sub.add_parser("agents", help="Configure which provider/model runs each tier")
+    p.set_defaults(func=cmd_agents)
+    inner = p.add_subparsers(dest="agents_command", required=True)
+
+    def add_todo(cmd, help_text):
+        cmd.add_argument("--todo", metavar="FILE", help=help_text)
+
+    show = inner.add_parser("show", help="Resolved tiers and where each setting came from")
+    show.add_argument("--json", action="store_true", help="Machine-readable output")
+    add_todo(show, "Include this todo file as the highest-priority layer")
+
+    for name, help_text in (("set", "Set provider/model for a tier"),
+                            ("unset", "Remove a tier, or keys from it")):
+        cmd = inner.add_parser(name, help=help_text)
+        cmd.add_argument("tier", help="Agent tier, e.g. mid_dev_agent")
+        cmd.add_argument("--scope", choices=agents.SCOPES, default=agents.LAYER_USER,
+                         help="Which config layer to edit (default: user)")
+        add_todo(cmd, "Todo file to edit, required for --scope todo")
+        if name == "set":
+            cmd.add_argument("--provider", help="Provider name, e.g. anthropic")
+            cmd.add_argument("--model", help="Model ID, e.g. claude-opus-5")
+            cmd.add_argument("--option", action="append", metavar="KEY=VALUE",
+                             help="Any other setting to pass through (repeatable)")
+        else:
+            cmd.add_argument("--key", action="append",
+                             help="Remove only this key (repeatable). Omit to remove the tier")
+
+    path = inner.add_parser("path", help="Print the config file for a scope")
+    path.add_argument("--scope", choices=agents.SCOPES, default=agents.LAYER_USER)
+    add_todo(path, "Todo file, required for --scope todo")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1011,9 +1098,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Error: {e.filename} not found")
         return 1
     except json.JSONDecodeError as e:
-        print(f"✗ Invalid JSON in {args.todo_file}: {e}")
+        target = getattr(args, "todo_file", None) or getattr(args, "todo", None) or "input"
+        print(f"✗ Invalid JSON in {target}: {e}")
         return 1
-    except LockTimeout as e:
+    except (LockTimeout, ValueError) as e:
         print(f"Error: {e}")
         return 1
     if argv is None:

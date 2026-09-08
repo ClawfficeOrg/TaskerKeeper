@@ -17,6 +17,8 @@ Every read command has a `--json` mode; do not break it.
 
 ```
 taskerkeeper/cli.py                    All CLI logic. One file on purpose.
+taskerkeeper/agents.py                 Tier -> provider/model resolution
+taskerkeeper/jsonio.py                 Atomic writes and the file lock
 taskerkeeper/__main__.py               python -m taskerkeeper
 taskerkeeper/schema/todo-v1.schema.json  JSON Schema (draft 2020-12), package data
 scripts/taskerkeeper.py                Backward-compatible shim, no logic
@@ -30,7 +32,8 @@ docs/                                  philosophy, integration-guide, memory, no
 ## Commands you will need
 
 ```bash
-python -m unittest discover -s tests -v     # the whole suite, ~0.3s
+python -m unittest discover -s tests -v     # the whole suite, under a second
+taskerkeeper agents show                    # resolved tier -> provider/model
 taskerkeeper validate examples/simple-project.json
 pip install .                               # non-editable install must keep working
 ```
@@ -55,9 +58,20 @@ Changing any of this changes what every downstream agent does — update
 `ready_tasks`, `blockers_for`, the tests, and the README table together.
 
 **Writes are locked and atomic.** Mutating commands go through
-`with FileLock(path):`, reload inside the lock, and save via `save_todo`, which
-writes a temp file and renames. Parallel agents are the entire point; a
-plain `open(path, "w")` reintroduces lost updates.
+`with FileLock(path):`, reload inside the lock, and save via `write_json`, which
+writes a temp file and renames. Both live in `taskerkeeper/jsonio.py`. Parallel
+agents are the entire point; a plain `open(path, "w")` reintroduces lost updates.
+
+**TaskerKeeper never calls a provider.** `agents.py` resolves a tier to a
+provider/model string and hands it to whoever is dispatching. Do not add an SDK
+dependency, an API key lookup, or a network call — the supervisor owns that.
+Model IDs in `DEFAULT_TIERS` are data, not endorsements; keep them current but
+do not build logic around specific ones.
+
+**Config layering is last-wins, and the order is fixed:** built-in, user, repo,
+todo file, then a task's own `provider`/`model`. `agents show` reports the
+source of every resolved setting; keep that attribution working when you touch
+`resolve_tiers`.
 
 **Validation has two layers.** JSON Schema checks shape; `semantic_errors`
 checks meaning — duplicate IDs, dangling prerequisites, cycles, task IDs that
@@ -84,6 +98,8 @@ in the same change.
 
 - Python ≥ 3.10, `from __future__ import annotations`, 4-space indent, type
   hints on function signatures.
+- Tests that touch agent config must set `TASKERKEEPER_CONFIG_HOME` to a temp
+  directory. A test that reads the developer's real `~/.config` is a bug.
 - The only runtime dependency is `jsonschema`. Do not add more without a reason
   that survives "could the stdlib do this".
 - Comments explain *why*, not *what*. The existing ones flag the bug a piece of

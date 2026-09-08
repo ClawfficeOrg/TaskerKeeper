@@ -8,12 +8,14 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest import mock
 
-from taskerkeeper import cli
+from taskerkeeper import agents, cli
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXAMPLES = REPO_ROOT / "examples"
@@ -305,6 +307,149 @@ class OutputTest(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertIn("## Phase 1.0", out)
             self.assertIn("- [x] **1.0.1**", out)
+
+
+class AgentConfigTest(unittest.TestCase):
+    """Tier -> provider/model resolution across the config layers."""
+
+    def setUp(self):
+        self._tmp = TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        self.user_dir = self.root / "userconf"
+        self.repo_dir = self.root / "repo"
+        (self.repo_dir / ".git").mkdir(parents=True)
+        # Keep the real home directory and any real repo config out of the test.
+        patch = mock.patch.dict(os.environ, {"TASKERKEEPER_CONFIG_HOME": str(self.user_dir)})
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def write_todo(self, data: dict) -> str:
+        path = self.repo_dir / "todo.json"
+        path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        return str(path)
+
+    def test_defaults_cover_every_tier_the_schema_allows(self):
+        schema = json.loads(cli.SCHEMA_PATH.read_text(encoding="utf-8"))
+        allowed = set(schema["$defs"]["task"]["properties"]["agent"]["enum"])
+        self.assertEqual(set(agents.DEFAULT_TIERS), allowed)
+        for tier, config in agents.DEFAULT_TIERS.items():
+            with self.subTest(tier=tier):
+                self.assertTrue(config["provider"] and config["model"])
+
+    def test_user_config_overrides_builtin(self):
+        path = self.write_todo(todo(phase("1.0", task("1.0.1", agent="mid_dev_agent"))))
+        run("agents", "set", "mid_dev_agent", "--model", "claude-opus-5")
+        tiers, sources = agents.resolve_tiers(json.loads(Path(path).read_text()), path)
+        self.assertEqual(tiers["mid_dev_agent"]["model"], "claude-opus-5")
+        self.assertEqual(sources["mid_dev_agent"]["model"], agents.LAYER_USER)
+        # provider was not set at the user layer, so it still comes from defaults
+        self.assertEqual(sources["mid_dev_agent"]["provider"], agents.LAYER_BUILTIN)
+
+    def test_repo_config_overrides_user(self):
+        path = self.write_todo(todo(phase("1.0", task("1.0.1", agent="mid_dev_agent"))))
+        run("agents", "set", "mid_dev_agent", "--model", "user-model")
+        run("agents", "set", "mid_dev_agent", "--model", "repo-model",
+            "--scope", "repo", "--todo", path)
+        tiers, sources = agents.resolve_tiers(json.loads(Path(path).read_text()), path)
+        self.assertEqual(tiers["mid_dev_agent"]["model"], "repo-model")
+        self.assertEqual(sources["mid_dev_agent"]["model"], agents.LAYER_REPO)
+
+    def test_todo_config_overrides_repo(self):
+        path = self.write_todo(todo(phase("1.0", task("1.0.1", agent="mid_dev_agent"))))
+        run("agents", "set", "mid_dev_agent", "--model", "repo-model",
+            "--scope", "repo", "--todo", path)
+        run("agents", "set", "mid_dev_agent", "--model", "todo-model",
+            "--scope", "todo", "--todo", path)
+        tiers, sources = agents.resolve_tiers(json.loads(Path(path).read_text()), path)
+        self.assertEqual(tiers["mid_dev_agent"]["model"], "todo-model")
+        self.assertEqual(sources["mid_dev_agent"]["model"], agents.LAYER_TODO)
+
+    def test_task_override_beats_every_layer(self):
+        tiers = {"mid_dev_agent": {"provider": "anthropic", "model": "claude-sonnet-5"}}
+        pinned = task("1.0.1", agent="mid_dev_agent", model="claude-opus-5")
+        self.assertEqual(agents.resolve_task(pinned, tiers)["model"], "claude-opus-5")
+        # and the provider it did not override still comes from the tier
+        self.assertEqual(agents.resolve_task(pinned, tiers)["provider"], "anthropic")
+
+    def test_unknown_tier_resolves_to_nothing(self):
+        self.assertEqual(agents.resolve_task(task("1.0.1", agent="nope"), {}), {})
+
+    def test_arbitrary_settings_pass_through(self):
+        path = self.write_todo(todo(phase("1.0", task("1.0.1", agent="pro_dev_agent"))))
+        run("agents", "set", "pro_dev_agent", "--option", "effort=xhigh")
+        tiers, _ = agents.resolve_tiers(json.loads(Path(path).read_text()), path)
+        self.assertEqual(tiers["pro_dev_agent"]["effort"], "xhigh")
+
+    def test_set_rejects_malformed_option(self):
+        code, out = run("agents", "set", "pro_dev_agent", "--option", "effort")
+        self.assertEqual(code, 1)
+        self.assertIn("key=value", out)
+
+    def test_set_with_no_settings_is_an_error(self):
+        self.assertEqual(run("agents", "set", "pro_dev_agent")[0], 1)
+
+    def test_unset_removes_a_key_then_the_tier(self):
+        run("agents", "set", "mid_dev_agent", "--model", "m", "--provider", "p")
+        run("agents", "unset", "mid_dev_agent", "--key", "model")
+        stored = agents.read_config(agents.user_config_path())
+        self.assertEqual(stored["mid_dev_agent"], {"provider": "p"})
+        run("agents", "unset", "mid_dev_agent")
+        self.assertNotIn("mid_dev_agent", agents.read_config(agents.user_config_path()))
+
+    def test_unset_reports_when_there_is_nothing_to_remove(self):
+        self.assertEqual(run("agents", "unset", "mid_dev_agent")[0], 1)
+
+    def test_todo_scope_needs_a_todo_file(self):
+        code, out = run("agents", "set", "mid_dev_agent", "--model", "m", "--scope", "todo")
+        self.assertEqual(code, 1)
+        self.assertIn("needs a todo file", out)
+
+    def test_missing_config_file_is_not_an_error(self):
+        self.assertEqual(agents.read_config(self.root / "nope" / "agents.json"), {})
+
+    def test_ready_json_carries_the_resolved_model(self):
+        path = self.write_todo(todo(phase("1.0",
+                                          task("1.0.1", agent="mid_dev_agent"),
+                                          task("1.0.2", agent="pro_dev_agent",
+                                               model="pinned-model"))))
+        run("agents", "set", "mid_dev_agent", "--model", "tier-model")
+        _, out = run("ready", path, "--json")
+        resolved = {t["id"]: t["model"] for t in json.loads(out)["ready"]}
+        self.assertEqual(resolved["1.0.1"], "tier-model")
+        self.assertEqual(resolved["1.0.2"], "pinned-model")
+
+    def test_next_json_carries_the_resolved_model(self):
+        path = self.write_todo(todo(phase("1.0", task("1.0.1", agent="basic_dev_agent"))))
+        _, out = run("next", path, "--json")
+        self.assertEqual(json.loads(out)["task"]["provider"], "anthropic")
+        self.assertEqual(json.loads(out)["task"]["model"],
+                         agents.DEFAULT_TIERS["basic_dev_agent"]["model"])
+
+    def test_show_json_reports_sources_and_overrides(self):
+        path = self.write_todo(todo(phase("1.0", task("1.0.1", agent="mid_dev_agent",
+                                                      model="pinned"))))
+        _, out = run("agents", "show", "--todo", path, "--json")
+        payload = json.loads(out)
+        self.assertEqual(payload["tiers"]["mid_dev_agent"]["_sources"]["model"],
+                         agents.LAYER_BUILTIN)
+        self.assertEqual(payload["overrides"], [{"id": "1.0.1", "model": "pinned"}])
+
+    def test_path_prints_the_scope_file(self):
+        _, out = run("agents", "path", "--scope", "user")
+        self.assertEqual(out.strip(), str(agents.user_config_path()))
+
+    def test_repo_path_lands_at_the_git_root(self):
+        nested = self.repo_dir / "docs" / "sub"
+        nested.mkdir(parents=True)
+        found = agents.repo_config_path(nested / "todo.json")
+        self.assertEqual(found, self.repo_dir / ".taskerkeeper" / "agents.json")
+
+    def test_configured_todo_still_validates(self):
+        path = self.write_todo(todo(phase("1.0", task("1.0.1", agent="mid_dev_agent"))))
+        run("agents", "set", "mid_dev_agent", "--model", "claude-opus-5",
+            "--scope", "todo", "--todo", path)
+        self.assertEqual(run("validate", path)[0], 0)
 
 
 class ConcurrencyTest(unittest.TestCase):

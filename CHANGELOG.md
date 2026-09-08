@@ -5,6 +5,40 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] — 2026-09-08
+
+### Added
+
+- `agents` command group — configure which provider and model handles each
+  agent tier, so `task.agent` resolves to something a supervisor can dispatch.
+  - `agents show` prints the resolved mapping and the layer each setting came
+    from; `--todo <file>` includes the todo file's layer and lists per-task
+    overrides. `--json` for machine-readable output.
+  - `agents set <tier>` writes `--provider` / `--model`, plus any other setting
+    via `--option key=value`, into a `--scope` of `user` (default), `repo`, or
+    `todo`.
+  - `agents unset <tier>` removes a tier, or `--key` one setting, from a scope.
+  - `agents path --scope <scope>` prints the file that scope writes to.
+- Layered configuration, last wins: built-in defaults →
+  `~/.config/taskerkeeper/agents.json` (under `%APPDATA%` on Windows) →
+  `<repo>/.taskerkeeper/agents.json` → the todo file's `agent_config.tiers` →
+  a task's own `provider` / `model`. `TASKERKEEPER_CONFIG_HOME` relocates the
+  user config.
+- `next`, `ready`, and `parallel` now carry the resolved `provider` and `model`
+  on every task in `--json`, and `next` prints the model in its human output —
+  dispatch needs one call, not two.
+- Per-task `provider` / `model` in the schema, for the task that genuinely needs
+  a specific model. Configure the tier when a whole class of work should move.
+- `taskerkeeper/agents.py` and `taskerkeeper/jsonio.py`; the lock and the atomic
+  write moved into the latter so config writes get the same guarantees as todo
+  writes. `cli.FileLock`, `cli.load_todo`, and `cli.save_todo` still work.
+
+### Changed
+
+- Schema: `agent_config.tiers` entries accept `provider`, `model`, and any
+  additional keys; `agent_config` documents where it sits in the layering.
+  `agent_config.tiers` is no longer schema-only — the CLI reads it.
+
 ## [0.2.0] — 2026-09-08
 
 Closes the findings of the v0.1 code review in `docs/notes.md`.

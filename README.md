@@ -46,11 +46,51 @@ Without installing, `python -m taskerkeeper <command>` and `python scripts/taske
 | `deps <file> <id>` | What a task waits on and what it unblocks |
 | `add <file> --phase <id> --title <t>` | Append a task. Accepts `--goal`, `--prereq` (repeatable), `--complexity`, `--agent`, `--parallel-group`, `--touches`, `--success` |
 | `convert <file>` | Render the JSON as markdown for human review (one-way) |
+| `agents show` | The resolved provider/model for every agent tier, and where each setting came from |
+| `agents set <tier>` | Point a tier at a provider/model. `--scope user` (default), `repo`, or `todo` |
+| `agents unset <tier>` | Drop a tier, or `--key` one setting, from a scope |
+| `agents path` | Print the config file a scope writes to |
 
 Every read command takes `--json`, so agents parse structured output instead of scraping box-drawing characters:
 
 ```bash
 taskerkeeper ready docs/todo-v7.json --json
+```
+
+## Which Model Runs a Task
+
+A task names an agent tier (`basic_dev_agent`, `mid_dev_agent`, `pro_dev_agent`,
+`flagship`). TaskerKeeper turns that tier into a concrete provider and model, so
+a supervisor reading `ready --json` can dispatch without a second lookup.
+
+```bash
+taskerkeeper agents show
+taskerkeeper agents set mid_dev_agent --provider anthropic --model claude-sonnet-5
+taskerkeeper agents set pro_dev_agent --model claude-opus-5 --scope repo
+```
+
+Configuration is layered, last wins:
+
+| Layer | Where | For |
+|-------|-------|-----|
+| built-in | `taskerkeeper/agents.py` | Sensible defaults so it works unconfigured |
+| user | `~/.config/taskerkeeper/agents.json` (under `%APPDATA%` on Windows) | Your machine's normal choice |
+| repo | `<repo>/.taskerkeeper/agents.json` | A project pinning something different |
+| todo | the todo file's `agent_config.tiers` | One milestone pinning something different |
+| task | a task's own `provider` / `model` | The one task that needs a specific model |
+
+`agents show` prints the source of every resolved setting, so you can see which
+layer won. Set `TASKERKEEPER_CONFIG_HOME` to relocate the user config.
+
+Any other key you set (`--option effort=xhigh`) passes through untouched into
+the resolved output — TaskerKeeper does not call any provider itself, it only
+tells your supervisor what to call.
+
+Resolved values appear on every task in `--json` output:
+
+```json
+{ "id": "7.0.1", "agent": "mid_dev_agent",
+  "provider": "anthropic", "model": "claude-sonnet-5" }
 ```
 
 ## Scheduling Rules
@@ -121,6 +161,8 @@ todo-v1.0.md                     →    v1.0.0 (first stable)
 TaskerKeeper/
 ├── taskerkeeper/
 │   ├── cli.py                  # All CLI logic
+│   ├── agents.py               # Tier → provider/model resolution
+│   ├── jsonio.py               # Atomic writes + the file lock
 │   ├── __main__.py             # python -m taskerkeeper
 │   └── schema/
 │       └── todo-v1.schema.json # JSON Schema, shipped as package data

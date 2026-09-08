@@ -1,7 +1,7 @@
 ---
 name: taskerkeeper
 description: "Use when creating, reading, or managing TaskerKeeper JSON todo files. Structured task management with dependency DAG, parallel groups, and semver mapping."
-version: 2.0.0
+version: 2.1.0
 author: KITT (ClawfficeOrg)
 license: MIT
 metadata:
@@ -73,7 +73,8 @@ Each task has:
 - **`status`**: `pending`, `in_progress`, `done`, `cancelled`, `moved`
 - **`prerequisites`**: Task IDs that must be `done` before this can start. THIS IS THE KEY FEATURE.
 - **`parallel_group`**: Tasks in the same group CAN run concurrently when all deps are met.
-- **`agent`**: Which agent tier handles this: `basic_dev_agent`, `mid_dev_agent`, `pro_dev_agent`, `flagship`
+- **`agent`**: Which agent tier handles this: `basic_dev_agent`, `mid_dev_agent`, `pro_dev_agent`, `flagship`. The tier resolves to a concrete provider and model — run `taskerkeeper agents show` to see the mapping, and read `provider`/`model` off `ready --json` to dispatch.
+- **`provider`** / **`model`**: Optional per-task override, for the one task that needs a specific model. Configure the tier instead when a whole class of work should move.
 
 ## Reading Tasks
 
@@ -203,7 +204,32 @@ taskerkeeper add docs/todo-v7.json --phase 7.2 --title "New feature"   --goal ".
 
 # Render for human review (one-way)
 taskerkeeper convert docs/todo-v7.json -o docs/todo-v7.md
+
+# Which provider/model runs each tier, and where each setting came from
+taskerkeeper agents show --todo docs/todo-v7.json
+taskerkeeper agents set mid_dev_agent --provider anthropic --model claude-sonnet-5
+taskerkeeper agents set pro_dev_agent --model claude-opus-5 --scope repo
 ```
+
+## Choosing the Model for a Task
+
+A task names an agent tier; the tier resolves to a provider and model through
+layered config — built-in defaults, then the user config
+(`~/.config/taskerkeeper/agents.json`), then the repo config
+(`<repo>/.taskerkeeper/agents.json`), then the todo file's
+`agent_config.tiers`, and finally a task's own `provider`/`model`. Last wins.
+
+`ready --json` and `next --json` carry the resolved values on every task, so a
+supervisor dispatches in one lookup:
+
+```json
+{ "id": "7.0.1", "agent": "mid_dev_agent",
+  "provider": "anthropic", "model": "claude-sonnet-5" }
+```
+
+Prefer moving a whole tier over pinning individual tasks — a per-task `model`
+is for the genuine exception. TaskerKeeper only resolves the strings; it never
+calls a provider itself.
 
 Every read command accepts `--json`. Parse that, not the box-drawing output.
 

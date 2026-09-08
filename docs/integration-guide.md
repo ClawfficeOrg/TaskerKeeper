@@ -108,6 +108,40 @@ your-project/
         └── SKILL.md              # Hermes skill
 ```
 
+## Choosing Providers and Models
+
+Each task names an agent tier; the tier resolves to a provider and model:
+
+```bash
+taskerkeeper agents show                                    # current mapping + sources
+taskerkeeper agents set mid_dev_agent --model claude-sonnet-5
+taskerkeeper agents set pro_dev_agent --model claude-opus-5 --scope repo
+taskerkeeper agents unset mid_dev_agent --key model
+taskerkeeper agents path --scope repo                       # which file that writes
+```
+
+Layers, last wins:
+
+1. built-in defaults
+2. `~/.config/taskerkeeper/agents.json` (`--scope user`, the default)
+3. `<repo>/.taskerkeeper/agents.json` (`--scope repo`)
+4. the todo file's `agent_config.tiers` (`--scope todo --todo <file>`)
+5. a task's own `provider` / `model`
+
+Model choice is normally a property of the machine running the agents, not of
+the roadmap, so the user scope is the right home for it. Use the repo or todo
+scope when a project or a milestone genuinely needs to pin something; commit
+`.taskerkeeper/agents.json` when you want everyone on the project to inherit it.
+
+Settings TaskerKeeper does not know about pass through untouched:
+
+```bash
+taskerkeeper agents set pro_dev_agent --option effort=xhigh --option speed=fast
+```
+
+TaskerKeeper never calls a provider — it resolves the strings and puts them in
+`--json` output for whatever dispatches your agents.
+
 ## Parallel Agents
 
 `ready` is the command that makes parallel execution work. It returns every task
@@ -120,8 +154,10 @@ taskerkeeper ready docs/todo-v7.json --json
 ```json
 {
   "ready": [
-    { "id": "7.0.1", "title": "Go client SDK", "parallel_group": "sdks", "agent": "mid_dev_agent" },
-    { "id": "7.0.2", "title": "Ruby client SDK", "parallel_group": "sdks", "agent": "mid_dev_agent" }
+    { "id": "7.0.1", "title": "Go client SDK", "parallel_group": "sdks",
+      "agent": "mid_dev_agent", "provider": "anthropic", "model": "claude-sonnet-5" },
+    { "id": "7.0.2", "title": "Ruby client SDK", "parallel_group": "sdks",
+      "agent": "mid_dev_agent", "provider": "anthropic", "model": "claude-sonnet-5" }
   ],
   "in_progress": [],
   "blocked": [
@@ -130,7 +166,8 @@ taskerkeeper ready docs/todo-v7.json --json
 }
 ```
 
-A supervisor dispatches one worker per entry in `ready`. Each worker calls
+A supervisor dispatches one worker per entry in `ready`, using the `provider`
+and `model` each entry carries. Each worker calls
 `start` before touching code, so no two workers claim the same task. Writes take
 a `<file>.lock` and land atomically, so concurrent `start`/`done` calls do not
 lose each other's updates.

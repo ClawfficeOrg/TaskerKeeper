@@ -14,6 +14,8 @@ with any autonomous agent. See `docs/philosophy.md` for rationale.
 
 ```
 taskerkeeper/cli.py                      CLI logic (the only implementation)
+taskerkeeper/agents.py                   Tier -> provider/model config layering
+taskerkeeper/jsonio.py                   Atomic writes and the file lock
 taskerkeeper/__main__.py                 python -m taskerkeeper
 taskerkeeper/schema/todo-v1.schema.json  JSON Schema (draft 2020-12), package data
 scripts/taskerkeeper.py                  Thin shim -> taskerkeeper.cli.main
@@ -26,10 +28,11 @@ examples/                                simple-project, zoidmatter-v7
 pyproject.toml                           setuptools packaging, console script
 ```
 
-## Current State (2026-09-08, v0.2.0)
+## Current State (2026-09-08, v0.3.0)
 
 - v0.1 scaffold (Aug 27 2026) → hardened (Sep 2) → v0.2.0 rework (Sep 8),
-  which fixed everything raised in the `docs/notes.md` review.
+  which fixed everything raised in the `docs/notes.md` review → v0.3.0 (Sep 8),
+  which added the agent provider/model config.
 - Schema now ships as package data, so `pip install .` works, not just
   `pip install -e .`. Verified from site-packages in a clean venv.
 - Scheduling is complete: `ready` lists every runnable task, `start` claims one,
@@ -39,10 +42,21 @@ pyproject.toml                           setuptools packaging, console script
   task/phase prerequisites, cycles, task ID vs. phase ID mismatch, `moved`
   without `moved_to`, and a warning for prerequisites on `cancelled`/`moved`
   tasks.
-- All read commands support `--json`.
+- All read commands support `--json`, and task output carries the resolved
+  provider/model (v0.3.0).
 - Writes are lock-guarded (`<file>.lock`) and atomic (temp + rename).
-- 37 tests, stdlib `unittest`, run on Linux and Windows in CI against a
+- 56 tests, stdlib `unittest`, run on Linux and Windows in CI against a
   non-editable install.
+
+## Agent Model Config (v0.3.0)
+
+- A task names a tier (`task.agent`); `taskerkeeper/agents.py` resolves that
+  tier to a provider and model, and `next` / `ready` / `parallel --json` carry
+  the resolved values so a supervisor dispatches in one lookup.
+- Layers, last wins: built-in defaults -> user config -> repo config -> the todo
+  file's `agent_config.tiers` -> a task's own `provider`/`model`.
+- `agents show` reports which layer supplied each setting.
+- `TASKERKEEPER_CONFIG_HOME` relocates the user config; the tests rely on it.
 
 ## Decisions
 
@@ -68,14 +82,22 @@ pyproject.toml                           setuptools packaging, console script
   import makes them safe on Windows cp1252 consoles. Keep both.
 - **`convert` is one-way** (JSON → markdown). Markdown → JSON is a manual
   migration; see `docs/philosophy.md`.
+- **Model config is per machine by default, not per roadmap.** Which model runs
+  a tier is a property of whoever runs the agents, so the user layer is its
+  normal home. The repo and todo layers exist for projects that genuinely need
+  to pin something, not as the default place to put it.
+- **TaskerKeeper never calls a provider.** It resolves strings and hands them
+  over: no SDK dependency, no API keys, no network. Unknown settings
+  (`--option effort=xhigh`) pass through untouched so a supervisor can use them
+  without TaskerKeeper knowing what they mean.
 
 ## Known Gaps / Next
 
 - The file lock is cooperative and process-local in effect: a crashed process
   can leave `<file>.lock` behind, and it must be deleted by hand. There is no
   stale-lock timeout.
-- `agent_config.tiers` is schema-only — nothing in the CLI reads it to pick a
-  tier for a task.
+- Nothing maps `complexity` to a tier automatically. `complexity_range` on a
+  tier is documentation, and `add` defaults every task to `mid_dev_agent`.
 - Markdown → JSON conversion is not implemented, by decision rather than
   omission.
 - No GitHub Issues sync (see `docs/philosophy.md` "Future Directions").
