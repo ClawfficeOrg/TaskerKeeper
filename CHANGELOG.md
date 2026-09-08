@@ -5,7 +5,86 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0] — 2026-09-08
+
+Closes the findings of the v0.1 code review in `docs/notes.md`.
+
+### Added
+
+- `ready` — lists every currently-runnable task, with `--json`. This is what
+  makes parallel dispatch possible; `parallel_group` was display-only before.
+- `start` — claims a task (`pending` → `in_progress`) so two agents cannot pick
+  up the same work. `in_progress` was a dead state that nothing could set.
+- `reset` — returns a task to `pending`, recovering one orphaned by a crashed
+  session.
+- `status` — sets any status, including `cancelled` and
+  `moved --moved-to <id>`. Both were in the schema with no CLI path.
+- `convert` — renders a todo file as markdown for human review (one-way).
+- `--json` on every read command (`next`, `ready`, `list`, `parallel`, `deps`),
+  so agents stop scraping box-drawing characters.
+- Semantic validation on top of the JSON Schema: duplicate task/phase IDs,
+  dangling task/phase prerequisites, prerequisite cycles, task IDs that
+  disagree with their phase, `moved` without a valid `moved_to`, and a warning
+  when a prerequisite is `cancelled` or `moved` (blocked forever).
+- Flags on `add`: `--prereq` (repeatable, validated), `--complexity`,
+  `--agent`, `--parallel-group`, `--touches`, `--success`.
+- `--force` on `start` and `done`; `--changelog` on `done`.
+- `tests/test_cli.py` — 37 stdlib `unittest` tests, no dev dependencies.
+- `.github/workflows/ci.yml` — tests and example validation on Linux and
+  Windows, Python 3.10 and 3.13, against a non-editable install.
+- `python -m taskerkeeper` entry point.
+- `AGENTS.md` (rules for agents working on this repo) and `CLAUDE.md`
+  (a pointer to it).
+
+### Fixed
+
+- **`pip install .` was broken.** `SCHEMA_PATH` resolved to
+  `<package parent>/schema/`, which does not exist in `site-packages`, so only
+  an editable install could validate anything. The schema moved to
+  `taskerkeeper/schema/todo-v1.schema.json` and ships as package data, resolved
+  via `importlib.resources`.
+- **Phase-level prerequisites were ignored.** `find_next` only checked task
+  prerequisites, so a task in phase 1.1 with no prerequisites of its own was
+  handed out while phase 1.0 was half-done.
+- **`in_progress` blocked work forever.** A crashed session left a task claimed;
+  nothing resumed it and nothing downstream unblocked. `next` now returns an
+  `in_progress` task first, and `reset` clears one.
+- **Two implementations of the DAG logic had drifted.** `ralph/ralph-json.sh`
+  is now a thin wrapper that execs the CLI. It had a tautological `select`
+  (line 57), a `join(", ") // "none"` that never produced `none` (line 70), and
+  ordering and `done`-enforcement rules that disagreed with the Python. `jq` is
+  no longer a dependency.
+- **`done` did not check prerequisites at all** (the jq path warned and wrote
+  anyway). It now refuses without `--force`.
+- **Concurrent writes lost updates.** Mutating commands take a `<file>.lock`,
+  reload inside it, and write atomically via temp file + rename.
+- **`add` crashed on hand-edited IDs** — `int(t["id"].split(".")[-1])` raised
+  `ValueError` on any non-numeric sequence. Non-numeric IDs are now skipped when
+  computing the next number.
+- **`release.changelog_entries` claimed to be auto-collected and was not.**
+  `done` now files a task's `changelog` line under its phase release, or under
+  the last phase that has one.
+- Timestamps are written as `...Z`, matching the examples, instead of `+00:00`.
+- Misleading comment in `find_next`: it sorted by total prerequisite count, not
+  unsatisfied ones (every candidate has zero unsatisfied). Ordering is now
+  numeric by ID, which also matches what `ready` lists first.
+
+### Changed
+
+- `next` returns an `in_progress` task before a pending one. Pass `--no-resume`
+  for the old behavior.
+- `done` on a task with unmet prerequisites now exits 1 instead of writing.
+- Schema: `agent_config.tiers` gained `flagship`, which the `agent` enum already
+  allowed; `changelog` and `changelog_entries` descriptions now match what the
+  code does; `prerequisites` documents that only `done` satisfies a dependency.
+- Examples dropped the redundant `_phase_id` field and use `...Z` timestamps.
+- Docs across `README.md`, `docs/philosophy.md`, `docs/integration-guide.md`,
+  `docs/memory.md`, and the Hermes skill now describe the actual CLI. The
+  stale "Project Structure" block, the "Python 3 standard library only" claim
+  (it needs `jsonschema`), and the promised markdown→JSON `convert` are gone —
+  markdown→JSON is now documented as a deliberate manual migration.
+
+## [0.1.0] — 2026-09-02
 
 ### Added
 

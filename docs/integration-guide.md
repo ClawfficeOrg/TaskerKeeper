@@ -7,35 +7,42 @@ TaskerKeeper works as a standalone tool. No frameworks or platforms required.
 ### Quick Start
 
 ```bash
-# Clone the repo
 git clone https://github.com/ClawfficeOrg/TaskerKeeper.git
 cd TaskerKeeper
+pip install .
 
-# Validate a todo file
-python3 scripts/taskerkeeper.py validate my-todo.json
+# Validate a todo file (schema + semantic checks)
+taskerkeeper validate my-todo.json
 
-# Find the next task to work on
-python3 scripts/taskerkeeper.py next my-todo.json
+# Everything that can start right now
+taskerkeeper ready my-todo.json
 
-# Mark a task as done
-python3 scripts/taskerkeeper.py done my-todo.json 7.0.1
+# The one task to pick up (resumes an in_progress task if there is one)
+taskerkeeper next my-todo.json
 
-# Show all tasks
-python3 scripts/taskerkeeper.py list my-todo.json
+# Claim it, then finish it
+taskerkeeper start my-todo.json 7.0.1
+taskerkeeper done my-todo.json 7.0.1 --changelog "Added the Go SDK"
 
-# Show a task's dependency chain
-python3 scripts/taskerkeeper.py deps my-todo.json 7.0.1
+# Show all tasks / one dependency chain
+taskerkeeper list my-todo.json
+taskerkeeper deps my-todo.json 7.0.1
 ```
+
+From a checkout without installing, `python -m taskerkeeper ...` and
+`python scripts/taskerkeeper.py ...` behave identically.
 
 ### Using ralph-json.sh
 
-The bash script variant provides the same functionality with `jq`:
+`ralph/ralph-json.sh` forwards every argument to the CLI — same commands, same
+semantics, no `jq` needed. It exists so ralph configs that call a shell script
+keep working.
 
 ```bash
-./ralph/ralph-json.sh next my-todo.json
+./ralph/ralph-json.sh ready my-todo.json --json
+./ralph/ralph-json.sh start my-todo.json 7.0.1
 ./ralph/ralph-json.sh done my-todo.json 7.0.1
 ./ralph/ralph-json.sh list my-todo.json
-./ralph/ralph-json.sh parallel my-todo.json
 ./ralph/ralph-json.sh deps my-todo.json 7.0.1
 ```
 
@@ -47,9 +54,9 @@ that ralph consumes.
 
 ### Setup
 
-1. **Add the JSON schema** to your project:
+1. **Install the CLI** (the schema travels with it — you do not copy it around):
    ```bash
-   cp schema/todo-v1.schema.json your-project/schema/
+   pip install taskerkeeper
    ```
 
 2. **Create your first todo file**:
@@ -62,20 +69,25 @@ that ralph consumes.
    cp -r skills/taskerkeeper ~/.hermes/skills/
    ```
 
-4. **Configure ralph** to use the JSON variant:
-   ```bash
-   # In your AGENTS.md or ralph config:
-   # Use ralph-json.sh instead of ralph.sh for JSON todo files
-   ```
+4. **Point ralph at the JSON variant** in your `AGENTS.md` or ralph config:
+   use `ralph-json.sh` (or `taskerkeeper` directly) instead of `ralph.sh` for
+   JSON todo files.
 
 ### Migration from Markdown
 
-If you have existing `docs/todo-v*.md` files, automatic conversion is not yet
-implemented in the CLI. Migrate by hand: model the roadmap as a JSON file
-using the schema (see `examples/simple-project.json`), then validate:
+Automatic markdown → JSON conversion is not implemented, by decision: the hard
+part of a migration is deciding what prose prerequisites actually meant, and a
+parser would guess. Model the roadmap as JSON using the schema (see
+`examples/simple-project.json`), then:
 
 ```bash
-python3 scripts/taskerkeeper.py validate docs/todo-v7.json
+taskerkeeper validate docs/todo-v7.json
+```
+
+The reverse direction is automated — render JSON as markdown for human review:
+
+```bash
+taskerkeeper convert docs/todo-v7.json -o docs/todo-v7.md
 ```
 
 ### File Layout
@@ -84,21 +96,48 @@ A typical ZoidMatter project with TaskerKeeper:
 
 ```
 your-project/
-├── schema/
-│   └── todo-v1.schema.json
 ├── docs/
 │   ├── todo-v7.json              # Current roadmap (JSON)
-│   ├── todo-v7.md                # Human-readable version (optional)
+│   ├── todo-v7.md                # Rendered for humans (optional)
 │   ├── plan.md                   # Architecture overview
 │   ├── memory.md                 # Session log
 │   └── learnings.md              # Technical discoveries
-├── scripts/
-│   └── ralph-json.sh             # JSON-aware ralph variant
 ├── AGENTS.md                     # Agent instructions
 └── skills/
     └── taskerkeeper/
         └── SKILL.md              # Hermes skill
 ```
+
+## Parallel Agents
+
+`ready` is the command that makes parallel execution work. It returns every task
+whose task **and** phase prerequisites are satisfied:
+
+```bash
+taskerkeeper ready docs/todo-v7.json --json
+```
+
+```json
+{
+  "ready": [
+    { "id": "7.0.1", "title": "Go client SDK", "parallel_group": "sdks", "agent": "mid_dev_agent" },
+    { "id": "7.0.2", "title": "Ruby client SDK", "parallel_group": "sdks", "agent": "mid_dev_agent" }
+  ],
+  "in_progress": [],
+  "blocked": [
+    { "id": "7.1.1", "title": "Helm chart", "blocked_by": ["task 7.0.1", "phase 7.0"] }
+  ]
+}
+```
+
+A supervisor dispatches one worker per entry in `ready`. Each worker calls
+`start` before touching code, so no two workers claim the same task. Writes take
+a `<file>.lock` and land atomically, so concurrent `start`/`done` calls do not
+lose each other's updates.
+
+If a worker dies mid-task, its task stays `in_progress`. `next` surfaces such a
+task first so the work resumes; `reset <id>` returns it to `pending` if it should
+be handed to someone else.
 
 ## CI/CD Integration
 
@@ -111,7 +150,7 @@ your-project/
 # Validate any changed todo JSON files
 for file in $(git diff --cached --name-only | grep '\.json$'); do
     if grep -q '"schema_version"' "$file" 2>/dev/null; then
-        python3 scripts/taskerkeeper.py validate "$file" || exit 1
+        taskerkeeper validate "$file" || exit 1
     fi
 done
 ```
@@ -127,51 +166,50 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - run: pip install taskerkeeper
       - name: Validate todo JSON files
         run: |
           for f in docs/todo-*.json; do
-            if [ -f "$f" ]; then
-              python3 scripts/taskerkeeper.py validate "$f"
-            fi
+            [ -f "$f" ] && taskerkeeper validate "$f"
           done
 ```
+
+`validate` exits non-zero on dangling prerequisites, cycles, duplicate IDs, and
+task IDs that disagree with their phase — the failures that make a roadmap
+silently unrunnable.
 
 ## Advanced Usage
 
 ### Dependency Graph Analysis
 
 ```bash
-# See what a task blocks
-python3 scripts/taskerkeeper.py deps my-todo.json 7.0.1
+# What a task waits on and what it unblocks
+taskerkeeper deps my-todo.json 7.0.1 --json
 
-# Find all tasks ready to start
-jq '.phases[].tasks[] |
-  select(.status == "pending") |
-  select(.prerequisites == [] or
-    (.prerequisites | all(. as $p |
-      [.phases[].tasks[] | select(.id == $p and .status == "done")] | length > 0
-    ))
-  ) | "\(.id) — \(.title)"
-' my-todo.json
+# Which parallel-group members are runnable right now
+taskerkeeper parallel my-todo.json
 ```
 
 ### Adding Tasks Programmatically
 
 ```bash
-# Add a task to a phase (new ID is the phase's max sequence + 1)
-python3 scripts/taskerkeeper.py add my-todo.json --phase 7.1 \
+taskerkeeper add my-todo.json --phase 7.1 \
   --title "Add logging" \
-  --goal "Emit structured logs with level filtering."
-
-# Add defaults to: prerequisites=[], complexity=Medium, agent=mid_dev_agent
-# Set prerequisites / complexity / agent by editing the file afterwards.
+  --goal "Emit structured logs with level filtering." \
+  --prereq 7.0.1 --prereq 7.0.2 \
+  --complexity High --agent pro_dev_agent \
+  --parallel-group observability \
+  --touches src/log.rs \
+  --success "Logs include level and timestamp"
 ```
+
+The new ID is the phase's highest sequence number plus one. Unknown
+prerequisites are rejected rather than written.
 
 ### Batch Status Updates
 
 ```bash
-# Mark multiple tasks as done
 for id in 7.0.1 7.0.2 7.0.3; do
-  python3 scripts/taskerkeeper.py done my-todo.json "$id"
+  taskerkeeper done my-todo.json "$id"
 done
 ```

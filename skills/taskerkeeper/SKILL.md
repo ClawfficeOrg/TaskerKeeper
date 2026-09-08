@@ -1,7 +1,7 @@
 ---
 name: taskerkeeper
 description: "Use when creating, reading, or managing TaskerKeeper JSON todo files. Structured task management with dependency DAG, parallel groups, and semver mapping."
-version: 1.0.0
+version: 2.0.0
 author: KITT (ClawfficeOrg)
 license: MIT
 metadata:
@@ -18,7 +18,7 @@ Task management for autonomous agents using structured JSON instead of markdown.
 
 - Creating todo files for projects that use ralph or other autonomous agents
 - Managing tasks with dependencies that need parallel execution
-- Converting existing markdown todos to structured JSON
+- Dispatching several agents at once across a runnable task set
 - Reading/managing task state during development sessions
 
 ## File Format
@@ -79,12 +79,20 @@ Each task has:
 
 ### Find Next Task
 
-To find the next task to work on:
+Prefer the CLI over reimplementing this: `taskerkeeper ready <file> --json` for
+the whole runnable set, `taskerkeeper next <file> --json` for a single task.
+
+The rule the CLI applies, if you must reason about it directly:
+
 1. Load the JSON file
-2. Collect all task IDs with `status: "done"`
-3. Find tasks where `status: "pending"` AND all `prerequisites` are in the done set
-4. If multiple candidates, prefer tasks in parallel groups (they can run concurrently)
-5. If no candidates, check for blocked tasks and report what's holding them up
+2. Collect all task IDs with `status: "done"`, and all phases whose tasks are
+   all `done` / `cancelled` / `moved`
+3. A task is runnable when `status: "pending"`, every entry in its
+   `prerequisites` is in the done set, AND every entry in its phase's
+   `prerequisites` is a complete phase
+4. An `in_progress` task means a session claimed it and may have crashed —
+   resume it before starting anything new
+5. If nothing is runnable, report which prerequisite each pending task waits on
 
 ### Check Dependencies
 
@@ -111,12 +119,16 @@ Tasks with the same `parallel_group` value can run simultaneously:
 6. Assign to a `parallel_group` if it can run concurrently with others
 7. Set `complexity` and `agent` tier
 
-### Marking Tasks Done
+### Claiming and Marking Tasks Done
 
-1. Set `status: "done"`
-2. Update `updated_at` timestamp
+1. `start` the task first (`pending` → `in_progress`) so no other agent claims it
+2. On completion set `status: "done"` and update `updated_at` (`...Z` format)
 3. Check if this unblocks any other tasks (their prereqs are now all met)
 4. Report unblocked tasks
+
+Use `taskerkeeper start` / `taskerkeeper done` rather than editing the file
+directly: they take a lock, write atomically, refuse unmet prerequisites without
+`--force`, and file the task's `--changelog` line under the phase release.
 
 ### Moving Tasks
 
@@ -156,49 +168,58 @@ The `release` object on the final phase of a milestone drives auto-tagging:
 - **Circular dependencies are invalid** — validate before committing
 - **Parallel groups don't imply ordering** — tasks in different groups can still have dep relationships
 - **`status: "moved"` preserves history** — don't delete tasks, move them
+- **Phase prerequisites gate too** — a task with no prereqs of its own is still blocked if its phase requires an incomplete phase
+- **Only `done` satisfies a prerequisite** — a `cancelled` or `moved` prerequisite blocks its dependents forever; `validate` warns about it
+- **Don't hand-edit while agents are running** — the CLI locks the file; a raw write loses updates
 
 ## CLI Usage
 
 ```bash
-# Validate
-python scripts/taskerkeeper.py validate docs/todo-v7.json
+# Validate: JSON Schema plus semantic checks (dangling prereqs, cycles, dupes)
+taskerkeeper validate docs/todo-v7.json
 
-# Find next task
-python scripts/taskerkeeper.py next docs/todo-v7.json
+# Everything runnable right now — fan these out across parallel agents
+taskerkeeper ready docs/todo-v7.json --json
 
-# Mark done
-python scripts/taskerkeeper.py done docs/todo-v7.json 7.0.1
+# One task to pick up (resumes an in_progress task if there is one)
+taskerkeeper next docs/todo-v7.json --json
 
-# List all
-python scripts/taskerkeeper.py list docs/todo-v7.json
+# Claim, finish, or recover a task
+taskerkeeper start docs/todo-v7.json 7.0.1
+taskerkeeper done docs/todo-v7.json 7.0.1 --changelog "Added the Go SDK"
+taskerkeeper reset docs/todo-v7.json 7.0.1
 
-# Show parallel groups
-python scripts/taskerkeeper.py parallel docs/todo-v7.json
+# Retire a task without deleting it
+taskerkeeper status docs/todo-v7.json 7.0.5 cancelled
+taskerkeeper status docs/todo-v7.json 7.0.6 moved --moved-to 8.0.1
 
-# Show a task's dependency chain
-python scripts/taskerkeeper.py deps docs/todo-v7.json 7.0.1
+# List all / parallel groups / one dependency chain
+taskerkeeper list docs/todo-v7.json
+taskerkeeper parallel docs/todo-v7.json
+taskerkeeper deps docs/todo-v7.json 7.0.1
 
-# Add task (phase via --phase; new ID is the phase's max sequence + 1)
-python scripts/taskerkeeper.py add docs/todo-v7.json --phase 7.2 --title "New feature"
+# Add a task (new ID is the phase's max sequence + 1)
+taskerkeeper add docs/todo-v7.json --phase 7.2 --title "New feature"   --goal "..." --prereq 7.0.1 --complexity High --agent pro_dev_agent
+
+# Render for human review (one-way)
+taskerkeeper convert docs/todo-v7.json -o docs/todo-v7.md
 ```
+
+Every read command accepts `--json`. Parse that, not the box-drawing output.
 
 ## Ralph Integration
 
-TaskerKeeper ships with `ralph/ralph-json.sh` — a bash script that wraps the JSON reading logic for ralph:
+`ralph/ralph-json.sh` forwards every argument to the CLI, so ralph configs that
+call a shell script keep working. No `jq` required.
 
 ```bash
-# Find next task
-./ralph/ralph-json.sh next docs/todo-v7.json
-
-# Mark done
+./ralph/ralph-json.sh ready docs/todo-v7.json --json
+./ralph/ralph-json.sh start docs/todo-v7.json 7.0.1
 ./ralph/ralph-json.sh done docs/todo-v7.json 7.0.1
-
-# Show parallel groups
-./ralph/ralph-json.sh parallel docs/todo-v7.json
 ```
 
 ## See Also
 
 - `ralph-todo-format` skill — markdown todo format (legacy)
 - `development-workflows` skill — broader dev workflow context
-- Schema: `schema/todo-v1.schema.json`
+- Schema: `taskerkeeper/schema/todo-v1.schema.json` (ships with the package)

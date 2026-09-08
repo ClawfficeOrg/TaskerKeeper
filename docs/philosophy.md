@@ -38,7 +38,8 @@ TaskerKeeper replaces markdown todos with structured JSON that has:
 
 3. **Parallel Groups** — Tasks in the same group can run concurrently.
    Different groups run sequentially. This maps naturally to how independent
-   workstreams actually operate.
+   workstreams actually operate, and `taskerkeeper ready` emits the whole
+   runnable set at once so a supervisor can fan them out.
 
 4. **Machine-Readable Structure** — No regex parsing, no line-number counting.
    JSON is native to every language and tool.
@@ -69,15 +70,20 @@ specifically designed for autonomous agent workflows where:
 ### Backward Compatible
 TaskerKeeper coexists with markdown todos. You can:
 
-- Convert markdown → JSON for existing projects
-- Convert JSON → markdown for human review
+- Render JSON → markdown for human review (`taskerkeeper convert`)
 - Run both formats side by side during migration
 - Use the same task ID scheme in both formats
 
+Markdown → JSON conversion is deliberately not automated: the interesting part
+of a migration is deciding what the prose prerequisites actually meant, and a
+parser would guess. Model the roadmap in JSON by hand, then `validate`.
+
 ### Minimal Dependencies
 - **JSON** — universal, no tools required
-- **jq** — for the bash scripts (one optional dependency)
-- **Python 3** — for the CLI tool (standard library only)
+- **Python 3.10+** — for the CLI, with `jsonschema` as the single runtime
+  dependency (schema validation is the one thing not worth reimplementing)
+- **No jq** — `ralph/ralph-json.sh` forwards to the CLI rather than
+  reimplementing the DAG logic in bash
 - No databases, no servers, no complex setup
 
 ## When to Use What
@@ -93,7 +99,6 @@ TaskerKeeper coexists with markdown todos. You can:
 
 ## Future Directions
 
-- **Validation in CI** — Run `taskerkeeper validate` as a pre-commit hook
 - **GitHub integration** — Sync task status with GitHub Issues
 - **Multi-file support** — Split large roadmaps across files
 - **Diff format** — A compact format for representing task changes
