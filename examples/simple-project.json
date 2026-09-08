@@ -31,8 +31,7 @@
           "complexity": "Low",
           "agent": "basic_dev_agent",
           "created_at": "2026-08-27T10:00:00Z",
-          "updated_at": "2026-08-27T10:15:00Z",
-          "_phase_id": "1.0"
+          "updated_at": "2026-08-27T10:15:00Z"
         },
         {
           "id": "1.0.2",
@@ -54,8 +53,7 @@
           "complexity": "Low",
           "agent": "basic_dev_agent",
           "created_at": "2026-08-27T10:00:00Z",
-          "updated_at": "2026-08-27T10:20:00Z",
-          "_phase_id": "1.0"
+          "updated_at": "2026-08-27T10:20:00Z"
         },
         {
           "id": "1.0.3",
@@ -74,8 +72,7 @@
           ],
           "complexity": "Medium",
           "agent": "mid_dev_agent",
-          "_phase_id": "1.0",
-          "updated_at": "2026-08-27T15:30:02.134305+00:00"
+          "updated_at": "2026-08-27T15:30:02Z"
         }
       ]
     },
@@ -105,8 +102,7 @@
           ],
           "parallel_group": "features",
           "complexity": "Medium",
-          "agent": "mid_dev_agent",
-          "_phase_id": "1.1"
+          "agent": "mid_dev_agent"
         },
         {
           "id": "1.1.2",
@@ -126,8 +122,7 @@
           ],
           "parallel_group": "features",
           "complexity": "Medium",
-          "agent": "mid_dev_agent",
-          "_phase_id": "1.1"
+          "agent": "mid_dev_agent"
         },
         {
           "id": "1.1.3",
@@ -146,8 +141,7 @@
           ],
           "parallel_group": "search",
           "complexity": "High",
-          "agent": "pro_dev_agent",
-          "_phase_id": "1.1"
+          "agent": "pro_dev_agent"
         }
       ]
     }

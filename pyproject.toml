@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "taskerkeeper"
-version = "0.1.0"
+version = "0.2.0"
 description = "Structured task management for autonomous agents"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -19,3 +19,7 @@ taskerkeeper = "taskerkeeper.cli:main"
 
 [tool.setuptools]
 packages = ["taskerkeeper"]
+
+[tool.setuptools.package-data]
+# The schema ships inside the package so a non-editable install can find it.
+taskerkeeper = ["schema/*.json"]

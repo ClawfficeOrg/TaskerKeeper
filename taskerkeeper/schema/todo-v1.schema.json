@@ -92,7 +92,7 @@
             "changelog_entries": {
               "type": "array",
               "items": { "type": "string" },
-              "description": "Individual changelog lines (auto-populated from completed tasks)"
+              "description": "Individual changelog lines. Appended by `taskerkeeper done` from each completed task's `changelog` field; a task whose phase has no release object files under the last phase that does."
             }
           }
         },
@@ -132,7 +132,7 @@
         "prerequisites": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "Task IDs that must be 'done' before this task can start. Enables DAG, not linear."
+          "description": "Task IDs that must be 'done' before this task can start. Enables DAG, not linear. Only 'done' satisfies a prerequisite — a prerequisite left 'cancelled' or 'moved' blocks its dependents forever, which `taskerkeeper validate` warns about."
         },
         "parallel_group": {
           "type": "string",
@@ -153,7 +153,7 @@
         },
         "changelog": {
           "type": ["string", "null"],
-          "description": "One-line changelog entry (auto-collected into phase release.changelog_entries). Null means no entry."
+          "description": "One-line changelog entry, collected into the phase release.changelog_entries when the task is marked done. Null means no entry."
         },
         "security_notes": { "type": "string" },
         "manual_note_refs": {
@@ -187,6 +187,13 @@
               }
             },
             "pro_dev_agent": {
+              "type": "object",
+              "properties": {
+                "complexity_range": { "type": "string" },
+                "duration_minutes": { "type": "string" }
+              }
+            },
+            "flagship": {
               "type": "object",
               "properties": {
                 "complexity_range": { "type": "string" },

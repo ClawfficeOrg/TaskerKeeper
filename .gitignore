@@ -32,3 +32,7 @@ Thumbs.db
 # Project
 *.log
 .env.local
+
+# TaskerKeeper
+# Lock files left behind by an interrupted CLI write
+*.json.lock
