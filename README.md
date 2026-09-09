@@ -35,9 +35,9 @@ Without installing, `python -m taskerkeeper <command>` and `python scripts/taske
 | Command | What it does |
 |---------|--------------|
 | `validate <file>` | JSON Schema check **plus** semantic checks: duplicate IDs, dangling prerequisites, cycles, task/phase ID mismatches |
-| `ready <file>` | Every task that can start right now — the list to fan out across parallel agents |
-| `next <file>` | The single task to pick up. Resumes an `in_progress` task if one exists, else the lowest-numbered ready task |
-| `start <file> <id>` | Claim a task (`pending` → `in_progress`). Refuses if prerequisites are unmet |
+| `ready <file>` | Every task that can start right now. `--disjoint` narrows it to a set whose owned paths do not collide — the list that is actually safe to fan out |
+| `next <file>` | The single task to pick up. Resumes an `in_progress` task the caller may claim, else the lowest-numbered ready task |
+| `start <file> <id>` | Claim a task (`pending` → `in_progress`) under an owner and a lease. Refuses if prerequisites are unmet, or if another agent holds a live claim |
 | `done <file> <id>` | Finish a task, report what it unblocked, file its `--changelog` line under the phase release |
 | `reset <file> <id>` | Return a task to `pending` — how you recover a task orphaned by a crashed session |
 | `status <file> <id> <status>` | Set any status, including `cancelled` and `moved --moved-to <id>` |
@@ -45,6 +45,8 @@ Without installing, `python -m taskerkeeper <command>` and `python scripts/taske
 | `parallel <file>` | Parallel groups, marking which members are runnable now |
 | `deps <file> <id>` | What a task waits on and what it unblocks |
 | `add <file> --phase <id> --title <t>` | Append a task. Accepts `--goal`, `--prereq` (repeatable), `--complexity`, `--agent`, `--parallel-group`, `--touches`, `--success` |
+| `release <file> [phase]` | The tag a completed phase ships as. Prints it by default; `--tag` actually creates it |
+| `history <file>` | Replay the append-only event log. `--task <id>` filters, `--limit N` tails |
 | `convert <file>` | Render the JSON as markdown for human review (one-way) |
 | `agents show` | The resolved provider/model for every agent tier, and where each setting came from |
 | `agents providers` | List the built-in provider presets and which one is active |
@@ -59,11 +61,81 @@ Every read command takes `--json`, so agents parse structured output instead of 
 taskerkeeper ready docs/todo-v7.json --json
 ```
 
+## Claiming Work
+
+`start` does not just flip a status — it records **who** holds the task and for
+how long:
+
+```json
+{ "status": "in_progress", "claimed_by": "worker-3",
+  "claimed_at": "2026-09-08T22:10:00Z", "lease_expires_at": "2026-09-08T23:10:00Z" }
+```
+
+That is what lets several agents share one file safely:
+
+- `start` refuses a task another agent holds under a live lease.
+- `next` never hands out a live claim. It resumes only the caller's own task, or
+  one whose lease has lapsed.
+- `done` refuses to finish someone else's live claim without `--force`.
+- A crashed agent's task becomes claimable again when its lease expires — no
+  human editing fields by hand.
+
+Name the agent with `--owner`, or `TASKERKEEPER_OWNER`; without either it is
+`host:pid`. The lease is `--lease MINUTES`, or `TASKERKEEPER_LEASE_MINUTES`,
+default 60.
+
+## Fanning Out Safely
+
+`ready` lists what *could* run. Two of those tasks editing the same file is the
+failure this tool exists to prevent, so `--disjoint` answers the question a
+supervisor actually has — what can I dispatch **together**:
+
+```bash
+taskerkeeper ready docs/todo-v7.json --disjoint --json
+```
+
+Tasks conflict when their `touches` paths overlap: the same path, or one a
+directory containing the other (`src/routes/` collides with
+`src/routes/handlers.rs`). Tasks already `in_progress` hold their paths too.
+Selection is greedy in ID order, so the answer is stable and the
+lowest-numbered task wins a contested path; everything skipped comes back under
+`deferred` with what it collided with. Without `--disjoint`, overlaps are
+reported as a warning rather than silently ignored. `next --disjoint` applies
+the same rule to a single task.
+
+## History
+
+Status fields are overwritten in place, so the todo file cannot answer "how many
+times did this task get reset, and by whom". An append-only log beside it can:
+
+```bash
+taskerkeeper history docs/todo-v7.json --task 7.0.1
+```
+
+Every `start`, `done`, `reset`, `status`, `add`, and `release` appends one JSON
+line to `<file>.events.jsonl`. Set `TASKERKEEPER_EVENTS=0` to turn it off.
+
 ## Which Model Runs a Task
 
 A task names an agent tier (`basic_dev_agent`, `mid_dev_agent`, `pro_dev_agent`,
 `flagship`). TaskerKeeper turns that tier into a concrete provider and model, so
 a supervisor reading `ready --json` can dispatch without a second lookup.
+
+A task may name a `complexity` instead and let the tier table decide:
+
+| `complexity` | Default tier |
+|---|---|
+| `Low` | `basic_dev_agent` |
+| `Medium` | `mid_dev_agent` |
+| `High` | `pro_dev_agent` |
+| `Very High` | `flagship` |
+
+A tier's `complexity_range` overrides that mapping —
+`agents set pro_dev_agent --option complexity_range="High, Very High"` routes
+both to `pro_dev_agent`. Ranges accept the shapes people write: `"High"`,
+`"Low-Medium"`, `"Medium to High"`, `"Low, Very High"`. An explicit `agent` on a
+task always wins, and resolved output reports `agent_derived: true` when the
+tier was inferred.
 
 ```bash
 taskerkeeper agents providers                 # the presets on offer
@@ -128,7 +200,14 @@ A task is runnable when **all** of these hold:
 
 A phase is complete when none of its tasks will be worked on again — every task is `done`, `cancelled`, or `moved`. Only `done` satisfies a *task* prerequisite; `validate` warns when a prerequisite is `cancelled` or `moved`, because dependents would block forever.
 
-Writes take a `<file>.lock` and land atomically, so parallel agents cannot silently overwrite each other.
+Nothing above involves `parallel_group`: it is a label for humans, not an input
+to scheduling. Ordering is `prerequisites`; fan-out safety is `touches`.
+
+Writes take a `<file>.lock` and land atomically, so parallel agents cannot
+silently overwrite each other. The lock records the pid and host that took it,
+so a lock left behind by a crashed agent is broken automatically — when its
+holder is confirmed gone, or after five minutes when the holder cannot be
+checked at all.
 
 ## Features
 
@@ -137,7 +216,9 @@ Writes take a `<file>.lock` and land atomically, so parallel agents cannot silen
 | Task ordering | Positional (line number) | ID-based (stable) |
 | Inserting a task | Resequence all below | Add anywhere, no renumber |
 | Dependencies | Prose in goal text | `prerequisites: [...]` array |
-| Parallel work | Impossible | `parallel_group` field + `ready` |
+| Parallel work | Impossible | `ready --disjoint`, from `touches` |
+| Claiming a task | Nothing | Owner + lease, enforced by `start`/`next`/`done` |
+| Audit trail | Git history of the file | Append-only `<file>.events.jsonl` |
 | Version mapping | Manual/disconnected | `release.version` on phase |
 | Machine parsing | Regex/line-based | Native JSON, `--json` output |
 
@@ -166,6 +247,28 @@ TaskerKeeper includes a Hermes skill at `skills/taskerkeeper/SKILL.md`:
 ```bash
 cp -r skills/taskerkeeper ~/.hermes/skills/
 ```
+
+## Releases
+
+A phase can declare the release it ships:
+
+```json
+"release": { "version": "v0.7.0", "tag_on_complete": true,
+             "release_notes": "SDKs and deployment." }
+```
+
+`done` never creates a tag. The last task of a phase is an ordinary task, and a
+git side effect fired from it lands at a moment nobody chose — so `done --json`
+reports `release_ready` and stops there. Tagging is its own step:
+
+```bash
+taskerkeeper release docs/todo-v7.json          # what would be tagged, and why
+taskerkeeper release docs/todo-v7.json 7.1 --tag
+```
+
+`--tag` writes an annotated tag whose message is the release notes followed by
+the changelog lines collected by `done`. It refuses an incomplete phase without
+`--force`, and refuses to clobber an existing tag. Pushing it stays yours.
 
 ## Version Mapping
 
@@ -203,6 +306,7 @@ TaskerKeeper/
 ├── docs/
 │   ├── philosophy.md           # Why this exists
 │   ├── integration-guide.md    # ZoidMatter + standalone setup
+│   ├── module-plan.md          # Plan: importable core, exit codes, PyPI
 │   └── memory.md               # Project state for agents
 ├── examples/
 │   ├── simple-project.json     # Minimal example

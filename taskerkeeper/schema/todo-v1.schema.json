@@ -83,7 +83,7 @@
             },
             "tag_on_complete": {
               "type": "boolean",
-              "description": "If true, ralph creates a git tag when all tasks in this phase are done"
+              "description": "Marks this phase as one that ships a tag. Nothing tags automatically: when the phase completes, `done --json` reports `release_ready` and `taskerkeeper release <file> <phase> --tag` creates the annotated tag."
             },
             "release_notes": {
               "type": "string",
@@ -121,7 +121,7 @@
         "touches": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "File paths this task owns"
+          "description": "File paths this task owns. `ready --disjoint` uses these to emit a set of tasks that is safe to fan out: two tasks whose paths overlap - equal, or one a directory containing the other - are never dispatched together."
         },
         "success": {
           "type": "array",
@@ -136,7 +136,7 @@
         },
         "parallel_group": {
           "type": "string",
-          "description": "Tasks in the same group CAN run in parallel (all deps satisfied). Different groups run sequentially within a phase."
+          "description": "A label for related work that is expected to run concurrently. Purely an annotation: scheduling is decided by `prerequisites` and by `touches` overlap, never by group membership. Express real ordering as a prerequisite."
         },
         "complexity": {
           "type": "string",
@@ -145,7 +145,7 @@
         "agent": {
           "type": "string",
           "enum": ["basic_dev_agent", "mid_dev_agent", "pro_dev_agent", "flagship"],
-          "description": "Which agent tier handles this task"
+          "description": "Which agent tier handles this task. Optional: a task with a `complexity` but no `agent` has its tier derived from the tiers' `complexity_range` settings."
         },
         "provider": {
           "type": "string",
@@ -158,6 +158,16 @@
         "moved_to": {
           "type": "string",
           "description": "If status='moved', the new task ID"
+        },
+        "claimed_by": {
+          "type": "string",
+          "description": "Agent that claimed this task with `start`. Written only while status is 'in_progress'; cleared on any other status."
+        },
+        "claimed_at": { "type": "string", "format": "date-time" },
+        "lease_expires_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When the claim lapses. Past this, another agent may take the task - which is how work orphaned by a crashed session is recovered without a human editing the file."
         },
         "changelog": {
           "type": ["string", "null"],
@@ -187,7 +197,7 @@
             "basic_dev_agent": {
               "type": "object",
               "properties": {
-                "complexity_range": { "type": "string" },
+                "complexity_range": { "type": "string", "description": "Complexities this tier handles, e.g. \"Low\", \"Low-Medium\", \"High, Very High\". Tasks with a matching complexity and no explicit `agent` are routed to this tier." },
                 "duration_minutes": { "type": "string" },
                 "provider": { "type": "string", "description": "Provider that runs this tier, e.g. 'anthropic'" },
                 "model": { "type": "string", "description": "Model ID this tier resolves to, e.g. 'claude-opus-5'" }
@@ -197,7 +207,7 @@
             "mid_dev_agent": {
               "type": "object",
               "properties": {
-                "complexity_range": { "type": "string" },
+                "complexity_range": { "type": "string", "description": "Complexities this tier handles, e.g. \"Low\", \"Low-Medium\", \"High, Very High\". Tasks with a matching complexity and no explicit `agent` are routed to this tier." },
                 "duration_minutes": { "type": "string" },
                 "provider": { "type": "string", "description": "Provider that runs this tier, e.g. 'anthropic'" },
                 "model": { "type": "string", "description": "Model ID this tier resolves to, e.g. 'claude-opus-5'" }
@@ -207,7 +217,7 @@
             "pro_dev_agent": {
               "type": "object",
               "properties": {
-                "complexity_range": { "type": "string" },
+                "complexity_range": { "type": "string", "description": "Complexities this tier handles, e.g. \"Low\", \"Low-Medium\", \"High, Very High\". Tasks with a matching complexity and no explicit `agent` are routed to this tier." },
                 "duration_minutes": { "type": "string" },
                 "provider": { "type": "string", "description": "Provider that runs this tier, e.g. 'anthropic'" },
                 "model": { "type": "string", "description": "Model ID this tier resolves to, e.g. 'claude-opus-5'" }
@@ -217,7 +227,7 @@
             "flagship": {
               "type": "object",
               "properties": {
-                "complexity_range": { "type": "string" },
+                "complexity_range": { "type": "string", "description": "Complexities this tier handles, e.g. \"Low\", \"Low-Medium\", \"High, Very High\". Tasks with a matching complexity and no explicit `agent` are routed to this tier." },
                 "duration_minutes": { "type": "string" },
                 "provider": { "type": "string", "description": "Provider that runs this tier, e.g. 'anthropic'" },
                 "model": { "type": "string", "description": "Model ID this tier resolves to, e.g. 'claude-opus-5'" }

@@ -1,7 +1,7 @@
 ---
 name: taskerkeeper
 description: "Use when creating, reading, or managing TaskerKeeper JSON todo files. Structured task management with dependency DAG, parallel groups, and semver mapping."
-version: 2.2.0
+version: 2.3.0
 author: KITT (ClawfficeOrg)
 license: MIT
 metadata:
@@ -72,8 +72,11 @@ Each task has:
 - **`id`**: Stable identifier. Format: `PHASE.SEQUENCE`. Never changes.
 - **`status`**: `pending`, `in_progress`, `done`, `cancelled`, `moved`
 - **`prerequisites`**: Task IDs that must be `done` before this can start. THIS IS THE KEY FEATURE.
-- **`parallel_group`**: Tasks in the same group CAN run concurrently when all deps are met.
-- **`agent`**: Which agent tier handles this: `basic_dev_agent`, `mid_dev_agent`, `pro_dev_agent`, `flagship`. The tier resolves to a concrete provider and model — run `taskerkeeper agents show` to see the mapping, and read `provider`/`model` off `ready --json` to dispatch.
+- **`touches`**: File paths this task owns. `ready --disjoint` uses them to emit a set that is safe to dispatch together — two tasks whose paths overlap are never handed out at once.
+- **`parallel_group`**: A label for related work. Purely descriptive: it does not schedule, gate, or order anything. Use `prerequisites` for real ordering.
+- **`complexity`**: `Low` / `Medium` / `High` / `Very High`. With no `agent`, this picks the tier (Low→basic, Medium→mid, High→pro, Very High→flagship, unless a tier's `complexity_range` says otherwise).
+- **`agent`**: Which agent tier handles this: `basic_dev_agent`, `mid_dev_agent`, `pro_dev_agent`, `flagship`. Optional — derived from `complexity` when absent. The tier resolves to a concrete provider and model — run `taskerkeeper agents show` to see the mapping, and read `provider`/`model` off `ready --json` to dispatch.
+- **`claimed_by`** / **`claimed_at`** / **`lease_expires_at`**: Written by `start`, cleared on any non-`in_progress` status. Do not hand-edit; use `start` and `reset`.
 - **`provider`** / **`model`**: Optional per-task override, for the one task that needs a specific model. Configure the tier instead when a whole class of work should move.
 
 ## Reading Tasks
@@ -91,8 +94,9 @@ The rule the CLI applies, if you must reason about it directly:
 3. A task is runnable when `status: "pending"`, every entry in its
    `prerequisites` is in the done set, AND every entry in its phase's
    `prerequisites` is a complete phase
-4. An `in_progress` task means a session claimed it and may have crashed —
-   resume it before starting anything new
+4. An `in_progress` task means an agent claimed it. Resume it before starting
+   anything new **only if the claim is yours or its `lease_expires_at` has
+   passed** — otherwise another agent is working it right now
 5. If nothing is runnable, report which prerequisite each pending task waits on
 
 ### Check Dependencies
@@ -103,10 +107,18 @@ For a task like `7.1.1` with `prerequisites: ["7.0.1", "7.0.2", "7.0.3", "7.0.4"
 
 ### Parallel Execution
 
-Tasks with the same `parallel_group` value can run simultaneously:
-- Group "sdks" contains tasks 7.0.1, 7.0.2, 7.0.3, 7.0.4
-- All have empty prerequisites
-- A parallel-aware agent can dispatch 4 workers for these
+Ask for the conflict-free set, do not eyeball it:
+
+```bash
+taskerkeeper ready docs/todo-v7.json --disjoint --json
+```
+
+- `ready` is everything runnable; `--disjoint` is everything runnable that does
+  not collide on `touches` paths, including against tasks already in progress
+- Paths collide when equal, or when one is a directory containing the other
+- Skipped tasks come back under `deferred` with what they collided with
+- Each worker still calls `start --owner <name>` before touching code
+- `parallel_group` is a reading aid, not an input to any of this
 
 ## Writing Tasks
 
@@ -131,6 +143,22 @@ Use `taskerkeeper start` / `taskerkeeper done` rather than editing the file
 directly: they take a lock, write atomically, refuse unmet prerequisites without
 `--force`, and file the task's `--changelog` line under the phase release.
 
+`start` also records a claim — `claimed_by`, `claimed_at`, `lease_expires_at` —
+and that claim is enforced:
+
+```bash
+TASKERKEEPER_OWNER=worker-3 taskerkeeper start docs/todo-v7.json 7.0.1
+```
+
+- Another agent's `start` on the same task fails while the lease holds
+- `next` skips tasks another agent holds, and resumes only yours or a lapsed one
+- `done` on someone else's live claim needs `--force`
+- A crashed agent's task frees itself when the lease expires; `reset` frees it
+  immediately
+
+Every transition is appended to `<file>.events.jsonl`; read it with
+`taskerkeeper history`.
+
 ### Moving Tasks
 
 If a task needs to move to a different phase or version:
@@ -150,7 +178,7 @@ todo-v7.md (internal roadmap)    →    v0.7.0 (git tag)
 todo-v8.md                       →    v0.8.0
 ```
 
-The `release` object on the final phase of a milestone drives auto-tagging:
+The `release` object on the final phase of a milestone describes the tag:
 
 ```json
 {
@@ -162,12 +190,21 @@ The `release` object on the final phase of a milestone drives auto-tagging:
 }
 ```
 
+Nothing tags automatically. Finishing the phase's last task makes `done --json`
+report `"release_ready": true`; creating the tag is an explicit step:
+
+```bash
+taskerkeeper release docs/todo-v7.json 7.1        # what would be tagged
+taskerkeeper release docs/todo-v7.json 7.1 --tag  # create it
+```
+
 ## Pitfalls
 
 - **Task IDs are stable** — never renumber. Insert new tasks with new IDs.
 - **Prerequisites are IDs, not phases** — `prerequisites: ["6.0.3"]` not `prerequisites: ["6.0"]`
 - **Circular dependencies are invalid** — validate before committing
-- **Parallel groups don't imply ordering** — tasks in different groups can still have dep relationships
+- **Parallel groups mean nothing to the scheduler** — they neither order work nor make it safe to run together. `prerequisites` orders; `touches` + `ready --disjoint` decides what runs together
+- **Never resume an `in_progress` task whose lease is still live** — someone else is on it
 - **`status: "moved"` preserves history** — don't delete tasks, move them
 - **Phase prerequisites gate too** — a task with no prereqs of its own is still blocked if its phase requires an incomplete phase
 - **Only `done` satisfies a prerequisite** — a `cancelled` or `moved` prerequisite blocks its dependents forever; `validate` warns about it
@@ -182,13 +219,23 @@ taskerkeeper validate docs/todo-v7.json
 # Everything runnable right now — fan these out across parallel agents
 taskerkeeper ready docs/todo-v7.json --json
 
-# One task to pick up (resumes an in_progress task if there is one)
-taskerkeeper next docs/todo-v7.json --json
+# Only what is safe to dispatch together (no overlapping owned paths)
+taskerkeeper ready docs/todo-v7.json --disjoint --json
+
+# One task to pick up (resumes your own in_progress task, never someone else's)
+taskerkeeper next docs/todo-v7.json --owner worker-3 --json
 
 # Claim, finish, or recover a task
-taskerkeeper start docs/todo-v7.json 7.0.1
+taskerkeeper start docs/todo-v7.json 7.0.1 --owner worker-3
 taskerkeeper done docs/todo-v7.json 7.0.1 --changelog "Added the Go SDK"
 taskerkeeper reset docs/todo-v7.json 7.0.1
+
+# Release for a finished phase: report, then tag
+taskerkeeper release docs/todo-v7.json 7.1
+taskerkeeper release docs/todo-v7.json 7.1 --tag
+
+# Everything that ever happened to a task
+taskerkeeper history docs/todo-v7.json --task 7.0.1
 
 # Retire a task without deleting it
 taskerkeeper status docs/todo-v7.json 7.0.5 cancelled

@@ -9,13 +9,15 @@ from __future__ import annotations
 import io
 import json
 import os
+import socket
+import subprocess
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import mock
 
-from taskerkeeper import agents, cli
+from taskerkeeper import agents, cli, jsonio
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXAMPLES = REPO_ROOT / "examples"
@@ -372,8 +374,11 @@ class AgentConfigTest(unittest.TestCase):
         # and the provider it did not override still comes from the tier
         self.assertEqual(agents.resolve_task(pinned, tiers)["provider"], "anthropic")
 
-    def test_unknown_tier_resolves_to_nothing(self):
-        self.assertEqual(agents.resolve_task(task("1.0.1", agent="nope"), {}), {})
+    def test_unknown_tier_resolves_to_no_model(self):
+        # The tier is still reported back — a supervisor needs to know which
+        # tier it failed to resolve — but nothing is invented for it.
+        resolved = agents.resolve_task(task("1.0.1", agent="nope"), {})
+        self.assertEqual(resolved, {"agent": "nope", "agent_derived": False})
 
     def test_arbitrary_settings_pass_through(self):
         path = self.write_todo(todo(phase("1.0", task("1.0.1", agent="pro_dev_agent"))))
@@ -548,7 +553,9 @@ class ConcurrencyTest(unittest.TestCase):
     def test_write_is_atomic_and_leaves_no_temp_files(self):
         with TempTodo(todo(phase("1.0", task("1.0.1")))) as path:
             run("done", path, "1.0.1")
-            leftovers = [p.name for p in Path(path).parent.iterdir() if p.name != "todo.json"]
+            # The event log is a deliberate sibling; a *.tmp is a failed write.
+            expected = {"todo.json", "todo.json.events.jsonl"}
+            leftovers = [p.name for p in Path(path).parent.iterdir() if p.name not in expected]
             self.assertEqual(leftovers, [])
 
     def test_lock_blocks_a_second_writer(self):
@@ -563,3 +570,401 @@ class ConcurrencyTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---------------------------------------------------------------------------
+# Claims and leases
+# ---------------------------------------------------------------------------
+
+
+class ClaimTest(unittest.TestCase):
+    """`start` records who holds a task, so two agents cannot work one task."""
+
+    def setUp(self):
+        self._env = mock.patch.dict(os.environ, {"TASKERKEEPER_OWNER": "agent-a"})
+        self._env.start()
+        self.addCleanup(self._env.stop)
+
+    @staticmethod
+    def as_owner(name: str):
+        return mock.patch.dict(os.environ, {"TASKERKEEPER_OWNER": name})
+
+    def test_start_records_owner_and_lease(self):
+        with TempTodo(todo(phase("1.0", task("1.0.1")))) as path:
+            code, _ = run("start", path, "1.0.1")
+            self.assertEqual(code, 0)
+            claimed = reload(path)["phases"][0]["tasks"][0]
+            self.assertEqual(claimed["claimed_by"], "agent-a")
+            self.assertIn("claimed_at", claimed)
+            self.assertTrue(claimed["lease_expires_at"].endswith("Z"))
+
+    def test_second_agent_cannot_take_a_live_claim(self):
+        with TempTodo(todo(phase("1.0", task("1.0.1")))) as path:
+            run("start", path, "1.0.1")
+            with self.as_owner("agent-b"):
+                code, out = run("start", path, "1.0.1")
+            self.assertEqual(code, 1)
+            self.assertIn("held by agent-a", out)
+            self.assertEqual(reload(path)["phases"][0]["tasks"][0]["claimed_by"], "agent-a")
+
+    def test_owner_restarting_refreshes_its_own_lease(self):
+        with TempTodo(todo(phase("1.0", task("1.0.1")))) as path:
+            run("start", path, "1.0.1")
+            code, out = run("start", path, "1.0.1")
+            self.assertEqual(code, 0)
+            self.assertIn("lease refreshed", out)
+
+    def test_expired_lease_can_be_reclaimed(self):
+        with TempTodo(todo(phase("1.0", task("1.0.1")))) as path:
+            run("start", path, "1.0.1")
+            expire(path, "1.0.1")
+            with self.as_owner("agent-b"):
+                code, out = run("start", path, "1.0.1")
+            self.assertEqual(code, 0)
+            self.assertIn("Reclaimed", out)
+            self.assertEqual(reload(path)["phases"][0]["tasks"][0]["claimed_by"], "agent-b")
+
+    def test_next_does_not_hand_out_another_agents_live_task(self):
+        # The whole point of claiming: a second agent must get different work.
+        with TempTodo(todo(phase("1.0", task("1.0.1"), task("1.0.2")))) as path:
+            run("start", path, "1.0.1")
+            with self.as_owner("agent-b"):
+                code, out = run("next", path, "--json")
+            self.assertEqual(code, 0)
+            self.assertEqual(json.loads(out)["task"]["id"], "1.0.2")
+
+    def test_next_resumes_the_callers_own_claim(self):
+        with TempTodo(todo(phase("1.0", task("1.0.1"), task("1.0.2")))) as path:
+            run("start", path, "1.0.1")
+            code, out = run("next", path, "--json")
+            self.assertEqual(code, 0)
+            payload = json.loads(out)
+            self.assertEqual(payload["task"]["id"], "1.0.1")
+            self.assertTrue(payload["resumed"])
+
+    def test_next_resumes_an_expired_claim_from_anyone(self):
+        with TempTodo(todo(phase("1.0", task("1.0.1"), task("1.0.2")))) as path:
+            run("start", path, "1.0.1")
+            expire(path, "1.0.1")
+            with self.as_owner("agent-b"):
+                code, out = run("next", path, "--json")
+            self.assertEqual(json.loads(out)["task"]["id"], "1.0.1")
+
+    def test_done_refuses_someone_elses_live_claim_without_force(self):
+        with TempTodo(todo(phase("1.0", task("1.0.1")))) as path:
+            run("start", path, "1.0.1")
+            with self.as_owner("agent-b"):
+                code, out = run("done", path, "1.0.1")
+                self.assertEqual(code, 1)
+                self.assertIn("held by agent-a", out)
+                self.assertEqual(run("done", path, "1.0.1", "--force")[0], 0)
+
+    def test_terminal_status_clears_the_claim(self):
+        for command in (("done",), ("reset",), ("status", "cancelled")):
+            with self.subTest(command=command[0]):
+                with TempTodo(todo(phase("1.0", task("1.0.1")))) as path:
+                    run("start", path, "1.0.1")
+                    run(command[0], path, "1.0.1", *command[1:])
+                    finished = reload(path)["phases"][0]["tasks"][0]
+                    for field in cli.CLAIM_FIELDS:
+                        self.assertNotIn(field, finished)
+
+    def test_a_claim_with_no_lease_field_is_treated_as_expired(self):
+        # Files written by a pre-lease `start` must not deadlock forever.
+        legacy = task("1.0.1", status="in_progress", claimed_by="ghost")
+        with TempTodo(todo(phase("1.0", legacy))) as path:
+            with self.as_owner("agent-b"):
+                self.assertEqual(run("start", path, "1.0.1")[0], 0)
+
+
+def expire(path: str, task_id: str) -> None:
+    """Push a task's lease into the past, standing in for a crashed agent."""
+    data = reload(path)
+    for phase_data in data["phases"]:
+        for item in phase_data["tasks"]:
+            if item["id"] == task_id:
+                item["lease_expires_at"] = "2020-01-01T00:00:00Z"
+    Path(path).write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Owned-path conflicts
+# ---------------------------------------------------------------------------
+
+
+class DisjointTest(unittest.TestCase):
+    def test_paths_conflict_covers_directories(self):
+        self.assertTrue(cli.paths_conflict("src/auth.rs", "src/auth.rs"))
+        self.assertTrue(cli.paths_conflict("./src/auth.rs", "src/auth.rs"))
+        self.assertTrue(cli.paths_conflict("src\\auth.rs", "src/auth.rs"))
+        self.assertTrue(cli.paths_conflict("src/", "src/auth.rs"))
+        self.assertTrue(cli.paths_conflict("src/routes/handlers.rs", "src/routes"))
+        self.assertFalse(cli.paths_conflict("src/auth.rs", "src/authz.rs"))
+        self.assertFalse(cli.paths_conflict("src/auth.rs", "docs/auth.rs"))
+        self.assertFalse(cli.paths_conflict("", "src/auth.rs"))
+
+    def test_ready_warns_when_owned_paths_overlap(self):
+        with TempTodo(todo(phase(
+            "1.0",
+            task("1.0.1", touches=["src/auth.rs"]),
+            task("1.0.2", touches=["src/auth.rs"]),
+        ))) as path:
+            code, out = run("ready", path)
+            self.assertEqual(code, 0)
+            self.assertIn("Owned paths overlap", out)
+            self.assertIn("1.0.1 ~ 1.0.2", out)
+
+    def test_disjoint_keeps_the_lowest_id_and_defers_the_rest(self):
+        with TempTodo(todo(phase(
+            "1.0",
+            task("1.0.1", touches=["src/routes/"]),
+            task("1.0.2", touches=["src/routes/handlers.rs"]),
+            task("1.0.3", touches=["docs/readme.md"]),
+        ))) as path:
+            code, out = run("ready", path, "--disjoint", "--json")
+            payload = json.loads(out)
+            self.assertEqual(code, 0)
+            self.assertEqual([t["id"] for t in payload["ready"]], ["1.0.1", "1.0.3"])
+            self.assertEqual(payload["deferred"][0]["id"], "1.0.2")
+            self.assertEqual(payload["deferred"][0]["conflicts_with"], ["1.0.1"])
+
+    def test_in_progress_tasks_hold_their_paths(self):
+        with TempTodo(todo(phase(
+            "1.0",
+            task("1.0.1", status="in_progress", touches=["src/auth.rs"]),
+            task("1.0.2", touches=["src/auth.rs"]),
+            task("1.0.3", touches=["docs/readme.md"]),
+        ))) as path:
+            payload = json.loads(run("ready", path, "--disjoint", "--json")[1])
+            self.assertEqual([t["id"] for t in payload["ready"]], ["1.0.3"])
+
+    def test_next_disjoint_skips_work_colliding_with_in_progress(self):
+        with TempTodo(todo(phase(
+            "1.0",
+            task("1.0.1", status="in_progress", touches=["src/auth.rs"]),
+            task("1.0.2", touches=["src/auth.rs"]),
+            task("1.0.3", touches=["docs/readme.md"]),
+        ))) as path:
+            with mock.patch.dict(os.environ, {"TASKERKEEPER_OWNER": "agent-b"}):
+                payload = json.loads(
+                    run("next", path, "--disjoint", "--no-resume", "--json")[1])
+            self.assertEqual(payload["task"]["id"], "1.0.3")
+
+    def test_tasks_without_touches_never_conflict(self):
+        with TempTodo(todo(phase("1.0", task("1.0.1"), task("1.0.2")))) as path:
+            payload = json.loads(run("ready", path, "--disjoint", "--json")[1])
+            self.assertEqual([t["id"] for t in payload["ready"]], ["1.0.1", "1.0.2"])
+            self.assertEqual(payload["conflicts"], [])
+
+
+# ---------------------------------------------------------------------------
+# Complexity -> tier
+# ---------------------------------------------------------------------------
+
+
+class ComplexityTierTest(unittest.TestCase):
+    def test_range_parsing(self):
+        self.assertEqual(agents.parse_complexity_range("Low-High"),
+                         ["low", "medium", "high"])
+        self.assertEqual(agents.parse_complexity_range("Very High"), ["very high"])
+        self.assertEqual(agents.parse_complexity_range("Medium to High"),
+                         ["medium", "high"])
+        self.assertEqual(agents.parse_complexity_range("low, very high"),
+                         ["low", "very high"])
+        self.assertEqual(agents.parse_complexity_range(None), [])
+
+    def test_complexity_picks_a_tier_when_no_agent_is_named(self):
+        self.assertEqual(agents.effective_agent({"complexity": "Low"}), "basic_dev_agent")
+        self.assertEqual(agents.effective_agent({"complexity": "Very High"}), "flagship")
+
+    def test_an_explicit_agent_always_wins(self):
+        self.assertEqual(
+            agents.effective_agent({"complexity": "Low", "agent": "flagship"}), "flagship")
+
+    def test_no_agent_and_no_complexity_falls_back(self):
+        self.assertEqual(agents.effective_agent({}), agents.FALLBACK_TIER)
+
+    def test_configured_complexity_range_overrides_the_default_map(self):
+        tiers = {"flagship": {"complexity_range": "Low-High"}}
+        self.assertEqual(agents.effective_agent({"complexity": "Low"}, tiers), "flagship")
+
+    def test_resolved_output_reports_a_derived_tier(self):
+        resolved = agents.resolve_task({"id": "1.0.1", "complexity": "Low"},
+                                       agents.DEFAULT_TIERS)
+        self.assertEqual(resolved["agent"], "basic_dev_agent")
+        self.assertTrue(resolved["agent_derived"])
+        self.assertEqual(resolved["model"], "claude-haiku-4-5")
+
+    def test_add_derives_the_tier_from_complexity(self):
+        with TempTodo(todo(phase("1.0"))) as path:
+            run("add", path, "--phase", "1.0", "--title", "Hard thing",
+                "--complexity", "Very High")
+            added = reload(path)["phases"][0]["tasks"][0]
+            self.assertEqual(added["agent"], "flagship")
+
+
+# ---------------------------------------------------------------------------
+# Event log
+# ---------------------------------------------------------------------------
+
+
+class EventLogTest(unittest.TestCase):
+    def setUp(self):
+        self._env = mock.patch.dict(os.environ, {"TASKERKEEPER_OWNER": "agent-a"})
+        self._env.start()
+        self.addCleanup(self._env.stop)
+
+    def test_transitions_are_appended_not_overwritten(self):
+        with TempTodo(todo(phase("1.0", task("1.0.1")))) as path:
+            run("start", path, "1.0.1")
+            run("reset", path, "1.0.1")
+            run("start", path, "1.0.1")
+            run("done", path, "1.0.1", "--changelog", "shipped it")
+            events = jsonio.read_events(path)
+            self.assertEqual([e["event"] for e in events],
+                             ["start", "reset", "start", "done"])
+            self.assertEqual(events[-1]["changelog"], "shipped it")
+            self.assertTrue(all(e["owner"] == "agent-a" for e in events))
+
+    def test_history_can_filter_to_one_task(self):
+        with TempTodo(todo(phase("1.0", task("1.0.1"), task("1.0.2")))) as path:
+            run("start", path, "1.0.1")
+            run("start", path, "1.0.2")
+            payload = json.loads(run("history", path, "--task", "1.0.2", "--json")[1])
+            self.assertEqual([e["task"] for e in payload["events"]], ["1.0.2"])
+
+    def test_history_is_empty_before_anything_happens(self):
+        with TempTodo(todo(phase("1.0", task("1.0.1")))) as path:
+            code, out = run("history", path)
+            self.assertEqual(code, 1)
+            self.assertIn("No events", out)
+
+    def test_the_log_can_be_switched_off(self):
+        with mock.patch.dict(os.environ, {"TASKERKEEPER_EVENTS": "0"}):
+            with TempTodo(todo(phase("1.0", task("1.0.1")))) as path:
+                run("start", path, "1.0.1")
+                self.assertFalse(jsonio.events_path(path).exists())
+
+
+# ---------------------------------------------------------------------------
+# Release
+# ---------------------------------------------------------------------------
+
+
+def releasing(*tasks: dict) -> dict:
+    return phase("1.0", *tasks,
+                 release={"version": "v0.1.0", "tag_on_complete": True,
+                          "release_notes": "First cut."})
+
+
+class ReleaseTest(unittest.TestCase):
+    def test_done_reports_release_ready_only_when_the_phase_completes(self):
+        with TempTodo(todo(releasing(task("1.0.1"), task("1.0.2")))) as path:
+            first = json.loads(run("done", path, "1.0.1", "--json")[1])
+            self.assertFalse(first["phase_complete"])
+            self.assertFalse(first["release_ready"])
+            last = json.loads(run("done", path, "1.0.2", "--json")[1])
+            self.assertTrue(last["phase_complete"])
+            self.assertTrue(last["release_ready"])
+            self.assertEqual(last["release"]["version"], "v0.1.0")
+
+    def test_done_never_creates_a_tag_by_itself(self):
+        with TempTodo(todo(releasing(task("1.0.1")))) as path:
+            with mock.patch("taskerkeeper.cli.subprocess.run") as spawned:
+                run("done", path, "1.0.1")
+            spawned.assert_not_called()
+
+    def test_release_refuses_an_incomplete_phase(self):
+        with TempTodo(todo(releasing(task("1.0.1"), task("1.0.2")))) as path:
+            run("done", path, "1.0.1")
+            code, out = run("release", path)
+            self.assertEqual(code, 1)
+            self.assertIn("not complete", out)
+
+    def test_release_reports_the_collected_changelog(self):
+        with TempTodo(todo(releasing(task("1.0.1")))) as path:
+            run("done", path, "1.0.1", "--changelog", "shipped it")
+            payload = json.loads(run("release", path, "--json")[1])
+            self.assertEqual(payload["version"], "v0.1.0")
+            self.assertTrue(payload["complete"])
+            self.assertEqual(payload["changelog_entries"], ["shipped it"])
+
+    def test_tag_message_carries_notes_and_changelog(self):
+        state = {"version": "v0.1.0", "release_notes": "First cut.",
+                 "changelog_entries": ["a", "b"]}
+        self.assertEqual(cli.tag_message(state), "First cut.\n\n- a\n- b\n")
+
+    def test_tag_shells_out_only_with_the_flag(self):
+        with TempTodo(todo(releasing(task("1.0.1")))) as path:
+            run("done", path, "1.0.1", "--changelog", "shipped it")
+            calls = []
+
+            def fake_run(argv, **kwargs):
+                calls.append(argv)
+                # First call is the "does this tag exist" probe.
+                code = 1 if "rev-parse" in argv else 0
+                return subprocess.CompletedProcess(argv, code, "", "")
+
+            with mock.patch("taskerkeeper.cli.subprocess.run", fake_run):
+                code, out = run("release", path, "--tag")
+            self.assertEqual(code, 0)
+            self.assertIn("Tagged v0.1.0", out)
+            self.assertIn("tag", calls[-1])
+            self.assertIn("v0.1.0", calls[-1])
+
+    def test_tag_refuses_to_clobber_an_existing_tag(self):
+        with TempTodo(todo(releasing(task("1.0.1")))) as path:
+            run("done", path, "1.0.1")
+            with mock.patch("taskerkeeper.cli.subprocess.run",
+                            return_value=subprocess.CompletedProcess([], 0, "abc123", "")):
+                code, out = run("release", path, "--tag")
+            self.assertEqual(code, 1)
+            self.assertIn("already exists", out)
+
+
+# ---------------------------------------------------------------------------
+# Stale locks
+# ---------------------------------------------------------------------------
+
+
+class StaleLockTest(unittest.TestCase):
+    def test_a_lock_left_by_a_dead_process_is_broken(self):
+        with TempTodo(todo(phase("1.0", task("1.0.1")))) as path:
+            # A pid that is not running, recorded as ours so the host matches.
+            dead = json.dumps({"pid": 999999, "host": socket.gethostname(),
+                               "at": "2020-01-01T00:00:00Z"})
+            Path(path + ".lock").write_text(dead, encoding="utf-8")
+            code, out = run("start", path, "1.0.1")
+            self.assertEqual(code, 0)
+            self.assertIn("stale lock", out)
+            self.assertFalse(Path(path + ".lock").exists())
+
+    def test_a_live_holder_is_respected(self):
+        with TempTodo(todo(phase("1.0", task("1.0.1")))) as path:
+            mine = json.dumps({"pid": os.getpid(), "host": socket.gethostname(),
+                               "at": "2020-01-01T00:00:00Z"})
+            Path(path + ".lock").write_text(mine, encoding="utf-8")
+            lock = jsonio.FileLock(path, timeout=0.1)
+            with self.assertRaises(jsonio.LockTimeout):
+                lock.__enter__()
+
+    def test_an_unreachable_holder_ages_out(self):
+        with TempTodo(todo(phase("1.0", task("1.0.1")))) as path:
+            # No host match, so the pid says nothing: only age can decide.
+            other = json.dumps({"pid": os.getpid(), "host": "some-other-machine",
+                                "at": "2020-01-01T00:00:00Z"})
+            Path(path + ".lock").write_text(other, encoding="utf-8")
+            with jsonio.FileLock(path, timeout=0.1, stale_after=0.0) as lock:
+                self.assertIsNotNone(lock.broke_stale_lock)
+
+    def test_a_pre_lease_bare_pid_lock_is_still_understood(self):
+        with TempTodo(todo(phase("1.0", task("1.0.1")))) as path:
+            Path(path + ".lock").write_text("999999", encoding="utf-8")
+            self.assertEqual(jsonio.FileLock(path).holder(), {"pid": 999999})
+
+    def test_pid_probing_never_signals_the_process(self):
+        # os.kill(pid, 0) terminates the process on Windows; this must not use it.
+        with mock.patch("taskerkeeper.jsonio.os.kill") as killed:
+            jsonio._pid_alive(os.getpid())
+        if os.name == "nt":
+            killed.assert_not_called()

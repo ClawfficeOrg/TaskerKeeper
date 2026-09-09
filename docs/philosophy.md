@@ -17,8 +17,9 @@ language to determine what's blocked. This is fragile and error-prone.
 
 ### No Parallel Execution
 Everything is linear by design. If tasks A and B are independent and both
-ready, the agent still processes them sequentially because the format has
-no concept of parallel groups.
+ready, the agent still processes them one after the other, because nothing in
+the format says they are independent — and nothing says which files each of
+them owns, so nothing could tell you whether running them together is safe.
 
 ### Token Waste
 Agents read the entire file even when they only need one task. For large
@@ -36,10 +37,17 @@ TaskerKeeper replaces markdown todos with structured JSON that has:
    is eligible only when all its prerequisites are `done`. This enables
    non-linear execution paths.
 
-3. **Parallel Groups** — Tasks in the same group can run concurrently.
-   Different groups run sequentially. This maps naturally to how independent
-   workstreams actually operate, and `taskerkeeper ready` emits the whole
-   runnable set at once so a supervisor can fan them out.
+3. **Safe Fan-Out** — `taskerkeeper ready` emits the whole runnable set at
+   once, and `--disjoint` narrows it to tasks whose `touches` paths do not
+   collide, so a supervisor can dispatch the set without two agents editing one
+   file. `parallel_group` is a label on top of that, for reading — it groups
+   related work in `parallel` and `convert` output and has no effect on
+   scheduling. Real ordering is a `prerequisite`; there is deliberately only one
+   mechanism that can block a task.
+
+   Claiming completes the picture: `start` records an owner and a lease, so a
+   second agent is never handed work someone is already doing, and work orphaned
+   by a crash returns to the pool on its own.
 
 4. **Machine-Readable Structure** — No regex parsing, no line-number counting.
    JSON is native to every language and tool.

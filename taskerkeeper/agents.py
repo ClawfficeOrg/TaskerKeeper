@@ -24,6 +24,7 @@ task can override the tier entirely with its own `provider` / `model`.
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 from taskerkeeper.jsonio import FileLock, read_json, write_json
@@ -60,6 +61,76 @@ DEFAULT_PROVIDER = "anthropic"
 
 #: Kept as a name because it reads well at call sites and in the docs.
 DEFAULT_TIERS = PROVIDER_PRESETS[DEFAULT_PROVIDER]
+
+#: The schema's `complexity` enum, cheapest first. Order matters: a
+#: `complexity_range` of "Low-High" expands along this list.
+COMPLEXITIES = ("Low", "Medium", "High", "Very High")
+
+#: Which tier handles a task that names a complexity but no agent. A tier's
+#: `complexity_range` in any config layer overrides this — that field used to be
+#: documentation nothing read.
+DEFAULT_COMPLEXITY_TIERS: dict[str, str] = {
+    "low": "basic_dev_agent",
+    "medium": "mid_dev_agent",
+    "high": "pro_dev_agent",
+    "very high": "flagship",
+}
+
+#: The tier a task falls back to with neither an agent nor a usable complexity.
+FALLBACK_TIER = "mid_dev_agent"
+
+
+def parse_complexity_range(spec: object) -> list[str]:
+    """Complexity names a `complexity_range` covers, normalised to lower case.
+
+    Accepts the shapes people actually write: "High", "Low-Medium",
+    "Medium to High", "Low, Very High", "low/medium". A dash or "to" between two
+    names is an inclusive range over COMPLEXITIES; commas and slashes list
+    individual names.
+    """
+    if not isinstance(spec, str):
+        return []
+    text = spec.lower().replace("–", "-").replace("—", "-").replace(" to ", "-")
+    order = [c.lower() for c in COMPLEXITIES]
+    # Longest alternative first so "very high" is not read as "high".
+    pattern = re.compile("|".join(sorted(order, key=len, reverse=True)))
+    found: list[str] = []
+
+    for segment in re.split(r"[,;/]", text):
+        picked = pattern.findall(segment)
+        if len(picked) == 2 and "-" in segment:
+            lo, hi = sorted(order.index(name) for name in picked)
+            found.extend(order[lo:hi + 1])
+        else:
+            found.extend(picked)
+
+    return [c for c in order if c in found]
+
+
+def complexity_tiers(tiers: dict[str, dict] | None = None) -> dict[str, str]:
+    """complexity (lower case) -> tier name, with config overriding the defaults.
+
+    Later tiers win a contested complexity, so a config that assigns the same
+    complexity twice resolves deterministically rather than by dict order luck.
+    """
+    mapping = dict(DEFAULT_COMPLEXITY_TIERS)
+    for tier, config in (tiers or {}).items():
+        for complexity in parse_complexity_range((config or {}).get("complexity_range")):
+            mapping[complexity] = tier
+    return mapping
+
+
+def effective_agent(task: dict, tiers: dict[str, dict] | None = None) -> str:
+    """The tier that runs a task: its own `agent`, else derived from complexity.
+
+    Deriving is what makes `complexity` more than a label — a task can state how
+    hard it is and let the tier table decide who gets it.
+    """
+    named = task.get("agent")
+    if named:
+        return named
+    complexity = str(task.get("complexity", "")).strip().lower()
+    return complexity_tiers(tiers).get(complexity, FALLBACK_TIER)
 
 
 def preset_tiers(provider: str) -> dict[str, dict[str, str]]:
@@ -217,11 +288,18 @@ def resolve_task(task: dict, tiers: dict[str, dict]) -> dict:
 
     The task's tier supplies the defaults; anything set directly on the task
     (`provider`, `model`, and any other key the tier defines) overrides them.
+    A task with no `agent` gets one derived from its `complexity`, reported back
+    as `agent` with `agent_derived: true`.
     """
-    resolved = dict(tiers.get(task.get("agent"), {}))
+    tier = effective_agent(task, tiers)
+    resolved = dict(tiers.get(tier, {}))
+    resolved.pop("complexity_range", None)
+    resolved.pop("duration_minutes", None)
     for key in set(resolved) | {"provider", "model"}:
         if task.get(key) is not None:
             resolved[key] = task[key]
+    resolved["agent"] = tier
+    resolved["agent_derived"] = not task.get("agent")
     return {k: v for k, v in resolved.items() if v is not None}
 
 

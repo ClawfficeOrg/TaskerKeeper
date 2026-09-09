@@ -5,6 +5,76 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] — 2026-09-08
+
+Parallel execution was the headline feature and was not actually enforced. This
+release makes it real.
+
+### Added
+
+- **Claims with leases.** `start` records `claimed_by`, `claimed_at`, and
+  `lease_expires_at` on a task. `start` refuses a task another agent holds under
+  a live lease, `next` never hands out a live claim, and `done` needs `--force`
+  to finish someone else's. A crashed agent's task becomes claimable when its
+  lease lapses, so recovery no longer means editing fields by hand. Owner from
+  `--owner` / `TASKERKEEPER_OWNER` / `host:pid`; lease from `--lease` /
+  `TASKERKEEPER_LEASE_MINUTES` / 60 minutes.
+- **`ready --disjoint` and `next --disjoint`.** `touches` is now scheduling
+  input: tasks whose owned paths overlap are never emitted together, and tasks
+  already in progress hold their paths. Paths overlap when equal or when one is
+  a directory containing the other. Selection is greedy in ID order, so results
+  are stable; skipped tasks come back under `deferred`. Plain `ready` reports
+  overlaps as a warning instead of silently listing unsafe work.
+- **Append-only event log.** Every `start`, `done`, `reset`, `status`, `add`,
+  and `release` appends a JSON line to `<file>.events.jsonl`. `taskerkeeper
+  history` replays it, with `--task` and `--limit`. `TASKERKEEPER_EVENTS=0`
+  disables it. Status fields are overwritten in place, so the todo file alone
+  could never answer "how many times was this reset, and by whom".
+- **`taskerkeeper release [phase]`.** Prints the tag a completed phase ships as,
+  with the changelog `done` collected; `--tag` creates the annotated tag,
+  refusing an incomplete phase without `--force` and refusing to clobber an
+  existing tag. `done --json` now reports `release_ready`. `tag_on_complete` was
+  previously a field nothing acted on.
+- **Complexity-driven tier selection.** A task with a `complexity` and no
+  `agent` is routed by tier: Low→basic, Medium→mid, High→pro, Very High→
+  flagship. A tier's `complexity_range` overrides that, accepting `"High"`,
+  `"Low-Medium"`, `"Medium to High"`, `"Low, Very High"`. `complexity_range` was
+  documentation nothing read; `add` hardcoded `mid_dev_agent`.
+- **Stale lock recovery.** The lock file records pid, host, and time. A lock
+  whose holder is confirmed gone is broken immediately; one whose holder cannot
+  be checked is broken after `stale_after` (default 300s). Commands say when
+  they broke one. Pid liveness on Windows goes through `OpenProcess`, never
+  `os.kill(pid, 0)` — which on Windows terminates the process.
+- `--json` on `start` and `done`; `--owner` on `next`, `start`, `done`, `reset`,
+  and `status`.
+
+### Changed
+
+- **`parallel_group` no longer claims to schedule anything.** The docs said
+  "different groups run sequentially within a phase"; no code ever implemented
+  it. It is a label, read only by `parallel` and `convert`. Ordering is
+  `prerequisites`; concurrency safety is `touches`.
+- `resolve_task` now reports the tier it resolved (`agent`) and whether that
+  tier was derived (`agent_derived`), so an unknown tier returns
+  `{"agent": ..., "agent_derived": false}` rather than `{}`.
+- `task_summary` carries the claim fields, so `ready --json` and `next --json`
+  show who holds what.
+
+### Fixed
+
+- `next` could hand a live `in_progress` task to a second agent, putting two
+  agents on the same work — the exact failure claiming is meant to prevent. It
+  now resumes only the caller's own claim or an expired one.
+- A crashed process left `<file>.lock` behind forever. The lock recorded a pid
+  and nothing ever read it.
+
+### Schema
+
+Additive only. New task fields `claimed_by`, `claimed_at`, `lease_expires_at`;
+`agent` documented as optional and derivable; descriptions corrected for
+`parallel_group`, `touches`, and `complexity_range`. Existing files validate
+unchanged.
+
 ## [0.4.0] — 2026-09-08
 
 ### Added

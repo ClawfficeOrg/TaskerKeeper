@@ -18,7 +18,7 @@ Every read command has a `--json` mode; do not break it.
 ```
 taskerkeeper/cli.py                    All CLI logic. One file on purpose.
 taskerkeeper/agents.py                 Tier -> provider/model resolution
-taskerkeeper/jsonio.py                 Atomic writes and the file lock
+taskerkeeper/jsonio.py                 Atomic writes, the file lock, the event log
 taskerkeeper/__main__.py               python -m taskerkeeper
 taskerkeeper/schema/todo-v1.schema.json  JSON Schema (draft 2020-12), package data
 scripts/taskerkeeper.py                Backward-compatible shim, no logic
@@ -26,7 +26,7 @@ ralph/ralph-json.sh                    Thin wrapper that execs the CLI, no logic
 skills/taskerkeeper/SKILL.md           Hermes skill describing the format
 tests/test_cli.py                      stdlib unittest suite
 examples/                              simple-project, zoidmatter-v7
-docs/                                  philosophy, integration-guide, memory, notes
+docs/                                  philosophy, integration-guide, memory, module-plan, notes
 ```
 
 ## Commands you will need
@@ -56,6 +56,42 @@ phase's `prerequisites` is complete. A phase is complete when all its tasks are
 `done`, `cancelled`, or `moved`. Only `done` satisfies a task prerequisite.
 Changing any of this changes what every downstream agent does — update
 `ready_tasks`, `blockers_for`, the tests, and the README table together.
+
+**`parallel_group` schedules nothing.** It is a label, read only by `parallel`
+and `convert`. It used to be documented as making groups run sequentially, which
+no code ever did. There is exactly one way to block a task — `prerequisites` —
+and exactly one way to decide what runs together — `touches` overlap. Do not add
+a second gate to `blockers_for`.
+
+**A claim is enforced, not advisory.** `start` writes `claimed_by`,
+`claimed_at`, and `lease_expires_at`; anything that leaves `in_progress` clears
+all three (`set_status` does it, so do not bypass it). `find_next` may only
+return an `in_progress` task that `claimable_by` accepts — the caller's own, or
+one whose lease has lapsed. Handing a live claim to a second agent puts two
+agents on one task, which is the failure this whole file exists to prevent. A
+task with no `lease_expires_at` counts as expired, so pre-0.5 files still work.
+
+**`touches` is scheduling input, not documentation.** `ready --disjoint` and
+`next --disjoint` use `paths_conflict` — equal paths, or one a directory
+containing the other — to keep two agents out of the same file, and in-progress
+tasks hold their paths. Keep the greedy selection in ID order: a supervisor that
+gets a different set each call cannot reason about what it dispatched.
+
+**Never probe a pid with `os.kill(pid, 0)`.** On Windows CPython implements
+`os.kill` as `TerminateProcess`, so the POSIX idiom would kill the process it
+was checking. `jsonio._pid_alive` uses `OpenProcess`/`GetExitCodeProcess` there
+and returns `None` when it cannot tell; a test asserts `os.kill` is never
+called. Unknown liveness falls back to lock age, never to "assume dead".
+
+**TaskerKeeper does not touch git except in `release --tag`.** `done` reports
+`release_ready` and stops. The last task of a phase is an ordinary task, and a
+tag created as its side effect appears at a moment nobody chose. Keep tagging
+behind the explicit command and the explicit flag.
+
+**The event log is append-only and best-effort.** `append_event` swallows its
+own IO errors on purpose: losing an audit line must never fail the write that
+produced it. Events go to `<file>.events.jsonl`, never into the todo file — the
+roadmap stays small and diffable, and a torn append costs one line.
 
 **Writes are locked and atomic.** Mutating commands go through
 `with FileLock(path):`, reload inside the lock, and save via `write_json`, which

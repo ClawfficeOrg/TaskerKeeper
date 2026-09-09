@@ -16,9 +16,15 @@ Usage:
     taskerkeeper deps <todo.json> <task_id>      Dependency chain
     taskerkeeper add <todo.json> --phase <id> --title <t>
                                                  Append a task to a phase
+    taskerkeeper release <todo.json> [phase]     Show/cut the tag a phase ships as
+    taskerkeeper history <todo.json>             Replay the event log
     taskerkeeper convert <todo.json>             Render JSON as markdown
 
 Every read command accepts --json for machine-readable output.
+
+Claiming: `start` records an owner and a lease, so `next` never hands a live
+task to a second agent. `TASKERKEEPER_OWNER` names the agent;
+`TASKERKEEPER_LEASE_MINUTES` sets how long a claim holds.
 
 Requirements: pip install jsonschema
 """
@@ -27,12 +33,23 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import socket
+import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from taskerkeeper import agents
-from taskerkeeper.jsonio import FileLock, LockTimeout, read_json, write_json
+from taskerkeeper.jsonio import (
+    FileLock,
+    LockTimeout,
+    append_event,
+    events_path,
+    read_events,
+    read_json,
+    write_json,
+)
 
 for _stream in (sys.stdout, sys.stderr):
     try:
@@ -61,6 +78,14 @@ STATUS_ICONS = {
     "cancelled": "✗",
     "moved": "→",
 }
+
+#: How long a claim on a task stays valid without being refreshed. A claim that
+#: outlives this is treated as abandoned, which is how a crashed agent's task
+#: gets handed to someone else without a human deleting fields by hand.
+DEFAULT_LEASE_MINUTES = 60
+
+#: Claim bookkeeping, cleared whenever a task stops being in_progress.
+CLAIM_FIELDS = ("claimed_by", "claimed_at", "lease_expires_at")
 
 
 def schema_path() -> Path:
@@ -107,6 +132,157 @@ def load_todo(path: str) -> dict:
 def save_todo(data: dict, path: str) -> None:
     """Write the todo file atomically."""
     write_json(data, path)
+
+
+# ---------------------------------------------------------------------------
+# Claims and leases
+# ---------------------------------------------------------------------------
+
+
+def default_owner() -> str:
+    """Who this process is, for claim bookkeeping.
+
+    `TASKERKEEPER_OWNER` when a supervisor wants stable agent names across
+    restarts; host:pid otherwise, which is at least unique.
+    """
+    named = os.environ.get("TASKERKEEPER_OWNER", "").strip()
+    return named or f"{socket.gethostname()}:{os.getpid()}"
+
+
+def default_lease_minutes() -> int:
+    raw = os.environ.get("TASKERKEEPER_LEASE_MINUTES", "").strip()
+    try:
+        value = int(raw)
+    except ValueError:
+        return DEFAULT_LEASE_MINUTES
+    return value if value > 0 else DEFAULT_LEASE_MINUTES
+
+
+def parse_ts(value: object) -> datetime | None:
+    """Parse one of our ...Z timestamps. None when it is missing or malformed."""
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def lease_expired(task: dict, now: datetime | None = None) -> bool:
+    """True when a claim has run out — including a claim with no expiry recorded.
+
+    A task claimed by a pre-0.5 `start` has no lease fields at all; treating that
+    as expired is what lets the old single-agent behaviour keep working.
+    """
+    expires = parse_ts(task.get("lease_expires_at"))
+    if expires is None:
+        return True
+    return (now or datetime.now(timezone.utc)) >= expires
+
+
+def claim_task(task: dict, owner: str, lease_minutes: int) -> None:
+    now = datetime.now(timezone.utc)
+    task["claimed_by"] = owner
+    task["claimed_at"] = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+    task["lease_expires_at"] = (
+        now + timedelta(minutes=lease_minutes)
+    ).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def release_claim(task: dict) -> None:
+    for field in CLAIM_FIELDS:
+        task.pop(field, None)
+
+
+def claim_summary(task: dict) -> dict:
+    """The claim as a supervisor sees it, empty when the task is unclaimed."""
+    if task.get("status") != "in_progress" or not task.get("claimed_by"):
+        return {}
+    return {
+        "claimed_by": task.get("claimed_by"),
+        "claimed_at": task.get("claimed_at"),
+        "lease_expires_at": task.get("lease_expires_at"),
+        "lease_expired": lease_expired(task),
+    }
+
+
+def claimable_by(task: dict, owner: str) -> bool:
+    """True when `owner` may take an in_progress task: it is theirs, or stale."""
+    holder = task.get("claimed_by")
+    return not holder or holder == owner or lease_expired(task)
+
+
+# ---------------------------------------------------------------------------
+# Owned-path conflicts
+# ---------------------------------------------------------------------------
+
+
+def norm_path(path: object) -> str:
+    """A comparable form of a `touches` entry: forward slashes, no ./ or trailing /."""
+    text = str(path or "").strip().replace("\\", "/")
+    while text.startswith("./"):
+        text = text[2:]
+    return text.rstrip("/")
+
+
+def paths_conflict(a: str, b: str) -> bool:
+    """True when two owned paths overlap.
+
+    Equal paths conflict, and so does a directory against anything beneath it —
+    a task that owns `src/` and one that owns `src/auth.rs` cannot safely run at
+    the same time even though the strings differ.
+    """
+    a, b = norm_path(a), norm_path(b)
+    if not a or not b:
+        return False
+    return a == b or a.startswith(b + "/") or b.startswith(a + "/")
+
+
+def overlapping_paths(first: dict, second: dict) -> list[str]:
+    """Every path pair between two tasks that collides, rendered for a human."""
+    hits = []
+    for a in first.get("touches", []) or []:
+        for b in second.get("touches", []) or []:
+            if paths_conflict(a, b):
+                hits.append(a if norm_path(a) == norm_path(b) else f"{a} ~ {b}")
+    return sorted(set(hits))
+
+
+def touch_conflicts(tasks: list[dict]) -> list[dict]:
+    """Every pair among `tasks` that owns overlapping paths.
+
+    `ready` answers "what could run"; this is what turns that into "what is safe
+    to fan out", because two agents editing the same file is the failure this
+    tool exists to avoid.
+    """
+    out = []
+    for i, first in enumerate(tasks):
+        for second in tasks[i + 1:]:
+            shared = overlapping_paths(first, second)
+            if shared:
+                out.append({"a": first["id"], "b": second["id"], "paths": shared})
+    return out
+
+
+def disjoint_tasks(tasks: list[dict], claimed: list[dict] | None = None) -> tuple[list[dict], list[dict]]:
+    """Split `tasks` into a conflict-free set and the rest.
+
+    Greedy in the order given (id order from `ready_tasks`), so the answer is
+    stable across runs and the lowest-numbered task always wins a contested
+    path. Tasks already in progress hold their paths too — their agent is
+    editing those files right now.
+    """
+    taken: list[dict] = list(claimed or [])
+    selected: list[dict] = []
+    deferred: list[dict] = []
+    for task in tasks:
+        blockers = [held["id"] for held in taken if overlapping_paths(task, held)]
+        if blockers:
+            deferred.append({"task": task, "conflicts_with": blockers})
+        else:
+            selected.append(task)
+            taken.append(task)
+    return selected, deferred
 
 
 # ---------------------------------------------------------------------------
@@ -192,18 +368,26 @@ def blocked_report(data: dict) -> list[dict]:
     return out
 
 
-def find_next(data: dict, resume: bool = True) -> dict | None:
-    """The single task an agent should pick up.
+def find_next(data: dict, resume: bool = True, owner: str | None = None,
+              disjoint: bool = False) -> dict | None:
+    """The single task `owner` should pick up.
 
-    An in_progress task wins: it was claimed by a session that may have crashed,
-    and nothing downstream unblocks until it is finished. Otherwise the
-    lowest-numbered ready task, which is what ready lists first.
+    A resumable in_progress task wins: it was claimed by a session that may have
+    crashed, and nothing downstream unblocks until it is finished. Resumable
+    means the caller's own claim or an expired one — handing out a task another
+    agent is actively holding would put two agents on the same work, which is
+    exactly what claiming exists to prevent. With `disjoint`, a pending task
+    whose owned paths collide with in-progress work is skipped too.
     """
     if resume:
-        running = in_progress_tasks(data)
-        if running:
-            return running[0]
+        who = owner or default_owner()
+        for task in in_progress_tasks(data):
+            if claimable_by(task, who):
+                return task
     ready = ready_tasks(data)
+    if disjoint:
+        # Skip work whose files another agent is editing right now.
+        ready = disjoint_tasks(ready, in_progress_tasks(data))[0]
     return ready[0] if ready else None
 
 
@@ -351,6 +535,18 @@ def validate_todo(path: str, schema_only: bool = False) -> bool:
 # ---------------------------------------------------------------------------
 
 
+def record_event(todo_file: str, event: str, **fields) -> None:
+    """Append one line to the todo file's event log.
+
+    Status fields are overwritten in place, so the file alone cannot answer
+    "how many times did this task get reset, and by whom" — the questions that
+    matter when an autonomous loop misbehaves overnight.
+    """
+    payload = {"at": utc_now(), "event": event}
+    payload.update({k: v for k, v in fields.items() if v is not None})
+    append_event(todo_file, payload)
+
+
 def unmet_prereqs(data: dict, task: dict, phase: dict) -> list[str]:
     return blockers_for(task, phase, done_task_ids(data), complete_phase_ids(data))
 
@@ -361,6 +557,8 @@ def set_status(data: dict, task_id: str, status: str, moved_to: str | None = Non
     if task is None:
         return None
     task["status"] = status
+    if status != "in_progress":
+        release_claim(task)
     if moved_to:
         task["moved_to"] = moved_to
     task["updated_at"] = utc_now()
@@ -390,6 +588,36 @@ def collect_changelog(data: dict, phase: dict, task: dict) -> str | None:
     if entry not in entries:
         entries.append(entry)
     return target["id"]
+
+
+def release_state(phase: dict) -> dict | None:
+    """The release a phase ships, or None when the phase is a planning group."""
+    release = phase.get("release")
+    if not isinstance(release, dict):
+        return None
+    return {
+        "phase": phase["id"],
+        "version": release.get("version"),
+        "tag_on_complete": bool(release.get("tag_on_complete")),
+        "release_notes": release.get("release_notes"),
+        "changelog_entries": list(release.get("changelog_entries") or []),
+        "complete": phase_is_complete(phase),
+    }
+
+
+def releasing_phases(data: dict) -> list[dict]:
+    """Phases that carry a release object, in document order."""
+    return [p for p in data.get("phases", []) if isinstance(p.get("release"), dict)]
+
+
+def tag_message(state: dict) -> str:
+    """The annotated-tag body: release notes, then the collected changelog."""
+    lines = [state.get("release_notes") or f"Release {state.get('version') or ''}".strip()]
+    entries = state.get("changelog_entries") or []
+    if entries:
+        lines.append("")
+        lines.extend(f"- {entry}" for entry in entries)
+    return "\n".join(lines).strip() + "\n"
 
 
 def unblocked_by(data: dict, task_id: str) -> list[dict]:
@@ -424,6 +652,7 @@ def add_task(data: dict, phase_id: str, title: str, **fields) -> dict | None:
         if phase.get("id") != phase_id:
             continue
         now = utc_now()
+        complexity = fields.get("complexity") or "Medium"
         task = {
             "id": next_task_id(phase),
             "title": title,
@@ -432,8 +661,10 @@ def add_task(data: dict, phase_id: str, title: str, **fields) -> dict | None:
             "touches": list(fields.get("touches") or []),
             "success": list(fields.get("success") or []),
             "prerequisites": list(fields.get("prerequisites") or []),
-            "complexity": fields.get("complexity") or "Medium",
-            "agent": fields.get("agent") or "mid_dev_agent",
+            "complexity": complexity,
+            "agent": fields.get("agent") or agents.effective_agent(
+                {"complexity": complexity}, fields.get("tiers")
+            ),
             "created_at": now,
             "updated_at": now,
         }
@@ -458,6 +689,7 @@ def task_summary(task: dict, tiers: dict[str, dict] | None = None) -> dict:
     keys = ("id", "title", "status", "goal", "touches", "success", "tests",
             "prerequisites", "parallel_group", "complexity", "agent")
     summary = {k: task[k] for k in keys if k in task}
+    summary.update(claim_summary(task))
     if tiers is not None:
         summary.update(agents.resolve_task(task, tiers))
     return summary
@@ -664,10 +896,17 @@ def resolved_tiers(data: dict, todo_path: str) -> dict[str, dict]:
     return agents.resolve_tiers(data, todo_path)[0]
 
 
+def report_lock(lock: FileLock) -> None:
+    """Say so when a crashed agent's lock had to be broken to get in."""
+    if lock.broke_stale_lock:
+        print(f"! Broke a stale lock on {lock.path.name}: {lock.broke_stale_lock}")
+
+
 def cmd_next(args) -> int:
     data = load_todo(args.todo_file)
     tiers = resolved_tiers(data, args.todo_file)
-    task = find_next(data, resume=not args.no_resume)
+    owner = args.owner or default_owner()
+    task = find_next(data, resume=not args.no_resume, owner=owner, disjoint=args.disjoint)
     if task is None:
         if args.json:
             emit_json({"task": None, "blocked": blocked_report(data)})
@@ -689,44 +928,94 @@ def cmd_ready(args) -> int:
     tiers = resolved_tiers(data, args.todo_file)
     ready = ready_tasks(data)
     running = in_progress_tasks(data)
+
+    # in_progress tasks hold their owned paths too: an agent is editing them now.
+    selected, deferred = disjoint_tasks(ready, running)
+    conflicts = touch_conflicts(ready + running)
+    listed = selected if args.disjoint else ready
+
     if args.json:
         emit_json({
-            "ready": [task_summary(t, tiers) for t in ready],
+            "ready": [task_summary(t, tiers) for t in listed],
+            "disjoint": bool(args.disjoint),
+            "deferred": [
+                {"id": d["task"]["id"], "title": d["task"].get("title", ""),
+                 "conflicts_with": d["conflicts_with"]}
+                for d in deferred
+            ],
+            "conflicts": conflicts,
             "in_progress": [task_summary(t, tiers) for t in running],
             "blocked": blocked_report(data),
         })
-        return 0 if ready or running else 1
+        return 0 if listed or running else 1
 
-    print("Ready to start now")
+    print("Ready to start now, conflict-free" if args.disjoint else "Ready to start now")
     print("═" * 50)
-    if not ready:
+    if not listed:
         print("  (none)")
-    for task in ready:
+    for task in listed:
         group = f" [group: {task['parallel_group']}]" if task.get("parallel_group") else ""
-        model = agents.resolve_task(task, tiers).get("model", "unset")
+        resolved = agents.resolve_task(task, tiers)
+        model = resolved.get("model", "unset")
+        tier = resolved.get("agent", "unset")
+        derived = "*" if resolved.get("agent_derived") else ""
         print(f"  {task['id']} — {task.get('title', '')} "
-              f"[{task.get('agent', 'unset')} → {model}]{group}")
+              f"[{tier}{derived} → {model}]{group}")
+
+    if args.disjoint and deferred:
+        print("\nDeferred — owned paths overlap something already dispatched:")
+        for item in deferred:
+            print(f"  {item['task']['id']} — {item['task'].get('title', '')} "
+                  f"[conflicts with: {', '.join(item['conflicts_with'])}]")
+    elif conflicts:
+        print("\n! Owned paths overlap — do NOT dispatch these together:")
+        for clash in conflicts:
+            print(f"  {clash['a']} ~ {clash['b']}: {', '.join(clash['paths'])}")
+        print("  Pass --disjoint for a set that is safe to fan out.")
+
     if running:
         print("\nAlready claimed (in_progress):")
         for task in running:
-            print(f"  {task['id']} — {task.get('title', '')}")
+            claim = claim_summary(task)
+            who = claim.get("claimed_by", "unclaimed")
+            stale = " (lease expired)" if claim.get("lease_expired") else ""
+            print(f"  {task['id']} — {task.get('title', '')} [{who}]{stale}")
     print_blocked(data)
-    return 0 if ready or running else 1
+    return 0 if listed or running else 1
 
 
 def cmd_start(args) -> int:
-    with FileLock(args.todo_file):
+    owner = args.owner or default_owner()
+    lease = args.lease or default_lease_minutes()
+    stolen_from = None
+    refreshed = False
+
+    lock = FileLock(args.todo_file)
+    with lock:
+        report_lock(lock)
         data = load_todo(args.todo_file)
         phase, task = find_task(data, args.task_id)
         if task is None:
             print(f"Error: task {args.task_id} not found")
             return 1
-        if task.get("status") == "in_progress":
-            print(f"Task {args.task_id} is already in progress.")
-            return 0
         if task.get("status") == "done":
             print(f"Error: task {args.task_id} is already done. Use reset to reopen it.")
             return 1
+
+        if task.get("status") == "in_progress":
+            holder = task.get("claimed_by")
+            if holder == owner:
+                refreshed = True
+            elif not claimable_by(task, owner):
+                # Two agents on one task is the failure claiming exists to stop.
+                print(f"Error: task {args.task_id} is held by {holder} "
+                      f"until {task.get('lease_expires_at')}.")
+                print("Wait for the lease to lapse, or `reset` it if that agent is gone.")
+                return 1
+            else:
+                stolen_from = holder
+
+        previous = task.get("status")
         blocked = unmet_prereqs(data, task, phase)
         if blocked and not args.force:
             print(f"Error: task {args.task_id} is blocked by: {', '.join(blocked)}")
@@ -734,14 +1023,37 @@ def cmd_start(args) -> int:
             return 1
         if blocked:
             print(f"Warning: starting {args.task_id} with unmet prerequisites: {', '.join(blocked)}")
+
         set_status(data, args.task_id, "in_progress")
+        claim_task(task, owner, lease)
         save_todo(data, args.todo_file)
-    print(f"► Task {args.task_id} started.")
+        record_event(args.todo_file, "start", task=args.task_id, owner=owner,
+                     **{"from": previous, "to": "in_progress"},
+                     lease_expires_at=task.get("lease_expires_at"),
+                     stolen_from=stolen_from,
+                     forced=True if blocked else None)
+
+    payload = {
+        "task": args.task_id,
+        "owner": owner,
+        "lease_expires_at": task.get("lease_expires_at"),
+        "refreshed": refreshed,
+        "stolen_from": stolen_from,
+    }
+    if args.json:
+        emit_json(payload)
+        return 0
+    if stolen_from:
+        print(f"! Reclaimed {args.task_id} from {stolen_from} — their lease had expired.")
+    verb = "lease refreshed" if refreshed else "started"
+    print(f"► Task {args.task_id} {verb} by {owner}, lease to {task.get('lease_expires_at')}.")
     return 0
 
 
 def cmd_done(args) -> int:
-    with FileLock(args.todo_file):
+    lock = FileLock(args.todo_file)
+    with lock:
+        report_lock(lock)
         data = load_todo(args.todo_file)
         phase, task = find_task(data, args.task_id)
         if task is None:
@@ -750,6 +1062,15 @@ def cmd_done(args) -> int:
         if task.get("status") == "done":
             print(f"Task {args.task_id} is already done.")
             return 0
+
+        owner = args.owner or default_owner()
+        holder = task.get("claimed_by")
+        if (task.get("status") == "in_progress" and holder and holder != owner
+                and not lease_expired(task) and not args.force):
+            print(f"Error: task {args.task_id} is held by {holder}, not {owner}.")
+            print("Pass --force to finish someone else's claim.")
+            return 1
+
         blocked = unmet_prereqs(data, task, phase)
         if blocked and not args.force:
             print(f"Error: task {args.task_id} has unmet prerequisites: {', '.join(blocked)}")
@@ -759,38 +1080,67 @@ def cmd_done(args) -> int:
             print(f"Warning: unmet prerequisites: {', '.join(blocked)} (forced)")
         if args.changelog:
             task["changelog"] = args.changelog
+
+        previous = task.get("status")
         set_status(data, args.task_id, "done")
         filed_under = collect_changelog(data, phase, task)
         unblocked = unblocked_by(data, args.task_id)
         phase_done = phase_is_complete(phase)
+        release = release_state(phase) if phase_done else None
         save_todo(data, args.todo_file)
+        record_event(args.todo_file, "done", task=args.task_id, owner=owner,
+                     **{"from": previous, "to": "done"},
+                     changelog=args.changelog,
+                     filed_under=filed_under,
+                     phase_complete=True if phase_done else None,
+                     forced=True if blocked else None)
+
+    if args.json:
+        emit_json({
+            "task": args.task_id,
+            "unblocked": [{"id": t["id"], "title": t.get("title", "")} for t in unblocked],
+            "changelog_filed_under": filed_under,
+            "phase": phase["id"],
+            "phase_complete": phase_done,
+            "release_ready": bool(release and release["tag_on_complete"]),
+            "release": release,
+        })
+        return 0
 
     print(f"✓ Task {args.task_id} marked as done.")
     if filed_under:
         print(f"  Changelog entry filed under phase {filed_under}.")
     if unblocked:
         print("\nUnblocked tasks:")
-        for task in unblocked:
-            print(f"  → {task['id']} — {task.get('title', '')}")
+        for item in unblocked:
+            print(f"  → {item['id']} — {item.get('title', '')}")
     if phase_done:
-        release = phase.get("release")
         print(f"\nPhase {phase['id']} is complete.")
-        if isinstance(release, dict) and release.get("tag_on_complete"):
-            print(f"  Release {release.get('version', '?')} is ready to tag.")
+        if release and release["tag_on_complete"]:
+            print(f"  Release {release['version'] or '?'} is ready to tag:")
+            print(f"    taskerkeeper release {args.todo_file} {phase['id']} --tag")
     return 0
 
 
 def cmd_reset(args) -> int:
-    with FileLock(args.todo_file):
+    lock = FileLock(args.todo_file)
+    with lock:
+        report_lock(lock)
         data = load_todo(args.todo_file)
         _, task = find_task(data, args.task_id)
         if task is None:
             print(f"Error: task {args.task_id} not found")
             return 1
         previous = task.get("status")
+        held_by = task.get("claimed_by")
         set_status(data, args.task_id, "pending")
         save_todo(data, args.todo_file)
-    print(f"· Task {args.task_id} reset to pending (was {previous}).")
+        record_event(args.todo_file, "reset", task=args.task_id,
+                     owner=args.owner or default_owner(),
+                     **{"from": previous, "to": "pending"},
+                     released_claim=held_by)
+    suffix = f", releasing {held_by}'s claim" if held_by else ""
+    print(f"· Task {args.task_id} reset to pending (was {previous}){suffix}.")
     return 0
 
 
@@ -798,7 +1148,9 @@ def cmd_status(args) -> int:
     if args.status == "moved" and not args.moved_to:
         print("Error: --moved-to is required when setting status to moved")
         return 1
-    with FileLock(args.todo_file):
+    lock = FileLock(args.todo_file)
+    with lock:
+        report_lock(lock)
         data = load_todo(args.todo_file)
         _, task = find_task(data, args.task_id)
         if task is None:
@@ -810,6 +1162,10 @@ def cmd_status(args) -> int:
         previous = task.get("status")
         set_status(data, args.task_id, args.status, args.moved_to)
         save_todo(data, args.todo_file)
+        record_event(args.todo_file, "status", task=args.task_id,
+                     owner=args.owner or default_owner(),
+                     **{"from": previous, "to": args.status},
+                     moved_to=args.moved_to)
     print(f"{STATUS_ICONS.get(args.status, '?')} Task {args.task_id}: {previous} → {args.status}")
     return 0
 
@@ -980,8 +1336,11 @@ def cmd_deps(args) -> int:
 
 
 def cmd_add(args) -> int:
-    with FileLock(args.todo_file):
+    lock = FileLock(args.todo_file)
+    with lock:
+        report_lock(lock)
         data = load_todo(args.todo_file)
+        tiers = resolved_tiers(data, args.todo_file)
         for dep in args.prereq or []:
             if find_task(data, dep)[1] is None:
                 print(f"Error: prerequisite {dep} does not exist")
@@ -997,12 +1356,123 @@ def cmd_add(args) -> int:
             parallel_group=args.parallel_group,
             touches=args.touches,
             success=args.success,
+            tiers=tiers,
         )
         if task is None:
             print(f"Error: phase {args.phase} not found")
             return 1
         save_todo(data, args.todo_file)
-    print(f"✓ Added task {task['id']} — {task['title']}")
+        record_event(args.todo_file, "add", task=task["id"],
+                     owner=default_owner(), to="pending",
+                     complexity=task.get("complexity"), agent=task.get("agent"))
+    derived = "" if args.agent else f" (tier {task['agent']} from complexity {task['complexity']})"
+    print(f"✓ Added task {task['id']} — {task['title']}{derived}")
+    return 0
+
+
+def cmd_release(args) -> int:
+    """Report — and optionally cut — the tag a completed phase ships as.
+
+    `done` deliberately does not tag: the last task of a phase is an ordinary
+    task, and a git side effect fired from it lands at a moment nobody chose.
+    This is the explicit step, so the supervisor decides when the tag exists.
+    """
+    data = load_todo(args.todo_file)
+    candidates = releasing_phases(data)
+    if not candidates:
+        print("Error: no phase in this file has a release object")
+        return 1
+
+    if args.phase:
+        phase = next((p for p in candidates if p["id"] == args.phase), None)
+        if phase is None:
+            known = ", ".join(p["id"] for p in candidates)
+            print(f"Error: phase {args.phase} has no release object. Phases that do: {known}")
+            return 1
+    else:
+        phase = candidates[-1]
+
+    state = release_state(phase)
+    version = state["version"]
+    repo = Path(args.todo_file).resolve().parent
+    message = tag_message(state)
+    command = ["git", "-C", str(repo), "tag", "-a", version or "", "-m", message]
+
+    if args.json and not args.tag:
+        emit_json(dict(state, tag_command=command[:6] + ["<message>"]))
+        return 0 if state["complete"] else 1
+
+    if not args.tag:
+        print(f"Release for phase {phase['id']}: {version or '(no version set)'}")
+        print(f"  tag_on_complete: {state['tag_on_complete']}")
+        print(f"  phase complete:  {state['complete']}")
+        if state["changelog_entries"]:
+            print("  changelog:")
+            for entry in state["changelog_entries"]:
+                print(f"    - {entry}")
+        if not state["complete"]:
+            print("\nPhase is not complete — nothing to tag yet.")
+            return 1
+        print("\nTag it with:")
+        print(f"  taskerkeeper release {args.todo_file} {phase['id']} --tag")
+        return 0
+
+    if not version:
+        print(f"Error: phase {phase['id']} has no release.version to tag")
+        return 1
+    if not state["complete"] and not args.force:
+        print(f"Error: phase {phase['id']} is not complete. Pass --force to tag anyway.")
+        return 1
+
+    existing = subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "-q", "--verify", f"refs/tags/{version}"],
+        capture_output=True, text=True,
+    )
+    if existing.returncode == 0:
+        print(f"Error: tag {version} already exists ({existing.stdout.strip()})")
+        return 1
+
+    result = subprocess.run(command, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"Error: git tag failed: {(result.stderr or result.stdout).strip()}")
+        return 1
+    record_event(args.todo_file, "release", phase=phase["id"], version=version,
+                 owner=default_owner(), forced=True if not state["complete"] else None)
+    if args.json:
+        emit_json(dict(state, tagged=True))
+    else:
+        print(f"✓ Tagged {version} in {repo}")
+        print(f"  Push it with: git -C {repo} push origin {version}")
+    return 0
+
+
+def cmd_history(args) -> int:
+    """Replay the append-only event log for this todo file."""
+    events = read_events(args.todo_file)
+    if args.task_id:
+        events = [e for e in events if e.get("task") == args.task_id]
+    if args.limit and args.limit > 0:
+        events = events[-args.limit:]
+
+    if args.json:
+        emit_json({"path": str(events_path(args.todo_file)), "events": events})
+        return 0
+
+    if not events:
+        print(f"No events recorded in {events_path(args.todo_file).name}")
+        return 1
+    print(f"History — {events_path(args.todo_file).name}")
+    print("═" * 62)
+    for event in events:
+        transition = ""
+        if event.get("from") or event.get("to"):
+            transition = f"  {event.get('from', '?')} → {event.get('to', '?')}"
+        target = event.get("task") or event.get("phase") or ""
+        extras = {k: v for k, v in event.items()
+                  if k not in ("at", "event", "task", "phase", "from", "to", "owner")}
+        tail = f"  ({', '.join(f'{k}={v}' for k, v in extras.items())})" if extras else ""
+        print(f"  {event.get('at', '?')}  {event.get('event', '?'):<8} {target:<10}"
+              f"{transition}  [{event.get('owner', '-')}]{tail}")
     return 0
 
 
@@ -1042,31 +1512,47 @@ def build_parser() -> argparse.ArgumentParser:
             p.add_argument("--json", action="store_true", help="Machine-readable output")
         return p
 
+    def add_owner(p):
+        p.add_argument("--owner", metavar="NAME",
+                       help="Agent identity for the claim log "
+                            "(default: $TASKERKEEPER_OWNER, else host:pid)")
+        return p
+
     p = add_command("validate", "Schema + semantic validation")
     p.add_argument("--schema-only", action="store_true", help="Skip the semantic checks")
     p.set_defaults(func=cmd_validate)
 
-    p = add_command("next", "Next task to work on", json_out=True)
+    p = add_owner(add_command("next", "Next task to work on", json_out=True))
     p.add_argument("--no-resume", action="store_true",
                    help="Ignore in_progress tasks; return the next pending one")
+    p.add_argument("--disjoint", action="store_true",
+                   help="Skip tasks whose owned paths collide with work in progress")
     p.set_defaults(func=cmd_next)
 
     p = add_command("ready", "Every currently-runnable task", json_out=True)
+    p.add_argument("--disjoint", action="store_true",
+                   help="Only tasks whose owned paths do not overlap each other "
+                        "or anything in progress — safe to fan out as a set")
     p.set_defaults(func=cmd_ready)
 
-    p = add_command("start", "Claim a task (-> in_progress)", task_id=True)
+    p = add_owner(add_command("start", "Claim a task (-> in_progress)",
+                              task_id=True, json_out=True))
     p.add_argument("--force", action="store_true", help="Start despite unmet prerequisites")
+    p.add_argument("--lease", type=int, metavar="MINUTES",
+                   help=f"How long the claim holds (default: "
+                        f"$TASKERKEEPER_LEASE_MINUTES, else {DEFAULT_LEASE_MINUTES})")
     p.set_defaults(func=cmd_start)
 
-    p = add_command("done", "Mark a task done", task_id=True)
-    p.add_argument("--force", action="store_true", help="Finish despite unmet prerequisites")
+    p = add_owner(add_command("done", "Mark a task done", task_id=True, json_out=True))
+    p.add_argument("--force", action="store_true",
+                   help="Finish despite unmet prerequisites or someone else's claim")
     p.add_argument("--changelog", help="Changelog line for this task")
     p.set_defaults(func=cmd_done)
 
-    p = add_command("reset", "Return a task to pending", task_id=True)
+    p = add_owner(add_command("reset", "Return a task to pending", task_id=True))
     p.set_defaults(func=cmd_reset)
 
-    p = add_command("status", "Set an arbitrary status", task_id=True)
+    p = add_owner(add_command("status", "Set an arbitrary status", task_id=True))
     p.add_argument("status", choices=VALID_STATUSES)
     p.add_argument("--moved-to", dest="moved_to", help="Target task ID (required for moved)")
     p.set_defaults(func=cmd_status)
@@ -1093,6 +1579,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--success", action="append", metavar="CRITERION",
                    help="Success criterion (repeatable)")
     p.set_defaults(func=cmd_add)
+
+    p = add_command("release", "Show — or cut — the tag a completed phase ships as",
+                    json_out=True)
+    p.add_argument("phase", nargs="?",
+                   help="Phase ID (default: the last phase with a release object)")
+    p.add_argument("--tag", action="store_true", help="Actually create the annotated git tag")
+    p.add_argument("--force", action="store_true", help="Tag even if the phase is incomplete")
+    p.set_defaults(func=cmd_release)
+
+    p = add_command("history", "Replay the append-only event log", json_out=True)
+    p.add_argument("--task", dest="task_id", metavar="TASK_ID", help="Only this task's events")
+    p.add_argument("--limit", type=int, default=50, help="Show the last N events (default 50)")
+    p.set_defaults(func=cmd_history)
 
     p = add_command("convert", "Render the todo file as markdown")
     p.add_argument("-o", "--output", help="Write to this file instead of stdout")

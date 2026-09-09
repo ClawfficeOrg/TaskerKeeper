@@ -17,7 +17,7 @@ taskerkeeper validate my-todo.json
 # Everything that can start right now
 taskerkeeper ready my-todo.json
 
-# The one task to pick up (resumes an in_progress task if there is one)
+# The one task to pick up (resumes your own in_progress task if there is one)
 taskerkeeper next my-todo.json
 
 # Claim it, then finish it
@@ -183,14 +183,62 @@ taskerkeeper ready docs/todo-v7.json --json
 ```
 
 A supervisor dispatches one worker per entry in `ready`, using the `provider`
-and `model` each entry carries. Each worker calls
-`start` before touching code, so no two workers claim the same task. Writes take
-a `<file>.lock` and land atomically, so concurrent `start`/`done` calls do not
-lose each other's updates.
+and `model` each entry carries. Writes take a `<file>.lock` and land atomically,
+so concurrent `start`/`done` calls do not lose each other's updates.
 
-If a worker dies mid-task, its task stays `in_progress`. `next` surfaces such a
-task first so the work resumes; `reset <id>` returns it to `pending` if it should
-be handed to someone else.
+### Dispatch the disjoint set, not the ready set
+
+`ready` says what is *runnable*. It does not say those tasks can run at the same
+time — 7.0.1 and 7.0.2 may both be unblocked and both own `src/client.go`.
+`--disjoint` filters to a set that is safe to dispatch together, using each
+task's `touches`:
+
+```bash
+taskerkeeper ready docs/todo-v7.json --disjoint --json
+```
+
+```json
+{
+  "ready": [ { "id": "7.0.1", "touches": ["packages/go/"] } ],
+  "disjoint": true,
+  "deferred": [ { "id": "7.0.2", "conflicts_with": ["7.0.1"] } ],
+  "conflicts": [ { "a": "7.0.1", "b": "7.0.2", "paths": ["packages/go/ ~ packages/go/client.go"] } ]
+}
+```
+
+Tasks already `in_progress` hold their paths too, so a worker joining a running
+fleet does not collide with work in flight. Without `--disjoint` the overlaps
+are still reported, as a warning.
+
+### Claims and leases
+
+Each worker calls `start` before touching code, under its own name:
+
+```bash
+TASKERKEEPER_OWNER=worker-3 taskerkeeper start docs/todo-v7.json 7.0.1
+```
+
+That records `claimed_by`, `claimed_at`, and `lease_expires_at` on the task, and
+those are enforced: a second worker's `start` on the same task fails, `next`
+will not hand out a live claim, and `done` on someone else's claim needs
+`--force`. Set the lease with `--lease MINUTES` or `TASKERKEEPER_LEASE_MINUTES`
+(default 60) — long enough to cover your slowest task.
+
+If a worker dies mid-task, its task stays `in_progress` until the lease lapses,
+after which any worker may take it — `next` surfaces it first. `reset <id>`
+returns it to `pending` immediately if you would rather not wait. A crashed
+worker's `<file>.lock` is broken automatically once its process is confirmed
+gone.
+
+### Auditing a run
+
+```bash
+taskerkeeper history docs/todo-v7.json --task 7.0.1
+```
+
+Every transition appends a line to `<file>.events.jsonl` with the owner and
+timestamp, so a fleet that misbehaved overnight can be reconstructed. Disable
+with `TASKERKEEPER_EVENTS=0`.
 
 ## CI/CD Integration
 

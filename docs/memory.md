@@ -15,7 +15,7 @@ with any autonomous agent. See `docs/philosophy.md` for rationale.
 ```
 taskerkeeper/cli.py                      CLI logic (the only implementation)
 taskerkeeper/agents.py                   Tier -> provider/model config layering
-taskerkeeper/jsonio.py                   Atomic writes and the file lock
+taskerkeeper/jsonio.py                   Atomic writes, the file lock, the event log
 taskerkeeper/__main__.py                 python -m taskerkeeper
 taskerkeeper/schema/todo-v1.schema.json  JSON Schema (draft 2020-12), package data
 scripts/taskerkeeper.py                  Thin shim -> taskerkeeper.cli.main
@@ -23,12 +23,13 @@ ralph/ralph-json.sh                      Thin wrapper -> taskerkeeper CLI
 skills/taskerkeeper/SKILL.md             Hermes skill
 tests/test_cli.py                        stdlib unittest suite
 .github/workflows/ci.yml                 Tests + example validation, Linux/Windows
-docs/                                    philosophy, integration guide, memory, notes
+docs/                                    philosophy, integration guide, memory,
+                                         module-plan, notes
 examples/                                simple-project, zoidmatter-v7
 pyproject.toml                           setuptools packaging, console script
 ```
 
-## Current State (2026-09-08, v0.4.0)
+## Current State (2026-09-08, v0.5.0)
 
 - v0.1 scaffold (Aug 27 2026) → hardened (Sep 2) → v0.2.0 rework (Sep 8),
   which fixed everything raised in the `docs/notes.md` review → v0.3.0 (Sep 8),
@@ -44,9 +45,37 @@ pyproject.toml                           setuptools packaging, console script
   tasks.
 - All read commands support `--json`, and task output carries the resolved
   provider/model (v0.3.0).
-- Writes are lock-guarded (`<file>.lock`) and atomic (temp + rename).
-- 68 tests, stdlib `unittest`, run on Linux and Windows in CI against a
+- Writes are lock-guarded (`<file>.lock`) and atomic (temp + rename). The lock
+  records pid + host + time, and a lock whose holder is confirmed gone (or which
+  has aged past `stale_after`, default 300s) is broken automatically.
+- v0.5.0 made parallel execution real rather than advertised: claims with
+  leases, `--disjoint` fan-out from `touches`, an append-only event log,
+  complexity-driven tier selection, and an explicit `release` command.
+- 107 tests, stdlib `unittest`, run on Linux and Windows in CI against a
   non-editable install.
+
+## Parallel Execution (v0.5.0)
+
+- **Claims.** `start` writes `claimed_by` / `claimed_at` / `lease_expires_at`;
+  any non-`in_progress` status clears them. `start` refuses a live claim held by
+  someone else, `done` needs `--force` for one, and `find_next` returns an
+  `in_progress` task only when `claimable_by` accepts it. Owner comes from
+  `--owner`, else `TASKERKEEPER_OWNER`, else `host:pid`; lease from `--lease`,
+  else `TASKERKEEPER_LEASE_MINUTES`, else 60 minutes.
+- **Disjoint fan-out.** `ready --disjoint` / `next --disjoint` filter by
+  `touches` overlap (`paths_conflict`: equal, or one a directory containing the
+  other), counting in-progress tasks as holding their paths. Greedy in ID order
+  so the result is stable. Plain `ready` reports the overlaps as a warning.
+- **Event log.** `<file>.events.jsonl`, one JSON line per transition, written
+  inside the lock, best-effort. `history` replays it. `TASKERKEEPER_EVENTS=0`
+  disables.
+- **Complexity → tier.** A task with `complexity` and no `agent` gets a tier:
+  Low→basic, Medium→mid, High→pro, Very High→flagship, overridable by a tier's
+  `complexity_range` in any config layer. `resolve_task` reports the tier it
+  used and whether it was derived.
+- **Releases.** `done --json` reports `release_ready`; `release [phase]` prints
+  what would be tagged and `release --tag` creates the annotated tag from the
+  release notes plus the collected changelog.
 
 ## Agent Model Config (v0.3.0, presets in v0.4.0)
 
@@ -89,6 +118,19 @@ pyproject.toml                           setuptools packaging, console script
   import makes them safe on Windows cp1252 consoles. Keep both.
 - **`convert` is one-way** (JSON → markdown). Markdown → JSON is a manual
   migration; see `docs/philosophy.md`.
+- **`parallel_group` schedules nothing.** It was documented as making groups run
+  sequentially and no code ever did that. Ordering is `prerequisites`;
+  concurrency safety is `touches`. Two gating mechanisms would mean two ways for
+  a task to be mysteriously blocked.
+- **Tagging is explicit.** `done` reports `release_ready` rather than creating a
+  tag, because the phase's last task is an ordinary task and a git side effect
+  fired from it lands unpredictably.
+- **The event log is a sibling file, not a field.** Appending is one syscall,
+  the todo file stays diffable, and a crash mid-append costs one line instead of
+  the roadmap.
+- **Pid liveness is never checked with `os.kill(pid, 0)`.** On Windows that
+  terminates the process. `jsonio._pid_alive` uses the Win32 API and returns
+  `None` when unsure; unknown liveness falls back to lock age.
 - **Model config is per machine by default, not per roadmap.** Which model runs
   a tier is a property of whoever runs the agents, so the user layer is its
   normal home. The repo and todo layers exist for projects that genuinely need
@@ -100,11 +142,21 @@ pyproject.toml                           setuptools packaging, console script
 
 ## Known Gaps / Next
 
-- The file lock is cooperative and process-local in effect: a crashed process
-  can leave `<file>.lock` behind, and it must be deleted by hand. There is no
-  stale-lock timeout.
-- Nothing maps `complexity` to a tier automatically. `complexity_range` on a
-  tier is documentation, and `add` defaults every task to `mid_dev_agent`.
+- The lock is still cooperative. Stale locks now break themselves, but two
+  processes racing on a filesystem without atomic `O_EXCL` (some network mounts)
+  are still not protected.
+- A lease is not renewed while a task runs, so a task genuinely longer than the
+  lease can be stolen mid-flight. Re-running `start` as the same owner refreshes
+  it; a supervisor with long tasks should either do that periodically or raise
+  `TASKERKEEPER_LEASE_MINUTES`.
+- `touches` conflict detection is textual. It does not know that two tasks
+  editing different functions in one file might be fine, and it cannot see a
+  file a task forgot to declare.
+- The event log has no rotation or compaction.
+- `cli.py` still fuses scheduling logic, rendering, and argparse. Splitting it
+  into an importable core is the next structural change — see
+  `docs/module-plan.md`.
+- Not published to PyPI; consumers clone. Also in `docs/module-plan.md`.
 - Markdown → JSON conversion is not implemented, by decision rather than
   omission.
 - No GitHub Issues sync (see `docs/philosophy.md` "Future Directions").
