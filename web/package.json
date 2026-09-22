@@ -1,0 +1,24 @@
+{
+  "name": "taskerkeeper-dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "TaskerKeeper VPS hub dashboard: read-only SvelteKit fleet wall over the core API (task 1.3.1 scaffold).",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0 --port 3000"
+  },
+  "dependencies": {
+    "@sveltejs/adapter-node": "^2.1.0",
+    "better-auth": "^1.3.0",
+    "svelte": "^5.0.0"
+  },
+  "devDependencies": {
+    "@sveltejs/kit": "^2.0.0",
+    "@sveltejs/vite-plugin-svelte": "^3.0.0",
+    "svelte-check": "^3.6.0",
+    "typescript": "^5.4.0",
+    "vite": "^5.2.0"
+  }
+}

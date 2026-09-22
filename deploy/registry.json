@@ -1,0 +1,11 @@
+{
+  "projects": [
+    {
+      "slug": "taskerkeeper",
+      "name": "TaskerKeeper",
+      "repo_url": "https://github.com/ClawfficeOrg/TaskerKeeper",
+      "todo_path": "projects/taskerkeeper/todo.json",
+      "default_branch": "main"
+    }
+  ]
+}

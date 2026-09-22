@@ -1491,6 +1491,17 @@ def cmd_convert(args) -> int:
     return 0
 
 
+def cmd_serve(args) -> int:
+    """Serve the single-writer core API. Lazy import avoids a circular import."""
+    from taskerkeeper import serve
+
+    argv = ["--port", str(args.port), "--bind", args.bind,
+            "--registry", args.registry]
+    if getattr(args, "sessions_db", None):
+        argv += ["--sessions-db", args.sessions_db]
+    return serve.main(argv)
+
+
 # ---------------------------------------------------------------------------
 # Argument parsing
 # ---------------------------------------------------------------------------
@@ -1596,6 +1607,16 @@ def build_parser() -> argparse.ArgumentParser:
     p = add_command("convert", "Render the todo file as markdown")
     p.add_argument("-o", "--output", help="Write to this file instead of stdout")
     p.set_defaults(func=cmd_convert)
+
+    s = sub.add_parser("serve", help="Serve the single-writer core API over HTTP")
+    s.add_argument("--port", type=int, default=8471, help="Port to bind (default: 8471)")
+    s.add_argument("--bind", default="127.0.0.1", help="Address to bind (default: 127.0.0.1)")
+    s.add_argument("--registry", default="deploy/registry.json",
+                   help="Registry JSON path (default: deploy/registry.json)")
+    s.add_argument("--sessions-db", default=None,
+                   help="Sessions sqlite path (default: sessions.db beside "
+                        "the registry, or $TK_SESSIONS_DB)")
+    s.set_defaults(func=cmd_serve)
 
     build_agents_parser(sub)
     return parser

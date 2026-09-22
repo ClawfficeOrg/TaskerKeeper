@@ -17,7 +17,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import mock
 
-from taskerkeeper import agents, cli, jsonio
+from taskerkeeper import agents, cli, jsonio, serve, sessions
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXAMPLES = REPO_ROOT / "examples"
@@ -968,3 +968,189 @@ class StaleLockTest(unittest.TestCase):
             jsonio._pid_alive(os.getpid())
         if os.name == "nt":
             killed.assert_not_called()
+
+
+class TestSessions(unittest.TestCase):
+    """Heartbeat store behind POST /api/<slug>/heartbeat (1.1.3)."""
+
+    def test_upsert_then_list_shows_agent_not_stale(self):
+        with TemporaryDirectory() as tmp:
+            db = str(Path(tmp) / "sessions.db")
+            row = sessions.upsert_heartbeat(db, "worker-1", "demo", "1.0.1",
+                                            repo="r", branch="main",
+                                            host="h", model="m")
+            self.assertEqual(row["agent_id"], "worker-1")
+            self.assertEqual(row["task_id"], "1.0.1")
+            self.assertFalse(row["stale"])
+            listed = sessions.list_sessions(db, "demo")
+            self.assertEqual(len(listed), 1)
+            self.assertEqual(listed[0]["agent_id"], "worker-1")
+            self.assertFalse(listed[0]["stale"])
+
+    def test_aged_row_shows_stale(self):
+        with TemporaryDirectory() as tmp:
+            db = str(Path(tmp) / "sessions.db")
+            sessions.upsert_heartbeat(db, "worker-1", "demo", "1.0.1")
+            import sqlite3
+
+            conn = sqlite3.connect(db)
+            try:
+                conn.execute("UPDATE sessions SET last_seen = ? WHERE agent_id = ?",
+                             ("2020-01-01T00:00:00Z", "worker-1"))
+                conn.commit()
+            finally:
+                conn.close()
+            listed = sessions.list_sessions(db, "demo")
+            self.assertTrue(listed[0]["stale"])
+
+    def test_clear_task_keeps_row_drops_task(self):
+        with TemporaryDirectory() as tmp:
+            db = str(Path(tmp) / "sessions.db")
+            sessions.upsert_heartbeat(db, "worker-1", "demo", "1.0.1")
+            cleared = sessions.clear_task(db, "worker-1")
+            assert cleared is not None
+            self.assertIsNone(cleared["task_id"])
+            self.assertFalse(cleared["stale"])
+            self.assertIsNone(sessions.clear_task(db, "unknown-agent"))
+
+    def test_upsert_requires_agent_id(self):
+        with TemporaryDirectory() as tmp:
+            with self.assertRaises(ValueError):
+                sessions.upsert_heartbeat(str(Path(tmp) / "s.db"), "  ")
+
+    def test_list_scopes_by_slug(self):
+        with TemporaryDirectory() as tmp:
+            db = str(Path(tmp) / "sessions.db")
+            sessions.upsert_heartbeat(db, "a", "one")
+            sessions.upsert_heartbeat(db, "b", "two")
+            self.assertEqual([r["agent_id"] for r in sessions.list_sessions(db, "one")],
+                             ["a"])
+            self.assertEqual(len(sessions.list_sessions(db)), 2)
+            self.assertEqual(sessions.list_sessions(db, "missing"), [])
+
+
+class TestServeHeartbeat(unittest.TestCase):
+    """Serve wiring: heartbeat upserts, start heartbeats, done/reset clears."""
+
+    def _registry(self, tmp: str) -> tuple[str, str]:
+        todo_path = str(Path(tmp) / "todo.json")
+        Path(todo_path).write_text(
+            json.dumps(todo(phase("1.0", task("1.0.1")))), encoding="utf-8")
+        registry = str(Path(tmp) / "registry.json")
+        Path(registry).write_text(json.dumps({"projects": [
+            {"slug": "demo", "name": "Demo", "repo_url": "",
+             "todo_path": todo_path, "default_branch": "main"},
+        ]}), encoding="utf-8")
+        return registry, str(Path(tmp) / "sessions.db")
+
+    def test_heartbeat_post_upserts_session(self):
+        with TemporaryDirectory() as tmp:
+            registry, db = self._registry(tmp)
+            status, payload = serve.handle_post(
+                "/api/{slug}/heartbeat", "demo",
+                {"agent_id": "worker-1", "task_id": "1.0.1", "branch": "main"},
+                registry, db)
+            self.assertEqual(status, 200)
+            self.assertEqual(payload["session"]["agent_id"], "worker-1")
+            self.assertEqual(payload["session"]["task_id"], "1.0.1")
+            listed = sessions.list_sessions(db, "demo")
+            self.assertEqual(len(listed), 1)
+
+    def test_start_auto_heartbeats_done_clears(self):
+        with TemporaryDirectory() as tmp:
+            registry, db = self._registry(tmp)
+            status, _ = serve.handle_post(
+                "/api/{slug}/start", "demo", {"task": "1.0.1", "owner": "worker-1"},
+                registry, db)
+            self.assertEqual(status, 200)
+            row = sessions.get_session(db, "worker-1")
+            assert row is not None
+            self.assertEqual(row["task_id"], "1.0.1")
+            status, _ = serve.handle_post(
+                "/api/{slug}/done", "demo", {"task": "1.0.1", "owner": "worker-1"},
+                registry, db)
+            self.assertEqual(status, 200)
+            row = sessions.get_session(db, "worker-1")
+            assert row is not None
+            self.assertIsNone(row["task_id"])
+
+    def test_reset_clears_task(self):
+        with TemporaryDirectory() as tmp:
+            registry, db = self._registry(tmp)
+            serve.handle_post("/api/{slug}/start", "demo",
+                              {"task": "1.0.1", "owner": "worker-1"}, registry, db)
+            status, _ = serve.handle_post(
+                "/api/{slug}/reset", "demo", {"task": "1.0.1", "owner": "worker-1"},
+                registry, db)
+            self.assertEqual(status, 200)
+            row = sessions.get_session(db, "worker-1")
+            assert row is not None
+            self.assertIsNone(row["task_id"])
+
+    def test_sessions_db_defaults_beside_registry(self):
+        self.assertTrue(
+            serve.sessions_db_for_registry("deploy/registry.json").endswith(
+                "sessions.db"))
+        with mock.patch.dict(os.environ, {"TK_SESSIONS_DB": "/srv/x.db"}):
+            self.assertEqual(serve.sessions_db_for_registry("deploy/registry.json"),
+                             "/srv/x.db")
+
+    def test_sessions_get_lists_slug(self):
+        with TemporaryDirectory() as tmp:
+            registry, db = self._registry(tmp)
+            sessions.upsert_heartbeat(db, "worker-1", "demo")
+            status, payload = serve.handle_get(
+                "/api/{slug}/sessions", "demo", {}, registry, db)
+            self.assertEqual(status, 200)
+            self.assertEqual(len(payload["sessions"]), 1)
+
+
+class TestServeStream(unittest.TestCase):
+    """SSE live stream (1.2.2): replay, since, Last-Event-ID, frame format."""
+
+    def _registry(self, tmp: str) -> tuple[str, str, str]:
+        todo_path = str(Path(tmp) / "todo.json")
+        Path(todo_path).write_text(
+            json.dumps(todo(phase("1.0", task("1.0.1")))), encoding="utf-8")
+        registry = str(Path(tmp) / "registry.json")
+        Path(registry).write_text(json.dumps({"projects": [
+            {"slug": "demo", "name": "Demo", "repo_url": "",
+             "todo_path": todo_path, "default_branch": "main"},
+        ]}), encoding="utf-8")
+        return registry, todo_path, str(Path(tmp) / "sessions.db")
+
+    def test_route_table_has_stream(self):
+        self.assertIn(("GET", "/api/stream"), serve.ROUTES)
+
+    def test_format_sse_frame(self):
+        frame = serve.format_sse({"event": "done", "task": "1.0.1"}, seq=7)
+        self.assertTrue(frame.startswith("id: 7\n"))
+        self.assertIn('data: {"event": "done", "task": "1.0.1"}', frame)
+        self.assertTrue(frame.endswith("\n\n"))
+        # Transport-only _seq never leaks into data.
+        framed = serve.format_sse({"event": "done", "_seq": 7}, seq=7)
+        self.assertNotIn("_seq", framed.split("data:", 1)[1])
+
+    def test_replay_and_since_filter(self):
+        with TemporaryDirectory() as tmp:
+            registry, todo_path, db = self._registry(tmp)
+            cli.record_event(todo_path, "start", task="1.0.1", owner="w")
+            cli.record_event(todo_path, "done", task="1.0.1", owner="w")
+            all_events = serve.collect_stream_events(["demo"], registry)
+            self.assertEqual(len(all_events), 2)
+            self.assertEqual([e["_seq"] for e in all_events], [1, 2])
+            replay = serve.stream_events_since(["demo"], 1, registry)
+            self.assertEqual(len(replay), 1)
+            self.assertEqual(replay[0]["event"], "done")
+            frame = serve.format_sse(replay[0], replay[0]["_seq"])
+            parsed = json.loads(frame.split("data:", 1)[1].strip())
+            self.assertEqual(parsed["task"], "1.0.1")
+
+    def test_parse_params_supports_last_event_id(self):
+        slugs, since = serve.parse_stream_params(
+            {"slugs": "a, b"}, {"Last-Event-ID": "4"})
+        self.assertEqual(slugs, ["a", "b"])
+        self.assertEqual(since, 4)
+        _, since_q = serve.parse_stream_params(
+            {"since": "2"}, {"Last-Event-ID": "9"})
+        self.assertEqual(since_q, 2)

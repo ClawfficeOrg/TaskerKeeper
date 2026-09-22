@@ -240,6 +240,25 @@ Every transition appends a line to `<file>.events.jsonl` with the owner and
 timestamp, so a fleet that misbehaved overnight can be reconstructed. Disable
 with `TASKERKEEPER_EVENTS=0`.
 
+## Serving the Hub
+
+`taskerkeeper serve` exposes the same DAG logic over HTTP for remote workers
+and the read-only dashboard. It is the single writer: GET routes
+(`ready`, `next`, `list`, `deps`, `history`, `validate`, `parallel`) call the
+CLI functions and return the `--json` shapes; POST routes (`start`, `done`,
+`reset`, `status`, `add`) hold a server lock plus `FileLock`, reload inside
+the lock, and enforce claim leases. `POST /api/<slug>/heartbeat` records agent
+presence (repo, branch, task) with a 180s staleness horizon, and
+`GET /api/stream` replays the event log as SSE. Auth is a shared
+`TK_API_TOKEN` bearer today, per-project machine tokens
+(`taskerkeeper/tokens.py`) next. Postgres (`deploy/migrations/001_init.sql`)
+is a read projection tailed by `taskerkeeper/projector.py`, never a scheduler.
+
+```bash
+TK_API_TOKEN=... taskerkeeper serve --port 8471 --registry deploy/registry.json
+curl -H "Authorization: Bearer $TK_API_TOKEN" localhost:8471/api/taskerkeeper/ready
+```
+
 ## CI/CD Integration
 
 ### Pre-commit Hook

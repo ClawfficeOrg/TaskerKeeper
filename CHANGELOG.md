@@ -5,6 +5,43 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] — 2026-09-22
+
+The VPS hub milestone: one single-writer core API so remote agents share a
+todo file without NFS locking, plus a read-only live dashboard.
+
+### Added
+
+- **`taskerkeeper serve`.** stdlib HTTP API over the same DAG functions in
+  `cli.py` — no second implementation. GET reads (`ready`, `next`, `list`,
+  `deps`, `history`, `validate`, `parallel`) return the `--json` shapes;
+  POST writes (`start`, `done`, `reset`, `status`, `add`) hold a server lock
+  plus `FileLock`, reload inside the lock, and enforce claim leases, refusing
+  a live foreign claim. Binds `127.0.0.1:8471` by default behind Traefik.
+- **Agent presence.** `POST /api/<slug>/heartbeat` records repo, branch,
+  worktree, and task in a sqlite sessions store
+  (`taskerkeeper/sessions.py`); `start` heartbeats automatically,
+  `done`/`reset` clear the task. Rows older than 180s read as stale.
+- **Postgres projection.** `deploy/migrations/001_init.sql` defines
+  `projects`, `tasks_snap`, `events`, `sessions`, and `machine_tokens`;
+  `taskerkeeper/projector.py` tails each todo file and its `.events.jsonl`
+  into those tables. Best-effort, never in the write path; Postgres decides
+  nothing about scheduling.
+- **SSE live stream.** `GET /api/stream?slugs=a,b&since=SEQ` replays merged
+  events with `Last-Event-ID` support and a 15s heartbeat comment.
+- **Dashboard scaffold (`web/`).** SvelteKit shell with a fleet view, an
+  agents wall with staleness display, and a per-project view with blockers,
+  disjoint `deferred` warnings, and a live event tail. Read-only; BetterAuth
+  OIDC against Authentik as IdP.
+- **Machine tokens (`taskerkeeper/tokens.py`).** Mintable per-project tokens
+  with scopes and expiry, stored hashed, verified before the shared
+  `TK_API_TOKEN` fallback. Revocation is a flag.
+- **Deploy topology (`deploy/`).** `registry.json` maps slugs to todo paths;
+  `compose.yml` wires core, Postgres, and dashboard with Traefik labels where
+  `/api` deliberately bypasses forwardAuth (bearer only).
+- **`docs/todo-vps-hub.json`.** The milestone roadmap, built and worked
+  entirely through claim/ready/done.
+
 ## [0.5.0] — 2026-09-08
 
 Parallel execution was the headline feature and was not actually enforced. This

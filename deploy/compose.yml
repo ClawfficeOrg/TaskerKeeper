@@ -1,0 +1,50 @@
+# VPS hub topology: core API + Postgres projection + SvelteKit dashboard.
+# Traefik routing:
+# - Dashboard router matches Host(`tk.example.com`) and relies on app-level
+#   BetterAuth OIDC (Authentik is the OIDC IdP only). No Traefik forwardAuth
+#   middleware is attached to either router.
+# - API router matches Host(`tk.example.com`) + PathPrefix(`/api`) and
+#   deliberately bypasses any auth middleware: machine agents authenticate
+#   with the TK_API_TOKEN bearer token at the app layer, so attaching
+#   forwardAuth here would break non-browser clients that cannot complete
+#   an OIDC login flow. /api must stay reachable with bearer auth only.
+services:
+  core:
+    build: .
+    command: serve
+    volumes:
+      - ./projects:/app/projects
+    environment:
+      TK_API_TOKEN: ${TK_API_TOKEN:?TK_API_TOKEN must be set}
+    expose:
+      - "8471"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.tk-api.rule=Host(`tk.example.com`) && PathPrefix(`/api`)"
+      - "traefik.http.routers.tk-api.entrypoints=websecure"
+      - "traefik.http.routers.tk-api.tls.certresolver=letsencrypt"
+      - "traefik.http.services.tk-api.loadbalancer.server.port=8471"
+
+  postgres:
+    image: postgres:16
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+    restart: unless-stopped
+
+  dashboard:
+    build: ./web
+    expose:
+      - "3000"
+    environment:
+      AUTHENTIK_ISSUER: ${AUTHENTIK_ISSUER:?AUTHENTIK_ISSUER must be set}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.tk-dashboard.rule=Host(`tk.example.com`)"
+      - "traefik.http.routers.tk-dashboard.entrypoints=websecure"
+      - "traefik.http.routers.tk-dashboard.tls.certresolver=letsencrypt"
+      - "traefik.http.services.tk-dashboard.loadbalancer.server.port=3000"
+
+volumes:
+  pgdata: {}

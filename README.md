@@ -54,6 +54,7 @@ Without installing, `python -m taskerkeeper <command>` and `python scripts/taske
 | `agents set <tier>` | Point a tier at a provider/model. `--scope user` (default), `repo`, or `todo` |
 | `agents unset <tier>` | Drop a tier, or `--key` one setting, from a scope |
 | `agents path` | Print the config file a scope writes to |
+| `serve [--port 8471] [--bind 127.0.0.1]` | Single-writer core API over HTTP: GET reads, locked POST writes, heartbeats, and an SSE stream — all delegating to the same DAG logic, never a second implementation |
 
 Every read command takes `--json`, so agents parse structured output instead of scraping box-drawing characters:
 

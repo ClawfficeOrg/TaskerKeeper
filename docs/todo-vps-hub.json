@@ -1,0 +1,294 @@
+{
+  "schema_version": "1.0.0",
+  "project": {
+    "name": "TaskerKeeper VPS Hub",
+    "version": {
+      "milestone": "vps-hub",
+      "release_version": "0.6.0"
+    },
+    "description": "Central VPS hub: single-writer core API over cli.py, Postgres projection, SvelteKit read-only live dashboard behind existing Traefik+Authentik, shared token now then per-machine per-project tokens."
+  },
+  "phases": [
+    {
+      "id": "1.0",
+      "title": "Foundation",
+      "goal": "Registry, compose topology, and SQL v1 so later tasks have paths and tables to build against.",
+      "tasks": [
+        {
+          "id": "1.0.1",
+          "title": "Registry and compose topology",
+          "status": "done",
+          "goal": "Write deploy/registry.json (slug, repo_url, todo_path) and deploy/compose.yml (core, postgres, dashboard) with Traefik labels for tk.example.com and /api bypass of forwardAuth.",
+          "touches": [
+            "deploy/registry.json",
+            "deploy/compose.yml"
+          ],
+          "success": [
+            "registry.json parses and lists one sample slug",
+            "compose.yml defines core, postgres, dashboard with Traefik labels"
+          ],
+          "tests": "python -c json.load registry; docker compose -f deploy/compose.yml config",
+          "complexity": "Medium",
+          "agent": "mid_dev_agent",
+          "created_at": "2026-09-22T00:00:00Z",
+          "updated_at": "2026-09-22T02:03:09Z",
+          "changelog": "Added VPS hub registry and compose topology"
+        },
+        {
+          "id": "1.0.2",
+          "title": "SQL migration v1",
+          "status": "done",
+          "goal": "Write deploy/migrations/001_init.sql with projects, tasks_snap, events, sessions, machine_tokens tables plus indexes. Projection only, never scheduling.",
+          "touches": [
+            "deploy/migrations/001_init.sql"
+          ],
+          "success": [
+            "SQL applies cleanly on fresh postgres",
+            "tables match spec from plan"
+          ],
+          "tests": "postgres apply migration in CI or psql -f",
+          "complexity": "Low",
+          "agent": "basic_dev_agent",
+          "created_at": "2026-09-22T00:00:00Z",
+          "updated_at": "2026-09-22T02:03:04Z",
+          "changelog": "Added Postgres projection schema v1"
+        },
+        {
+          "id": "1.0.3",
+          "title": "Serve scaffold with route table",
+          "status": "done",
+          "goal": "Create taskerkeeper/serve.py with stdlib http.server, route table for GET reads and POST writes delegating to cli.py functions, bearer-token check stub reading TK_API_TOKEN.",
+          "touches": [
+            "taskerkeeper/serve.py"
+          ],
+          "success": [
+            "python -m taskerkeeper serve --help works",
+            "no DAG logic duplicated, imports from cli"
+          ],
+          "tests": "python -m unittest discover -s tests",
+          "complexity": "High",
+          "agent": "pro_dev_agent",
+          "created_at": "2026-09-22T00:00:00Z",
+          "updated_at": "2026-09-22T02:03:38Z",
+          "changelog": "Added serve scaffold delegating to cli"
+        }
+      ]
+    },
+    {
+      "id": "1.1",
+      "title": "Core API",
+      "goal": "Remote reads and locked writes plus agent heartbeats, preserving claim semantics.",
+      "prerequisites": [
+        "1.0"
+      ],
+      "tasks": [
+        {
+          "id": "1.1.1",
+          "title": "GET reads proxy",
+          "status": "done",
+          "goal": "Serve projects, ready, next, list, deps, history, validate, parallel by calling existing cli functions and returning current --json shapes.",
+          "touches": [
+            "taskerkeeper/serve.py"
+          ],
+          "success": [
+            "GET /api/<slug>/ready matches local ready --json"
+          ],
+          "tests": "curl GET vs local CLI diff",
+          "prerequisites": [
+            "1.0.3"
+          ],
+          "complexity": "Medium",
+          "agent": "mid_dev_agent",
+          "created_at": "2026-09-22T00:00:00Z",
+          "updated_at": "2026-09-22T02:06:16Z",
+          "changelog": "Added GET read proxy handlers"
+        },
+        {
+          "id": "1.1.2",
+          "title": "POST writes under lock",
+          "status": "done",
+          "goal": "Serve start, done, reset, status, add via FileLock reload-mutate-write_json-append_event with threading.Lock. Enforce claimable_by server-side.",
+          "touches": [
+            "taskerkeeper/serve.py"
+          ],
+          "success": [
+            "concurrent starts on same task refuse second claim",
+            "events.jsonl gains repo/branch/agent fields"
+          ],
+          "tests": "python -m unittest discover -s tests plus dual-claim script",
+          "prerequisites": [
+            "1.1.1"
+          ],
+          "complexity": "High",
+          "agent": "pro_dev_agent",
+          "created_at": "2026-09-22T00:00:00Z",
+          "updated_at": "2026-09-22T02:09:38Z",
+          "changelog": "Added locked POST write handlers"
+        },
+        {
+          "id": "1.1.3",
+          "title": "Heartbeat and sessions",
+          "status": "done",
+          "goal": "POST heartbeat upserts sessions table; start auto-heartbeats; done/reset clears task_id. Stale after 180s.",
+          "touches": [
+            "taskerkeeper/sessions.py"
+          ],
+          "success": [
+            "agent appears in sessions within one heartbeat",
+            "stale agent greys out after timeout"
+          ],
+          "tests": "heartbeat script then query sessions",
+          "prerequisites": [
+            "1.1.2"
+          ],
+          "complexity": "Medium",
+          "agent": "mid_dev_agent",
+          "created_at": "2026-09-22T00:00:00Z",
+          "updated_at": "2026-09-22T02:13:57Z",
+          "changelog": "Added heartbeat and sessions"
+        }
+      ]
+    },
+    {
+      "id": "1.2",
+      "title": "Projection and live stream",
+      "goal": "Postgres mirrors JSON for fast multi-project reads and SSE fanout.",
+      "prerequisites": [
+        "1.1"
+      ],
+      "tasks": [
+        {
+          "id": "1.2.1",
+          "title": "Projector events to postgres",
+          "status": "done",
+          "goal": "Tail *.events.jsonl plus full load_todo resnap into tasks_snap and events tables. Best-effort, never blocks writes.",
+          "touches": [
+            "taskerkeeper/projector.py"
+          ],
+          "success": [
+            "local done triggers row update within seconds"
+          ],
+          "tests": "write then query tasks_snap",
+          "prerequisites": [
+            "1.0.2",
+            "1.1.2"
+          ],
+          "complexity": "High",
+          "agent": "pro_dev_agent",
+          "created_at": "2026-09-22T00:00:00Z",
+          "updated_at": "2026-09-22T02:16:07Z",
+          "changelog": "Added projector resnap and ingest"
+        },
+        {
+          "id": "1.2.2",
+          "title": "SSE stream endpoint",
+          "status": "done",
+          "goal": "GET /api/stream using Postgres LISTEN/NOTIFY with --since replay. Traefik buffering off.",
+          "touches": [
+            "taskerkeeper/serve.py"
+          ],
+          "success": [
+            "browser EventSource receives task update live"
+          ],
+          "tests": "curl -N stream while POST done",
+          "prerequisites": [
+            "1.2.1"
+          ],
+          "complexity": "Medium",
+          "agent": "mid_dev_agent",
+          "created_at": "2026-09-22T00:00:00Z",
+          "updated_at": "2026-09-22T02:22:11Z",
+          "changelog": "Added SSE live stream"
+        }
+      ]
+    },
+    {
+      "id": "1.3",
+      "title": "Dashboard",
+      "goal": "SvelteKit read-only live wall: fleet, project, agents. BetterAuth OIDC to Authentik.",
+      "prerequisites": [
+        "1.2"
+      ],
+      "tasks": [
+        {
+          "id": "1.3.1",
+          "title": "SvelteKit shell and fleet view",
+          "status": "done",
+          "goal": "Scaffold web/ with BetterAuth OIDC, fleet page polling core API, phase bars, release_ready badges.",
+          "touches": [
+            "web/src/routes/+page.svelte",
+            "web/src/lib/api.ts"
+          ],
+          "success": [
+            "fleet page renders all slugs from registry",
+            "login flows through Authentik"
+          ],
+          "tests": "npm run build in web/",
+          "prerequisites": [
+            "1.2.2"
+          ],
+          "complexity": "High",
+          "agent": "pro_dev_agent",
+          "created_at": "2026-09-22T00:00:00Z",
+          "updated_at": "2026-09-22T02:25:47Z",
+          "changelog": "Added dashboard shell and fleet view"
+        },
+        {
+          "id": "1.3.2",
+          "title": "Agents wall and project view",
+          "status": "done",
+          "goal": "Add agents page (repo@branch, claim age, touches, staleness) and project page (tasks, blockers, deferred warnings, event tail) over shared EventSource store.",
+          "touches": [
+            "web/src/routes/agents/+page.svelte",
+            "web/src/routes/p/[slug]/+page.svelte"
+          ],
+          "success": [
+            "stale agents grey out",
+            "disjoint deferred collisions display"
+          ],
+          "tests": "npm run build in web/",
+          "prerequisites": [
+            "1.3.1"
+          ],
+          "complexity": "Medium",
+          "agent": "mid_dev_agent",
+          "created_at": "2026-09-22T00:00:00Z",
+          "updated_at": "2026-09-22T02:28:41Z",
+          "changelog": "Added agents wall and project view"
+        }
+      ]
+    },
+    {
+      "id": "1.4",
+      "title": "Machine tokens",
+      "goal": "Shared bearer now, mintable per-machine per-project tokens with scopes next.",
+      "prerequisites": [
+        "1.3"
+      ],
+      "tasks": [
+        {
+          "id": "1.4.1",
+          "title": "Mint and verify project tokens",
+          "status": "done",
+          "goal": "Add tk mint command writing hashed machine_tokens rows with slugs, scopes, expiry. Middleware swaps constant compare for prefix-hash check. Revoke flag.",
+          "touches": [
+            "taskerkeeper/tokens.py"
+          ],
+          "success": [
+            "minted token starts/dones only its slug and scope",
+            "revoked token refused"
+          ],
+          "tests": "python -m unittest discover -s tests",
+          "prerequisites": [
+            "1.1.3"
+          ],
+          "complexity": "Medium",
+          "agent": "mid_dev_agent",
+          "created_at": "2026-09-22T00:00:00Z",
+          "updated_at": "2026-09-22T02:32:15Z",
+          "changelog": "Added per-project machine tokens"
+        }
+      ]
+    }
+  ]
+}

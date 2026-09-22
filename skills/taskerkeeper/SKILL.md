@@ -252,6 +252,10 @@ taskerkeeper add docs/todo-v7.json --phase 7.2 --title "New feature"   --goal ".
 # Render for human review (one-way)
 taskerkeeper convert docs/todo-v7.json -o docs/todo-v7.md
 
+# Single-writer core API (VPS hub): same DAG logic over HTTP, never a second implementation
+taskerkeeper serve --port 8471 --registry deploy/registry.json
+# GET /api/<slug>/ready|next|list|deps|history|validate|parallel, POST .../start|done|reset|status|add|heartbeat, GET /api/stream (SSE)
+
 # Which provider/model runs each tier, and where each setting came from
 taskerkeeper agents show --todo docs/todo-v7.json
 taskerkeeper agents providers                  # presets: anthropic, opencode-go

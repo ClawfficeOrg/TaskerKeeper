@@ -18,6 +18,10 @@ node_modules/
 .npm
 *.tgz
 
+# SvelteKit (generated build output, never committed)
+.svelte-kit/
+web/build/
+
 # IDE
 .vscode/
 .idea/
