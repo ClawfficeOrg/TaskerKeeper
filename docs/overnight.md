@@ -39,6 +39,9 @@ Keep the PC awake; a sleeping machine ends the run.
    | failed | FAILED, no result line, timeout, gate failed, DONE with no changes | work stashed (`overnight <date> <id> failed`), task back to pending |
    | skipped | needs a human and changed nothing; provider out of quota | task back to pending or never claimed |
 
+The deadline only stops new tasks from *starting*: a task already running is
+never cut short by it, only by `limits.task_minutes` (default 120).
+
 Each task is tried once per run; two failures in a row end the run. Usage
 limits (429, "resets 3am", `limit reached|<epoch>`) are slept through, then the
 agent is told to continue its partial work; a reset past the deadline ends that

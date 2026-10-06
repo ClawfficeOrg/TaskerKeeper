@@ -289,6 +289,22 @@ class OvernightUnitTests(unittest.TestCase):
         self.assertEqual(int(r.rate_limit_reset("usage limit reached|1900000000", now).timestamp()),
                          1900000000)
 
+    def test_deadline_never_shortens_a_started_agent_run(self):
+        r = self.runner()
+        r.deadline = datetime.now()          # already past
+        r.task_sec = 7200
+        with TemporaryDirectory() as d:
+            r.root = r.home = Path(d)
+            r.run_dir = Path(d)
+            seen = {}
+
+            def fake(argv, cwd, stdin=None, timeout=0, env=None):
+                seen["timeout"] = timeout
+                return overnight.Proc(0, "OVERNIGHT_RESULT: DONE", "")
+            with mock.patch.object(overnight, "run_proc", fake),                     mock.patch.object(r, "assert_safe"):
+                r.run_agent("anthropic", "m", lambda _: "p", "t")
+        self.assertEqual(seen["timeout"], 7200)
+
     def test_matches_globs_and_dirs(self):
         self.assertTrue(overnight.matches("src/a/b.rs", ["src/"]))
         self.assertTrue(overnight.matches("src/a/b.rs", ["*.rs"]))

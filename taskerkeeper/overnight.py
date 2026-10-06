@@ -408,7 +408,8 @@ class Runner:
         prefix = c["prompt_prefix"].rstrip() + "\n\n" if c["prompt_prefix"] else ""
         return f"""{prefix}You are the unattended overnight agent for {project}.
 The owner is asleep. Implement exactly one task, verify it, and report. Model: {spec}.
-Working directory: the repo, branch {self.branch} (a git worktree cut from {self.base}).{sib}
+Working directory: {self.root} (absolute), branch {self.branch}, a git worktree cut from {self.base}.
+Stay inside it. The original checkout at {self.home} belongs to the owner and must never be read for state or edited.{sib}
 {resume_note}
 TASK
 {chr(10).join(lines)}
@@ -542,8 +543,9 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
         while True:
             n += 1
             call = self.agent_call(provider, model, make_prompt(resume), kind)
-            left = int((self.deadline - datetime.now()).total_seconds())
-            cap = max(300, min(self.task_sec, left))   # never overshoot the night by a task
+            # The deadline only stops new tasks from starting; a started task is
+            # never cut short by it, only by the per-task limit.
+            cap = self.task_sec
             if call["opencode"]:
                 if self.opencode_cfg.exists():
                     raise RuntimeError(f"{self.opencode_cfg} already exists; remove it (the runner writes its own)")
