@@ -1013,8 +1013,8 @@ def cmd_stop(args) -> int:
 
 
 def add_parser(sub) -> None:
-    """`taskerkeeper overnight run|init|stop <todo.json>`."""
-    p = sub.add_parser("overnight", help="Unattended task runner on a throwaway branch")
+    """`taskerkeeper tkrun run|init|stop <todo.json>` (`overnight` kept as an alias)."""
+    p = sub.add_parser("tkrun", aliases=["overnight"], help="TKRun: task runner on a throwaway branch")
     inner = p.add_subparsers(dest="overnight_command", required=True)
 
     run = inner.add_parser("run", help="Work through ready tasks until done, stopped or out of time")
@@ -1033,6 +1033,6 @@ def add_parser(sub) -> None:
     init.add_argument("--force", action="store_true", help="Overwrite an existing config")
     init.set_defaults(func=cmd_init)
 
-    stop = inner.add_parser("stop", help="Ask a running overnight run to stop after the current task")
+    stop = inner.add_parser("stop", help="Ask a running TKRun to stop after the current task")
     stop.add_argument("todo_file", help="Path to todo JSON file (locates the repo)")
     stop.set_defaults(func=cmd_stop)
