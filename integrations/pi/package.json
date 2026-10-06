@@ -1,0 +1,25 @@
+{
+  "name": "pi-taskerkeeper-sidebar",
+  "version": "0.1.0",
+  "description": "TaskerKeeper sidebar panel for pi coding agent (also loads under oh-my-pi omp). Spawns `taskerkeeper sidebar --json` and renders current/concurrent/upcoming/phase/overall sections.",
+  "type": "commonjs",
+  "main": "index.js",
+  "files": [
+    "index.js",
+    "panels/"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "pi": {
+    "extensions": [
+      "./index.js"
+    ]
+  },
+  "omp": {
+    "extensions": [
+      "./index.js"
+    ]
+  }
+}

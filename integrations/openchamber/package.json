@@ -1,0 +1,43 @@
+{
+  "name": "@taskerkeeper/openchamber",
+  "version": "0.7.0",
+  "private": true,
+  "description": "TaskerKeeper rail panel for OpenChamber: current, concurrent and upcoming work plus phase trees, read from the TaskerKeeper serve API. Read-only; click a task to attach it to the chat.",
+  "openchamber": {
+    "apiVersion": 1,
+    "engines": {
+      "openchamber": ">=1.24.0"
+    },
+    "contributes": {
+      "panel": {
+        "id": "taskerkeeper",
+        "name": "TaskerKeeper",
+        "icon": "task-line",
+        "entry": "panel/index.html"
+      },
+      "attach": "dialog",
+      "page": true,
+      "integration": {
+        "name": "TaskerKeeper",
+        "description": "Task roadmap from your TaskerKeeper serve API (read-only).",
+        "token": {
+          "apiOrigin": "http://127.0.0.1:8471",
+          "scheme": "bearer"
+        },
+        "settings": [
+          {
+            "id": "slug",
+            "label": "Project slug (registry slug, e.g. taskerkeeper)"
+          },
+          {
+            "id": "pollSeconds",
+            "label": "Refresh interval in seconds (default 15)"
+          }
+        ]
+      }
+    }
+  },
+  "dependencies": {
+    "@openchamber/sdk": "^1.24.0"
+  }
+}

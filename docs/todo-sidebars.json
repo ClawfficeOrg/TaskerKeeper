@@ -1,0 +1,174 @@
+{
+  "schema_version": "1.0.0",
+  "project": {
+    "name": "TaskerKeeper Harness Sidebars",
+    "version": {
+      "milestone": "sidebars",
+      "release_version": "0.7.0"
+    },
+    "description": "Sidebar integrations for OpenCode, Pi/oh-my-pi, OpenChamber, and Paseo, all driven by one shared payload builder over cli.py: current, concurrent, upcoming with details, then phase tree, then overall tree, each cut to room."
+  },
+  "phases": [
+    {
+      "id": "2.0",
+      "title": "Shared core",
+      "goal": "One budgeted payload builder plus a sidebar CLI command so every harness adapter shells out to the same source instead of reimplementing the DAG.",
+      "tasks": [
+        {
+          "id": "2.0.1",
+          "title": "Sidebar payload builder and CLI command",
+          "status": "done",
+          "goal": "Create taskerkeeper/sidebar.py with sidebar_payload() (current in_progress with claim age and goal, concurrent disjoint set, upcoming ready plus top blocked, current-phase tree, overall phase tree, all truncated to width/height with more-counts) and render_sidebar() text form. Wire taskerkeeper sidebar <file> [--json] [--width] [--height] in cli.py. All scheduling calls delegate to existing cli functions.",
+          "touches": [
+            "taskerkeeper/sidebar.py"
+          ],
+          "success": [
+            "sidebar --json returns current, concurrent, upcoming, phase_tree, overall sections",
+            "text render fits width and height budgets with more-counts",
+            "107+ existing tests still pass"
+          ],
+          "tests": "python -m unittest discover -s tests",
+          "complexity": "High",
+          "agent": "pro_dev_agent",
+          "created_at": "2026-09-23T00:00:00Z",
+          "updated_at": "2026-09-23T14:29:08Z",
+          "changelog": "Added budgeted sidebar payload and CLI command"
+        }
+      ]
+    },
+    {
+      "id": "2.1",
+      "title": "Harness adapters",
+      "goal": "Thin sidebar panels for each harness, all consuming the sidebar command output. Read-only, privacy-safe (no secrets, no absolute paths).",
+      "prerequisites": [
+        "2.0"
+      ],
+      "tasks": [
+        {
+          "id": "2.1.1",
+          "title": "OpenCode TUI sidebar plugin",
+          "status": "done",
+          "goal": "Create integrations/opencode/ TUI plugin registering sidebar_content slot in the public TUI plugin style (opencode-harness-panel pattern): collapsible TaskerKeeper block rendering current, concurrent, upcoming, phase tree, overall tree from taskerkeeper sidebar output polled on render. Read-only, basename paths only.",
+          "touches": [
+            "integrations/opencode/"
+          ],
+          "success": [
+            "plugin loads via tui.json tuple form",
+            "renders all five sections with more-counts when tight"
+          ],
+          "tests": "tsc --noEmit or documented manual load",
+          "prerequisites": [
+            "2.0.1"
+          ],
+          "complexity": "Medium",
+          "agent": "mid_dev_agent",
+          "created_at": "2026-09-23T00:00:00Z",
+          "updated_at": "2026-09-23T14:35:10Z",
+          "changelog": "Added OpenCode TUI sidebar plugin"
+        },
+        {
+          "id": "2.1.2",
+          "title": "Pi extension sidebar panel",
+          "status": "done",
+          "goal": "Create integrations/pi/ extension in pi-sidebar-tui style (pi manifest field, event hooks, panels/taskerkeeper panel, /tk-sidebar toggle): same five sections from sidebar command output. Must also load under oh-my-pi omp, which shares the Pi extension API.",
+          "touches": [
+            "integrations/pi/"
+          ],
+          "success": [
+            "extension registers via pi package field",
+            "toggle command works, panel renders five sections"
+          ],
+          "tests": "documented manual load in pi and omp",
+          "prerequisites": [
+            "2.0.1"
+          ],
+          "complexity": "Medium",
+          "agent": "mid_dev_agent",
+          "created_at": "2026-09-23T00:00:00Z",
+          "updated_at": "2026-09-23T14:33:49Z",
+          "changelog": "Added Pi sidebar extension (omp compatible)"
+        },
+        {
+          "id": "2.1.3",
+          "title": "OpenChamber rail extension",
+          "status": "done",
+          "goal": "Create integrations/openchamber/ extension (package.json openchamber manifest, panel/index.html, panel/main.js IIFE built for sandbox iframe via openchamber-guest-bundle): rail panel with current, concurrent, upcoming, phase tree, overall tree plus attach support for tasks. Reads TaskerKeeper serve API through an integration apiOrigin; panel-only reading needs no capability.",
+          "touches": [
+            "integrations/openchamber/"
+          ],
+          "success": [
+            "manifest validates against OpenChamber extension shape",
+            "panel builds to single IIFE, renders five sections from serve API"
+          ],
+          "tests": "bundle build passes",
+          "prerequisites": [
+            "2.0.1"
+          ],
+          "complexity": "High",
+          "agent": "pro_dev_agent",
+          "created_at": "2026-09-23T00:00:00Z",
+          "updated_at": "2026-09-23T14:32:26Z",
+          "changelog": "Added OpenChamber rail extension"
+        },
+        {
+          "id": "2.1.4",
+          "title": "Paseo plugin sidebar and panel",
+          "status": "done",
+          "goal": "Create integrations/paseo/ plugin (addSidebarItem nav entry plus addWorkspacePanel tab, server handle RPC spawning the sidebar command): same five sections, working across Paseo clients.",
+          "touches": [
+            "integrations/paseo/"
+          ],
+          "success": [
+            "sidebar item and workspace panel register",
+            "panel renders five sections via server RPC"
+          ],
+          "tests": "documented manual load via paseo plugin scaffold shape",
+          "prerequisites": [
+            "2.0.1"
+          ],
+          "complexity": "High",
+          "agent": "pro_dev_agent",
+          "created_at": "2026-09-23T00:00:00Z",
+          "updated_at": "2026-09-23T14:35:02Z",
+          "changelog": "Added Paseo sidebar and workspace panel"
+        }
+      ]
+    },
+    {
+      "id": "2.2",
+      "title": "Docs and release",
+      "goal": "Document the sidebar command and all four integrations, bump to 0.7.0.",
+      "prerequisites": [
+        "2.1"
+      ],
+      "tasks": [
+        {
+          "id": "2.2.1",
+          "title": "Docs sync and 0.7.0 release",
+          "status": "done",
+          "goal": "Add sidebar row to README commands table, SKILL.md usage, integration-guide harness section, CHANGELOG 0.7.0 entry, bump pyproject and __init__ versions together.",
+          "touches": [
+            "README.md",
+            "CHANGELOG.md"
+          ],
+          "success": [
+            "every new command and integration path documented",
+            "pip install . works, suite green"
+          ],
+          "tests": "python -m unittest discover -s tests",
+          "prerequisites": [
+            "2.1.1",
+            "2.1.2",
+            "2.1.3",
+            "2.1.4"
+          ],
+          "complexity": "Low",
+          "agent": "basic_dev_agent",
+          "created_at": "2026-09-23T00:00:00Z",
+          "updated_at": "2026-09-23T14:36:13Z",
+          "changelog": "Added harness sidebars and 0.7.0 docs"
+        }
+      ]
+    }
+  ]
+}

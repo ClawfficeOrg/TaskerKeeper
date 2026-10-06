@@ -19,6 +19,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with no config the gate is inferred from Cargo.toml / package.json /
   pyproject.toml / go.mod. See `docs/overnight.md`.
 
+## [0.7.0] — 2026-09-23
+
+Harness sidebars: one budgeted payload, four thin adapters.
+
+### Added
+
+- **`taskerkeeper sidebar <file> [--width] [--height]`.** Emits current
+  (in-progress with owner, claim age, goal, touches), concurrent (the
+  disjoint fan-out set), upcoming (deferred plus blocked with reasons), the
+  current-phase tree anchored on live work, and the overall phase tree.
+  Sections cut to room report `more` counts instead of silently dropping
+  tasks; touches are basenamed. Text render matches `list` glyphs.
+  Formatting only — every scheduling answer delegates to `cli.py`.
+- **`integrations/opencode/`.** TUI plugin registering the `sidebar_content`
+  slot (opencode-harness-panel pattern): collapsible read-only block, polls
+  the sidebar command, fail-soft one-liner when the CLI is missing.
+- **`integrations/pi/`.** Extension panel plus `/tk-sidebar on|off|width`
+  in pi-sidebar-tui style; declares both `pi` and `omp` manifest keys so it
+  loads under oh-my-pi too.
+- **`integrations/openchamber/`.** Rail extension (manifest, dependency-free
+  IIFE panel, full-page board): reads the serve API, attaches tasks to chat,
+  zero capabilities for read-only.
+- **`integrations/paseo/`.** Plugin with sidebar item (in-progress badge)
+  and workspace panel tab, served through a read-only server RPC.
+- **`docs/todo-sidebars.json`.** The milestone roadmap, worked through
+  claim/ready/done like the hub before it.
+
 ## [0.6.0] — 2026-09-22
 
 The VPS hub milestone: one single-writer core API so remote agents share a

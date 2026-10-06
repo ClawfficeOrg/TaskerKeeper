@@ -259,6 +259,29 @@ TK_API_TOKEN=... taskerkeeper serve --port 8471 --registry deploy/registry.json
 curl -H "Authorization: Bearer $TK_API_TOKEN" localhost:8471/api/taskerkeeper/ready
 ```
 
+## Harness Sidebars
+
+`taskerkeeper sidebar <file>` emits one budgeted payload every harness panel
+renders: **current** (in-progress with owner, claim age, goal, touches),
+**concurrent** (the disjoint set, safe to fan out), **upcoming** (deferred
+plus blocked with reasons), then the **current-phase tree** and the
+**overall** phase tree. `--width` truncates lines, `--height` caps rows;
+sections that do not fit report `more` counts. Touches are basenamed so no
+absolute path leaks into a shared sidebar. Thin adapters under
+`integrations/` shell out to it and never reimplement scheduling:
+
+| Harness | Path | Mechanism |
+|---------|------|-----------|
+| OpenCode | `integrations/opencode/` | TUI plugin, `sidebar_content` slot |
+| Pi | `integrations/pi/` | Extension panel + `/tk-sidebar`; also loads under oh-my-pi `omp` |
+| OpenChamber | `integrations/openchamber/` | Rail panel over the serve API, task attach |
+| Paseo | `integrations/paseo/` | Sidebar item + workspace panel via server RPC |
+
+```bash
+taskerkeeper sidebar docs/todo-v7.json --width 80 --height 40
+TASKERKEEPER_TODO=docs/todo-v7.json taskerkeeper sidebar --json
+```
+
 ## CI/CD Integration
 
 ### Pre-commit Hook

@@ -256,6 +256,12 @@ taskerkeeper convert docs/todo-v7.json -o docs/todo-v7.md
 taskerkeeper serve --port 8471 --registry deploy/registry.json
 # GET /api/<slug>/ready|next|list|deps|history|validate|parallel, POST .../start|done|reset|status|add|heartbeat, GET /api/stream (SSE)
 
+# Harness sidebars: budgeted current/concurrent/upcoming/phase-tree/overall payload
+taskerkeeper sidebar docs/todo-v7.json --width 80 --height 40 --json
+# Adapters under integrations/ shell out to it: opencode (TUI sidebar_content),
+# pi (extension panel, also loads under oh-my-pi omp), openchamber (rail panel
+# over the serve API), paseo (sidebar item + workspace panel via server RPC)
+
 # Which provider/model runs each tier, and where each setting came from
 taskerkeeper agents show --todo docs/todo-v7.json
 taskerkeeper agents providers                  # presets: anthropic, opencode-go

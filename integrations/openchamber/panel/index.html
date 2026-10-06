@@ -1,0 +1,56 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TaskerKeeper</title>
+    <style>
+      html, body { margin: 0; height: 100%; }
+      body {
+        font-family: var(--oc-font, system-ui, -apple-system, "Segoe UI", sans-serif);
+        font-size: 13px;
+        line-height: 1.4;
+        color: var(--oc-text, #1a1a1a);
+        background: var(--oc-surface, transparent);
+      }
+      body[data-theme="dark"] { color-scheme: dark; }
+      #root { height: 100%; padding: 12px; box-sizing: border-box; overflow-y: auto; }
+      .tk-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+      .tk-title { font-weight: 700; font-size: 14px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .tk-refresh {
+        border: 1px solid var(--oc-border, #ccc);
+        background: var(--oc-surface-2, transparent);
+        color: inherit; border-radius: 6px; padding: 2px 8px; cursor: pointer; font-size: 12px;
+      }
+      .tk-meta { color: var(--oc-text-2, #666); font-size: 11px; margin-bottom: 8px; }
+      .tk-error {
+        border: 1px solid var(--oc-error, #c00); border-radius: 6px;
+        padding: 8px; margin-bottom: 8px; font-size: 12px;
+      }
+      .tk-section { margin: 10px 0; }
+      .tk-section > h2 {
+        font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
+        color: var(--oc-text-2, #666); margin: 0 0 4px; padding-bottom: 2px;
+        border-bottom: 1px solid var(--oc-border, #ddd);
+      }
+      .tk-task {
+        display: block; width: 100%; text-align: left; cursor: pointer;
+        border: 1px solid transparent; border-radius: 6px; background: transparent;
+        color: inherit; padding: 4px 6px; font-size: 12px;
+      }
+      .tk-task:hover { border-color: var(--oc-border, #ccc); }
+      .tk-task.hl { border-color: var(--oc-primary, #2684ff); }
+      .tk-id { font-family: var(--oc-mono, ui-monospace, monospace); font-weight: 600; }
+      .tk-sub { color: var(--oc-text-2, #666); font-size: 11px; }
+      .tk-tree { margin: 0; padding-left: 16px; font-size: 12px; }
+      .tk-none { color: var(--oc-text-2, #666); font-size: 12px; padding: 0 6px; }
+      .tk-more { color: var(--oc-text-2, #666); font-size: 11px; padding: 0 6px; }
+      body[data-surface="page"] #root { max-width: 900px; margin: 0 auto; }
+      body[data-surface="page"] .tk-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script src="main.js"></script>
+  </body>
+</html>

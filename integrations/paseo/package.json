@@ -1,0 +1,39 @@
+{
+  "name": "paseo-taskerkeeper",
+  "version": "0.1.0",
+  "description": "TaskerKeeper sidebar and workspace panel for Paseo, driven by `taskerkeeper sidebar --json`.",
+  "license": "MIT",
+  "main": "server.js",
+  "files": [
+    "server.js",
+    "client.js",
+    "README.md",
+    "package.json"
+  ],
+  "scripts": {
+    "check": "node --check server.js && node --check client.js"
+  },
+  "paseo": {
+    "displayName": "TaskerKeeper",
+    "description": "Read-only TaskerKeeper sidebar: current, concurrent, upcoming, phase tree, overall tree.",
+    "client": "./client.js",
+    "server": "./server.js",
+    "settings": {
+      "todo": {
+        "type": "string",
+        "description": "Path to the TaskerKeeper todo file (falls back to TASKERKEEPER_TODO env).",
+        "default": ""
+      },
+      "width": {
+        "type": "number",
+        "description": "Sidebar line-width budget passed as --width.",
+        "default": 80
+      },
+      "height": {
+        "type": "number",
+        "description": "Sidebar line-height budget passed as --height.",
+        "default": 40
+      }
+    }
+  }
+}

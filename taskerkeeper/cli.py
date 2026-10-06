@@ -1179,6 +1179,18 @@ def cmd_list(args) -> int:
     return 0
 
 
+def cmd_sidebar(args) -> int:
+    from taskerkeeper import sidebar
+
+    data = load_todo(args.todo_file)
+    payload = sidebar.sidebar_payload(data, args.width, args.height)
+    if args.json:
+        emit_json(payload)
+    else:
+        print(sidebar.render_sidebar(payload, args.width), end="")
+    return 0
+
+
 def cmd_parallel(args) -> int:
     data = load_todo(args.todo_file)
     if args.json:
@@ -1607,6 +1619,12 @@ def build_parser() -> argparse.ArgumentParser:
     p = add_command("convert", "Render the todo file as markdown")
     p.add_argument("-o", "--output", help="Write to this file instead of stdout")
     p.set_defaults(func=cmd_convert)
+
+    p = add_command("sidebar", "Budgeted sidebar payload for harness panels",
+                    json_out=True)
+    p.add_argument("--width", type=int, default=80, help="Line width budget (default: 80)")
+    p.add_argument("--height", type=int, default=40, help="Row budget (default: 40)")
+    p.set_defaults(func=cmd_sidebar)
 
     s = sub.add_parser("serve", help="Serve the single-writer core API over HTTP")
     s.add_argument("--port", type=int, default=8471, help="Port to bind (default: 8471)")
