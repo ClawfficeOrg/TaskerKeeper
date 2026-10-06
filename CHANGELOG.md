@@ -5,6 +5,20 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`taskerkeeper overnight run|init|stop`.** A repo-agnostic unattended
+  runner, ported from a per-repo PowerShell script. Per task: claim, run the
+  tier's agent (`claude -p` / `opencode run`) with a generated allow/deny
+  list and no skip-permissions flag, run the repo's gate commands itself, read-only
+  review, commit, `done`. Sleeps through usage limits, parks failures as stashes,
+  stops after two consecutive failures. Repo specifics (gate, prompt rules,
+  deny-edit globs, sibling repos) live in `.taskerkeeper/overnight.json`;
+  with no config the gate is inferred from Cargo.toml / package.json /
+  pyproject.toml / go.mod. See `docs/overnight.md`.
+
 ## [0.6.0] — 2026-09-22
 
 The VPS hub milestone: one single-writer core API so remote agents share a

@@ -55,6 +55,7 @@ Without installing, `python -m taskerkeeper <command>` and `python scripts/taske
 | `agents unset <tier>` | Drop a tier, or `--key` one setting, from a scope |
 | `agents path` | Print the config file a scope writes to |
 | `serve [--port 8471] [--bind 127.0.0.1]` | Single-writer core API over HTTP: GET reads, locked POST writes, heartbeats, and an SSE stream — all delegating to the same DAG logic, never a second implementation |
+| `overnight run <file> [--hours 8] [--dry-run]` | Unattended loop: claims each ready task, runs its tier's agent headless in its own git worktree on `overnight/<date>`, gates it with *your* commands, reviews, commits, closes. Commits only there: never merges, pushes, or touches the base branch. `overnight init` writes `.taskerkeeper/overnight.json` from the detected stack; `overnight stop` ends a run after the current task. See [docs/overnight.md](docs/overnight.md) |
 
 Every read command takes `--json`, so agents parse structured output instead of scraping box-drawing characters:
 

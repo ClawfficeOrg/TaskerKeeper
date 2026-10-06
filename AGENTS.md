@@ -18,6 +18,7 @@ Every read command has a `--json` mode; do not break it.
 ```
 taskerkeeper/cli.py                    All CLI logic. One file on purpose.
 taskerkeeper/agents.py                 Tier -> provider/model resolution
+taskerkeeper/overnight.py              Unattended runner (`overnight run|init|stop`), the one supervisor
 taskerkeeper/jsonio.py                 Atomic writes, the file lock, the event log
 taskerkeeper/__main__.py               python -m taskerkeeper
 taskerkeeper/schema/todo-v1.schema.json  JSON Schema (draft 2020-12), package data
@@ -86,7 +87,8 @@ called. Unknown liveness falls back to lock age, never to "assume dead".
 **TaskerKeeper does not touch git except in `release --tag`.** `done` reports
 `release_ready` and stops. The last task of a phase is an ordinary task, and a
 tag created as its side effect appears at a moment nobody chose. Keep tagging
-behind the explicit command and the explicit flag.
+behind the explicit command and the explicit flag. The one other exception is
+`overnight.py` (below).
 
 **The event log is append-only and best-effort.** `append_event` swallows its
 own IO errors on purpose: losing an audit line must never fail the write that
@@ -103,6 +105,14 @@ provider/model string and hands it to whoever is dispatching. Do not add an SDK
 dependency, an API key lookup, or a network call — the supervisor owns that.
 Model IDs in `DEFAULT_TIERS` are data, not endorsements; keep them current but
 do not build logic around specific ones.
+
+**`overnight.py` is the only supervisor.** `taskerkeeper overnight run` shells
+out to agent CLIs and to git, because an unattended loop has to. That is
+allowed in exactly that module: it never imports an SDK or reads an API key
+(the CLIs own auth), `cli.py` only registers its subparser, and no scheduling
+logic may depend on it. It must never touch the base branch, push, or tag; the
+runner, not the agent, owns git history and taskerkeeper state. Everything
+repo-specific belongs in `<repo>/.taskerkeeper/overnight.json`, never in code.
 
 **Config layering is last-wins, and the order is fixed:** built-in, user, repo,
 todo file, then a task's own `provider`/`model`. Each config layer contributes

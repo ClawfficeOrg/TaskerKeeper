@@ -1619,6 +1619,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.set_defaults(func=cmd_serve)
 
     build_agents_parser(sub)
+    from taskerkeeper import overnight
+    overnight.add_parser(sub)
     return parser
 
 
