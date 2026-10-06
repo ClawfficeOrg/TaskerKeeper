@@ -1639,6 +1639,8 @@ def build_parser() -> argparse.ArgumentParser:
     build_agents_parser(sub)
     from taskerkeeper import overnight
     overnight.add_parser(sub)
+    from taskerkeeper import integrations
+    integrations.add_parser(sub)
     return parser
 
 

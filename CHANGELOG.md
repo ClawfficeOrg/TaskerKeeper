@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`taskerkeeper integrations list|install|uninstall`.** Installer for the
+  harness sidebars: symlinks the Paseo plugin (copy fallback), merges the
+  opencode `tui.json` plugin entry (refuses non-JSON, keeps a `.bak`),
+  runs `pi install`, and prints the OpenChamber folder to paste. Run from a
+  checkout (`integrations/` is not packaged); `--dry-run` previews.
 - **`taskerkeeper overnight run|init|stop`.** A repo-agnostic unattended
   runner, ported from a per-repo PowerShell script. Per task: claim, run the
   tier's agent (`claude -p` / `opencode run`) with a generated allow/deny

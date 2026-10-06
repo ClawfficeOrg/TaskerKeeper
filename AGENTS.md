@@ -18,6 +18,7 @@ Every read command has a `--json` mode; do not break it.
 ```
 taskerkeeper/cli.py                    All CLI logic. One file on purpose.
 taskerkeeper/agents.py                 Tier -> provider/model resolution
+taskerkeeper/integrations.py           `integrations list|install|uninstall` for the sidebar adapters
 taskerkeeper/overnight.py              Unattended runner (`overnight run|init|stop`), the one supervisor
 taskerkeeper/jsonio.py                 Atomic writes, the file lock, the event log
 taskerkeeper/__main__.py               python -m taskerkeeper

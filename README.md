@@ -57,6 +57,7 @@ Without installing, `python -m taskerkeeper <command>` and `python scripts/taske
 | `serve [--port 8471] [--bind 127.0.0.1]` | Single-writer core API over HTTP: GET reads, locked POST writes, heartbeats, and an SSE stream — all delegating to the same DAG logic, never a second implementation |
 | `sidebar <file> [--width 80] [--height 40]` | Budgeted sidebar payload for harness panels: current, concurrent (disjoint), upcoming, current-phase tree, overall tree — sections cut to room with `more` counts instead of silent drops |
 | `overnight run <file> [--hours 8] [--dry-run]` | Unattended loop: claims each ready task, runs its tier's agent headless in its own git worktree on `overnight/<date>`, gates it with *your* commands, reviews, commits, closes. Commits only there: never merges, pushes, or touches the base branch. `overnight init` writes `.taskerkeeper/overnight.json` from the detected stack; `overnight stop` ends a run after the current task. See [docs/overnight.md](docs/overnight.md) |
+| `integrations list\|install\|uninstall <name\|all>` | Wire `integrations/` (opencode, pi, paseo, openchamber) into the tools that load them: symlinks the Paseo plugin, adds the opencode `tui.json` entry without touching your other plugins, runs `pi install`, prints the OpenChamber folder to paste. Needs a checkout; `--dry-run` previews |
 
 Every read command takes `--json`, so agents parse structured output instead of scraping box-drawing characters:
 
