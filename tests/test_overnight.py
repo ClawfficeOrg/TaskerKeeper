@@ -336,5 +336,69 @@ class OvernightUnitTests(unittest.TestCase):
         self.assertIn("git push*", r.shell_deny)
 
 
+class LaneTests(unittest.TestCase):
+    NOW = datetime(2026, 10, 7, 12, 30, tzinfo=__import__("datetime").timezone.utc)
+
+    @staticmethod
+    def rsv(start, end, **kw):
+        return {"starts_at": f"2026-10-07T{start}:00Z", "ends_at": f"2026-10-07T{end}:00Z", **kw}
+
+    def test_window_merges_consecutive_hours_and_ignores_cancelled(self):
+        rs = [self.rsv("12:00", "13:00"), self.rsv("13:00", "14:00"),
+              self.rsv("14:00", "15:00", cancelled_at="2026-10-06T00:00:00Z"), self.rsv("16:00", "17:00")]
+        s, e = overnight.lane_window(rs, self.NOW)
+        self.assertEqual((s.hour, e.hour), (12, 14))
+
+    def test_window_none_when_gap_or_empty(self):
+        self.assertIsNone(overnight.lane_window([], self.NOW))
+        self.assertIsNone(overnight.lane_window([self.rsv("13:00", "14:00")], self.NOW))
+        self.assertIsNone(overnight.lane_window([self.rsv("11:00", "12:30")], self.NOW))
+
+    def runner(self, reservations, margin=20, fallback="opencode-go/muse-spark-1.3-contributor"):
+        c = json.loads(json.dumps(overnight.DEFAULTS))
+        c["lanes"] = {"singularity": {"margin_minutes": margin, "fallback": fallback}}
+        with TemporaryDirectory() as d:
+            root = Path(d)
+            (root / "t.json").write_text("{}")
+            r = overnight.Runner(todo=root / "t.json", root=root, cfg=c, date="2026-01-01",
+                                 deadline=datetime.now())
+        r.lane_reservations = lambda lane: reservations
+        return r
+
+    def test_route_uses_lane_until_margin_then_falls_back(self):
+        model = "deepseek-ai/DeepSeek-V4.1-Flash"
+        with mock.patch.object(overnight, "datetime", wraps=datetime) as dt:
+            dt.now.return_value = self.NOW
+            dt.fromisoformat = datetime.fromisoformat
+            r = self.runner([self.rsv("12:00", "13:00")], margin=20)       # 30 min left
+            self.assertEqual(r.lane_route("singularity", model), ("singularity", model))
+            r = self.runner([self.rsv("12:00", "13:00")], margin=40)       # inside the margin
+            self.assertEqual(r.lane_route("singularity", model),
+                             ("opencode-go", "muse-spark-1.3-contributor"))
+
+    def test_route_falls_back_when_reservations_unreadable(self):
+        r = self.runner([])
+        def boom(lane):
+            raise RuntimeError("no key")
+        r.lane_reservations = boom
+        self.assertEqual(r.lane_route("singularity", "m")[0], "opencode-go")
+        self.assertEqual(r.lane_route("anthropic", "x"), ("anthropic", "x"))
+
+    def test_fallback_is_required(self):
+        with self.assertRaises(ValueError):
+            self.runner([], fallback="")
+
+    def test_agent_call_keeps_secrets_out_of_config(self):
+        r = self.runner([])
+        call = r.agent_call("singularity", "deepseek-ai/DeepSeek-V4.1-Flash", "do it")
+        self.assertIn("singularity/deepseek-ai/DeepSeek-V4.1-Flash", call["argv"])
+        cfg = json.loads(call["opencode"])
+        opts = cfg["provider"]["singularity"]["options"]
+        self.assertEqual(opts["apiKey"], "{env:SINGULARITY_LANE_APIKEY_SECRET}")
+        self.assertEqual(opts["baseURL"], "{env:SINGULARITY_API_LANE_ENDPOINT}")
+        self.assertEqual(cfg["provider"]["singularity"]["models"]["deepseek-ai/DeepSeek-V4.1-Flash"]
+                         ["options"], {"reasoning_effort": "none"})
+
+
 if __name__ == "__main__":
     unittest.main()

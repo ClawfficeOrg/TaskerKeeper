@@ -83,7 +83,44 @@ DEFAULTS: dict = {
     "limits": {"task_minutes": 120, "gate_minutes": 45,
                "max_consecutive_failures": 2, "lease_minutes": 480},
     "agent_commands": {},          # provider -> {cmd:[...with {model}], stdin:bool}
+    "lanes": {},                   # leased-capacity providers, see LANE_DEFAULTS
 }
+
+# A leased-lane provider (e.g. singularity): an OpenAI-compatible endpoint that only answers
+# inside a reserved window. The runner reads the window from the reservations API (it never
+# books), uses the lane until `margin_minutes` before the window ends, then routes to `fallback`.
+# Secrets are only ever read from the environment (run under `infisical run`).
+LANE_DEFAULTS: dict = {
+    "api_base": "https://app.singularityapi.tech/api/v1",
+    "reservation_key_env": "SINGULARITY_API_LANE_RESERVATION_API_KEY",
+    "endpoint_env": "SINGULARITY_API_LANE_ENDPOINT",
+    "key_env": "SINGULARITY_LANE_APIKEY_SECRET",
+    "margin_minutes": 20,
+    "fallback": "",                # provider/model used when the lane is closed (required)
+    "model_options": {"reasoning_effort": "none"},
+    "check_seconds": 60,
+}
+
+
+def _ts(s: str) -> datetime:
+    return datetime.fromisoformat(s.replace("Z", "+00:00"))
+
+
+def lane_window(reservations: list[dict], now: datetime) -> tuple[datetime, datetime] | None:
+    """The merged window of live reservations that covers `now`, or None."""
+    live = sorted((_ts(r["starts_at"]), _ts(r["ends_at"])) for r in reservations
+                  if not r.get("cancelled_at") and r.get("starts_at") and r.get("ends_at"))
+    start = end = None
+    for s, e in live:
+        if end is not None and s <= end:
+            end = max(end, e)
+        elif end is not None and start <= now < end:
+            break
+        else:
+            start, end = s, e
+    if start is not None and start <= now < end:
+        return start, end
+    return None
 
 STACKS = {
     "Cargo.toml": {
@@ -254,6 +291,8 @@ class Runner:
     dry_run: bool = False
     base_override: str = ""
     exhausted: set = field(default_factory=set)
+    lane_cache: dict = field(default_factory=dict)
+    lane_last: dict = field(default_factory=dict)
     sib_ready: set = field(default_factory=set)
     sib_start: dict = field(default_factory=dict)
     main_sha: str = ""
@@ -308,6 +347,54 @@ class Runner:
         self.shell_deny = BASE_SHELL_DENY + list(self.cfg["shell_deny"])
         self.review_enabled = bool(self.cfg["review"].get("enabled", True)) and not self.no_review
         self.review_spec = self.review_model or self.cfg["review"].get("model", "anthropic/claude-opus-5")
+        for name, lane in self.cfg["lanes"].items():
+            merged = {**LANE_DEFAULTS, **lane}
+            if "/" not in str(merged["fallback"]):
+                raise ValueError(f"lanes.{name}.fallback must be 'provider/model' (used when the lane is closed)")
+            self.cfg["lanes"][name] = merged
+
+    # ── leased lanes
+    def lane_reservations(self, lane: dict) -> list[dict]:
+        """Reservations from the booking API (read-only). Raises on any failure."""
+        import urllib.request
+        key = os.environ.get(lane["reservation_key_env"], "")
+        if not key:
+            raise RuntimeError(f"{lane['reservation_key_env']} is not set (run under `infisical run`)")
+        req = urllib.request.Request(lane["api_base"].rstrip("/") + "/reservations?status=all",
+                                     headers={"Authorization": f"Bearer {key}"})
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            return json.loads(resp.read().decode("utf-8")).get("reservations", [])
+
+    def lane_open(self, name: str, lane: dict) -> tuple[bool, str]:
+        """(usable, why). Cached for check_seconds; any failure means closed."""
+        from datetime import timezone
+        now = datetime.now(timezone.utc)
+        hit = self.lane_cache.get(name)
+        if hit and (now - hit[0]).total_seconds() < float(lane["check_seconds"]):
+            return hit[1]
+        try:
+            win = lane_window(self.lane_reservations(lane), now)
+            if win is None:
+                res = (False, "no active reservation")
+            else:
+                left = (win[1] - now).total_seconds() / 60
+                margin = float(lane["margin_minutes"])
+                res = (left > margin, f"{left:.0f} min left in the lease (margin {margin:.0f})")
+        except Exception as e:  # network, auth, bad JSON: never route work to a lane we cannot confirm
+            res = (False, f"cannot read reservations: {e}")
+        self.lane_cache[name] = (now, res)
+        return res
+
+    def lane_route(self, provider: str, model: str) -> tuple[str, str]:
+        lane = self.cfg["lanes"].get(provider)
+        if not lane:
+            return provider, model
+        ok, why = self.lane_open(provider, lane)
+        state = "lane" if ok else "fallback"
+        if self.lane_last.get(provider) != state:
+            self.lane_last[provider] = state
+            self.log(f"LANE {provider}: {'using the lane' if ok else 'closed, routing to ' + lane['fallback']} ({why})")
+        return (provider, model) if ok else self.split_agent(lane["fallback"])
 
     @property
     def opencode_cfg(self) -> Path:
@@ -461,7 +548,15 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
 """
 
     # ── agent invocation
-    def opencode_config(self) -> str:
+    def lane_provider_block(self, provider: str, model: str) -> dict:
+        """opencode custom provider for a lane. Secrets stay in the environment ({env:...})."""
+        lane = self.cfg["lanes"][provider]
+        return {provider: {
+            "npm": "@ai-sdk/openai-compatible", "name": provider,
+            "options": {"baseURL": "{env:%s}" % lane["endpoint_env"], "apiKey": "{env:%s}" % lane["key_env"]},
+            "models": {model: {"name": model, "options": dict(lane["model_options"])}}}}
+
+    def opencode_config(self, extra_provider: dict | None = None) -> str:
         bash = {"*": "deny"}
         bash.update({p: "allow" for p in self.shell_allow})
         bash.update({p: "deny" for p in self.shell_deny})
@@ -473,9 +568,12 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
                 ext[str((s["root"] / sc).resolve()) + os.sep + "**"] = "allow"
         edit = {"*": "allow"}
         edit.update({f"*{Path(g).name}" if "/" not in g else g: "deny" for g in self.cfg["deny_edit"]})
-        return json.dumps({"$schema": "https://opencode.ai/config.json", "permission": {
+        cfg = {"$schema": "https://opencode.ai/config.json", "permission": {
             "bash": bash, "edit": edit, "external_directory": ext,
-            "question": "deny", "webfetch": "allow"}}, indent=2)
+            "question": "deny", "webfetch": "allow"}}
+        if extra_provider:
+            cfg["provider"] = extra_provider
+        return json.dumps(cfg, indent=2)
 
     def agent_call(self, provider: str, model: str, prompt: str, kind: str = "dev") -> dict:
         allowed = ["Read", "Edit", "Write", "Glob", "Grep", "WebFetch", "WebSearch"] \
@@ -500,6 +598,11 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
                     for sc in s["scope"] or ["."]:
                         a += ["--add-dir", str((s["root"] / sc).resolve())]
             return {"argv": a, "stdin": prompt, "opencode": None}
+        if provider in self.cfg["lanes"]:
+            a = self.opencode_bin + ["run", "--standalone", "--auto", "-m", f"{provider}/{model}",
+                                     "--title", f"overnight {self.date}", prompt]
+            return {"argv": a, "stdin": None,
+                    "opencode": self.opencode_config(self.lane_provider_block(provider, model))}
         if provider == "opencode-go":
             a = self.opencode_bin + ["run", "--standalone", "--auto", "-m", f"{provider}/{model}",
                                      "--title", f"overnight {self.date}", prompt]
@@ -711,9 +814,10 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
     # ── one task end to end → done | partial | skipped | failed | limited | stop
     def run_task(self, task: dict) -> str:
         tid = task["id"]
-        provider, model = self.resolve_agent(task)
+        provider, model = self.lane_route(*self.resolve_agent(task))
         spec = f"{provider}/{model}"
-        if provider not in ("anthropic", "opencode-go") and provider not in self.cfg["agent_commands"]:
+        if provider not in ("anthropic", "opencode-go") and provider not in self.cfg["agent_commands"] \
+                and provider not in self.cfg["lanes"]:
             self.log(f"SKIP {tid} - provider '{provider}' has no CLI here; not claimed")
             return "skipped"
         if provider in self.exhausted:
@@ -836,7 +940,9 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
             except ValueError as e:
                 self.say(f"  {q['id']:<8} {e}")
                 continue
-            self.say(f"  {q['id']:<8} {q.get('agent', ''):<16} {p}/{m}")
+            lp, lm = self.lane_route(p, m)
+            note = f"  (lane closed -> {lp}/{lm}: {self.lane_cache[p][1][1]})" if (lp, lm) != (p, m) else ""
+            self.say(f"  {q['id']:<8} {q.get('agent', ''):<16} {p}/{m}{note}")
         t = next((q for q in ready if q.get("status") == "pending"), None)
         if not t:
             self.say("No pending ready task.")

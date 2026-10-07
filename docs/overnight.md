@@ -120,3 +120,22 @@ with `git worktree remove <path>` and `git branch -d overnight/<date>`.
   entry that reads stdin.
 - The Claude CLI flags were verified only against a stub. Run `--dry-run`,
   then a short real run (`--hours 0 --minutes 20`) before trusting a long one.
+
+## Leased lanes (`lanes`)
+
+A provider that only answers inside a reserved window (for example SingularityAPI lanes)
+goes under `lanes` in `.taskerkeeper/overnight.json`, and a tier points at it with
+`taskerkeeper agents set <tier> --provider singularity --model <id>`:
+
+```json
+"lanes": {"singularity": {"margin_minutes": 20, "fallback": "opencode-go/muse-spark-1.3-contributor"}}
+```
+
+The runner only reads `GET /reservations?status=all`; it never books, and it merges back-to-back
+hours into one window. Before each task it uses the lane when more than `margin_minutes` remain,
+otherwise it routes that task to `fallback` (a missing key, a network error or no reservation also
+mean fallback). A task already running when the lease ends is not interrupted. Keys come only from
+the environment, so run under `infisical run`: `reservation_key_env`, `endpoint_env`, `key_env`
+(defaults are the `SINGULARITY_*` names). The generated `opencode.json` holds `{env:...}`
+references, never values. `model_options` default to `{"reasoning_effort": "none"}`.
+One task runs at a time, so a lane's second request slot is unused.
