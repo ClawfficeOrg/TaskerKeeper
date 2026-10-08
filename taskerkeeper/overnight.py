@@ -310,6 +310,7 @@ class Runner:
         self.run_dir = self.home / RUN_DIR_NAME / self.date
         self.log_file = self.home / RUN_DIR_NAME / "log.md"
         self.stop_file = self.home / RUN_DIR_NAME / "STOP"
+        self.kill_file = self.home / RUN_DIR_NAME / "KILL"
         self.pid_file = self.home / RUN_DIR_NAME / "pid"
         self.todo_rel = self.todo.resolve().relative_to(self.home).as_posix()
         self.todo_paths = [self.todo_rel, self.todo_rel + ".events.jsonl"]
@@ -673,7 +674,7 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
                         return {"status": "limited", "res": res, "transcript": tr}
                     self.log(f"RATE LIMIT {provider} on {label}; sleeping until {until:%H:%M:%S}")
                     while datetime.now() < until:
-                        if self.stop_file.exists():
+                        if self.stop_file.exists() or self.kill_file.exists():
                             return {"status": "stop", "res": res, "transcript": tr}
                         time.sleep(max(1, min(60, (until - datetime.now()).total_seconds())))
                     resume = True
@@ -992,6 +993,19 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
         self.todo = self.wt_path / self.todo_rel
         self.todo_paths = [self.todo_rel, self.todo_rel + ".events.jsonl"]
 
+    def halt_request(self) -> str | None:
+        """Consume a STOP/KILL sentinel if present; None otherwise.
+
+        KILL is the hard stop: `tkrun kill` also tree-kills the runner, so
+        reaching here with KILL set means the signal missed and the run must
+        halt at the next check anyway.
+        """
+        for path, why in ((self.kill_file, "KILL file"), (self.stop_file, "STOP file")):
+            if path.exists():
+                path.unlink()
+                return why
+        return None
+
     def execute(self) -> int:
         cur = self.preflight()
         if self.dry_run:
@@ -1031,9 +1045,9 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
         consecutive, why = 0, "no more ready tasks"
         try:
             while True:
-                if self.stop_file.exists():
-                    self.stop_file.unlink()
-                    why = "STOP file"
+                halted = self.halt_request()
+                if halted:
+                    why = halted
                     break
                 if datetime.now() >= self.deadline:
                     why = "deadline"
@@ -1066,7 +1080,7 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
             self.log(f"END ({why}): done {counts['done']}, partial {counts['partial']}, skipped "
                      f"{counts['skipped']}, failed {counts['failed']}, quota-limited {counts['limited']}")
             self.pid_file.unlink(missing_ok=True)
-        return 0 if why in ("no more ready tasks", "deadline", "STOP file") else 1
+        return 0 if why in ("no more ready tasks", "deadline", "STOP file", "KILL file") else 1
 
 
 # ── CLI ──────────────────────────────────────────────────────────────────────
@@ -1118,8 +1132,63 @@ def cmd_stop(args) -> int:
     return 0
 
 
+def _tree_kill(pid: int) -> bool:
+    """Kill a runner and its agent children. True if a signal was delivered."""
+    if os.name == "nt":
+        r = subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"],
+                           capture_output=True, text=True)
+        return r.returncode == 0
+    try:
+        os.killpg(os.getpgid(pid), 9)
+        return True
+    except (OSError, ProcessLookupError):
+        pass
+    try:
+        os.kill(pid, 9)
+        return True
+    except (OSError, ProcessLookupError):
+        return False
+
+
+def cmd_kill(args) -> int:
+    """Hard stop: sentinel + tree-kill the runner PID.
+
+    Unlike `stop` (cooperative, checked between tasks), this delivers a real
+    signal so a mid-task agent subprocess dies too. The KILL sentinel is also
+    written so a runner that survives the signal still halts at its next check
+    instead of claiming more work. Task claims are left alone: their leases
+    expire on their own and the partial work stays in the run worktree.
+    """
+    from taskerkeeper.jsonio import _pid_alive  # local import: supervisor-side only
+
+    root = repo_root_for(Path(args.todo_file).resolve())
+    rundir = root / RUN_DIR_NAME
+    rundir.mkdir(parents=True, exist_ok=True)
+    (rundir / "KILL").write_text("kill\n", encoding="utf-8")
+    pid_file = rundir / "pid"
+    if not pid_file.exists():
+        print(f"KILL sentinel written: {rundir / 'KILL'} (no runner pid file; nothing to signal)")
+        return 0
+    raw = pid_file.read_text(encoding="ascii").strip()
+    if not raw.isdigit():
+        pid_file.unlink(missing_ok=True)
+        print(f"KILL sentinel written; removed unreadable pid file ({raw!r})")
+        return 0
+    pid = int(raw)
+    if _pid_alive(pid) is False:
+        pid_file.unlink(missing_ok=True)
+        print(f"KILL sentinel written; runner pid {pid} already dead (stale pid file removed)")
+        return 0
+    if _tree_kill(pid):
+        print(f"KILL sentinel written; signal delivered to runner pid {pid} (tree)")
+        return 0
+    print(f"KILL sentinel written; could not signal runner pid {pid} "
+          f"(unknown state) — it will halt at its next check")
+    return 1
+
+
 def add_parser(sub) -> None:
-    """`taskerkeeper tkrun run|init|stop <todo.json>` (`overnight` kept as an alias)."""
+    """`taskerkeeper tkrun run|init|stop|kill <todo.json>` (`overnight` kept as an alias)."""
     p = sub.add_parser("tkrun", aliases=["overnight"], help="TKRun: task runner on a throwaway branch")
     inner = p.add_subparsers(dest="overnight_command", required=True)
 
@@ -1142,3 +1211,7 @@ def add_parser(sub) -> None:
     stop = inner.add_parser("stop", help="Ask a running TKRun to stop after the current task")
     stop.add_argument("todo_file", help="Path to todo JSON file (locates the repo)")
     stop.set_defaults(func=cmd_stop)
+
+    kill = inner.add_parser("kill", help="Hard-stop a running TKRun: signal its process tree now")
+    kill.add_argument("todo_file", help="Path to todo JSON file (locates the repo)")
+    kill.set_defaults(func=cmd_kill)

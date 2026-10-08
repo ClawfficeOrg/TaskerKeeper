@@ -249,6 +249,34 @@ class OvernightRunTests(unittest.TestCase):
         self.assertIn("STOP file", out)
         self.assertEqual(s.status(), "pending")
 
+    def test_kill_file_ends_run_before_first_task(self):
+        s = self.scratch()
+        (s.root / ".overnight").mkdir()
+        (s.root / ".overnight" / "KILL").write_text("kill")
+        code, out = s.run("done")
+        self.assertEqual(code, 0)
+        self.assertIn("KILL file", out)
+        self.assertEqual(s.status(), "pending")
+
+    def test_kill_without_pid_file_writes_sentinel(self):
+        import types
+
+        s = self.scratch()
+        code = overnight.cmd_kill(types.SimpleNamespace(todo_file=str(s.todo)))
+        self.assertEqual(code, 0)
+        self.assertTrue((s.root / ".overnight" / "KILL").exists())
+
+    def test_kill_with_stale_pid_cleans_up(self):
+        import types
+
+        s = self.scratch()
+        (s.root / ".overnight").mkdir()
+        (s.root / ".overnight" / "pid").write_text("2147483647", encoding="ascii")
+        code = overnight.cmd_kill(types.SimpleNamespace(todo_file=str(s.todo)))
+        self.assertEqual(code, 0)
+        self.assertTrue((s.root / ".overnight" / "KILL").exists())
+        self.assertFalse((s.root / ".overnight" / "pid").exists())
+
     def test_dry_run_changes_nothing(self):
         s = self.scratch()
         code, out = s.run("done", "--dry-run")
