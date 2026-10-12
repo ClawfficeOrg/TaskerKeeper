@@ -40,3 +40,9 @@ Thumbs.db
 # TaskerKeeper
 # Lock files left behind by an interrupted CLI write
 *.json.lock
+
+# Real Singularity lane credentials (the .example file is tracked)
+tk.singularity.env
+
+# Scratch demo output
+/tk-addphase-demo.*
