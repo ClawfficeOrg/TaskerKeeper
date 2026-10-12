@@ -284,6 +284,13 @@ taskerkeeper sidebar docs/todo-v7.json --width 80 --height 40 --json
 # pi (extension panel, also loads under oh-my-pi omp), openchamber (rail panel
 # over the serve API), paseo (sidebar item + workspace panel via server RPC)
 
+# TKRun: unattended loop on a throwaway worktree branch (overnight is an alias)
+taskerkeeper tkrun init docs/todo-v7.json             # .taskerkeeper/overnight.json
+taskerkeeper tkrun run  docs/todo-v7.json --dry-run   # preview, changes nothing
+taskerkeeper tkrun run  docs/todo-v7.json --hours 8   # go
+taskerkeeper tkrun stop docs/todo-v7.json             # cooperative, after current task
+taskerkeeper tkrun kill docs/todo-v7.json             # hard stop: sentinel + tree-kill
+
 # Which provider/model runs each tier, and where each setting came from
 taskerkeeper agents show --todo docs/todo-v7.json
 taskerkeeper agents providers                  # presets: anthropic, opencode-go

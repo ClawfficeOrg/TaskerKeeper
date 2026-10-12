@@ -31,6 +31,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   deny-edit globs, sibling repos) live in `.taskerkeeper/overnight.json`;
   with no config the gate is inferred from Cargo.toml / package.json /
   pyproject.toml / go.mod. See `docs/overnight.md`.
+- **The runner is TKRun; `overnight` is kept as an alias.** `taskerkeeper tkrun
+  run|init|stop|kill` and `taskerkeeper overnight ...` are the same command.
+- **`taskerkeeper tkrun kill` — hard stop.** Writes the `KILL` sentinel and
+  tree-kills the runner PID, so a mid-task agent subprocess dies too. Unlike the
+  cooperative `stop`, which is checked between tasks. Task claims are left to
+  expire; partial work stays in the run worktree.
+- **Leased lanes.** A provider that only answers inside a reserved window (for
+  example SingularityAPI lanes) goes under `lanes` in
+  `.taskerkeeper/overnight.json`. The runner reads reservations (never books),
+  merges back-to-back hours, uses the lane while more than `margin_minutes`
+  remain, and otherwise routes the task to `fallback` (also on a missing key,
+  network error, or no reservation). A task already running when the lease ends
+  is not interrupted. Keys come only from the environment.
 
 ## [0.7.0] — 2026-09-23
 

@@ -19,7 +19,7 @@ Every read command has a `--json` mode; do not break it.
 taskerkeeper/cli.py                    All CLI logic. One file on purpose.
 taskerkeeper/agents.py                 Tier -> provider/model resolution
 taskerkeeper/integrations.py           `integrations list|install|uninstall` for the sidebar adapters
-taskerkeeper/overnight.py              Unattended runner (`overnight run|init|stop`), the one supervisor
+taskerkeeper/overnight.py              Unattended runner TKRun (`tkrun run|init|stop|kill`, `overnight` alias), the one supervisor
 taskerkeeper/jsonio.py                 Atomic writes, the file lock, the event log
 taskerkeeper/__main__.py               python -m taskerkeeper
 taskerkeeper/schema/todo-v1.schema.json  JSON Schema (draft 2020-12), package data
@@ -107,7 +107,8 @@ dependency, an API key lookup, or a network call — the supervisor owns that.
 Model IDs in `DEFAULT_TIERS` are data, not endorsements; keep them current but
 do not build logic around specific ones.
 
-**`overnight.py` is the only supervisor.** `taskerkeeper overnight run` shells
+**`overnight.py` is the only supervisor.** `taskerkeeper tkrun run` (alias
+`overnight run`) shells
 out to agent CLIs and to git, because an unattended loop has to. That is
 allowed in exactly that module: it never imports an SDK or reads an API key
 (the CLIs own auth), `cli.py` only registers its subparser, and no scheduling

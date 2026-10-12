@@ -16,24 +16,39 @@ with any autonomous agent. See `docs/philosophy.md` for rationale.
 taskerkeeper/cli.py                      CLI logic (the only implementation)
 taskerkeeper/agents.py                   Tier -> provider/model config layering
 taskerkeeper/jsonio.py                   Atomic writes, the file lock, the event log
+taskerkeeper/sidebar.py                  Budgeted sidebar payload for harness panels
+taskerkeeper/integrations.py             `integrations list|install|uninstall` adapters
+taskerkeeper/overnight.py                TKRun: unattended runner (`tkrun`, `overnight` alias)
+taskerkeeper/serve.py                    Single-writer HTTP API (`serve`)
+taskerkeeper/projector.py                Projection + presence for the hub
+taskerkeeper/sessions.py                 Session/token handling for the hub
+taskerkeeper/tokens.py                   Machine token hashing/validation
 taskerkeeper/__main__.py                 python -m taskerkeeper
 taskerkeeper/schema/todo-v1.schema.json  JSON Schema (draft 2020-12), package data
 scripts/taskerkeeper.py                  Thin shim -> taskerkeeper.cli.main
 ralph/ralph-json.sh                      Thin wrapper -> taskerkeeper CLI
 skills/taskerkeeper/SKILL.md             Hermes skill
-tests/test_cli.py                        stdlib unittest suite
+integrations/                            opencode, pi, paseo, openchamber adapters
+web/                                     SvelteKit read-only dashboard
+deploy/                                  compose.yml, migrations, registry.json
+tests/                                   stdlib unittest suite (test_cli, sidebar,
+                                         overnight, integrations, projector, tokens)
 .github/workflows/ci.yml                 Tests + example validation, Linux/Windows
 docs/                                    philosophy, integration guide, memory,
-                                         module-plan, notes
+                                         module-plan, notes, overnight,
+                                         singularity.lanes
 examples/                                simple-project, zoidmatter-v7
 pyproject.toml                           setuptools packaging, console script
 ```
 
-## Current State (2026-09-08, v0.5.0)
+## Current State (2026-10-12, v0.8.0 + unreleased)
 
 - v0.1 scaffold (Aug 27 2026) → hardened (Sep 2) → v0.2.0 rework (Sep 8),
   which fixed everything raised in the `docs/notes.md` review → v0.3.0 (Sep 8),
-  which added the agent provider/model config → v0.4.0 (Sep 8), provider presets.
+  which added the agent provider/model config → v0.4.0 (Sep 8), provider presets
+  → v0.5.0 (Sep 8), parallel execution → v0.6.0 (Sep 21), the VPS hub →
+  v0.7.0 (Sep 23), harness sidebars → v0.8.0 (Oct), `add-phase` → unreleased:
+  TKRun and the integrations installer.
 - Schema now ships as package data, so `pip install .` works, not just
   `pip install -e .`. Verified from site-packages in a clean venv.
 - Scheduling is complete: `ready` lists every runnable task, `start` claims one,
@@ -43,6 +58,10 @@ pyproject.toml                           setuptools packaging, console script
   task/phase prerequisites, cycles, task ID vs. phase ID mismatch, `moved`
   without `moved_to`, and a warning for prerequisites on `cancelled`/`moved`
   tasks.
+- `add-phase` (v0.8.0) inserts an empty phase, anchored with `--after`/`--before`
+  or appended. Its `--prereq` phase IDs gate the new phase's tasks through the
+  same `blockers_for` used everywhere else, so adding a phase changes no
+  scheduling rule.
 - All read commands support `--json`, and task output carries the resolved
   provider/model (v0.3.0).
 - Writes are lock-guarded (`<file>.lock`) and atomic (temp + rename). The lock
@@ -51,8 +70,33 @@ pyproject.toml                           setuptools packaging, console script
 - v0.5.0 made parallel execution real rather than advertised: claims with
   leases, `--disjoint` fan-out from `touches`, an append-only event log,
   complexity-driven tier selection, and an explicit `release` command.
-- 107 tests, stdlib `unittest`, run on Linux and Windows in CI against a
+- v0.6.0 added the hub: `serve` is one single-writer HTTP API over the same DAG
+  logic (GET reads, locked POST writes, heartbeats, an SSE stream), with
+  presence, a projection, per-project machine tokens, and a read-only SvelteKit
+  dashboard under `web/`.
+- v0.7.0 added `sidebar` (one budgeted payload) and four thin adapters under
+  `integrations/` (opencode, pi, paseo, openchamber), plus
+  `integrations list|install|uninstall` to wire them in.
+- v0.8.0 added `add-phase <file> --phase <id> --title <t>` (and
+  `POST /api/<slug>/add-phase`): inserts an empty phase with `--goal`,
+  repeatable `--prereq` phase IDs, and an `--after`/`--before` anchor (default
+  append). Phase prerequisites gate the new phase through the existing
+  `blockers_for` path — no scheduling change, and nothing half-writes on
+  rejection.
+- Unreleased: `overnight` is renamed **TKRun** (`taskerkeeper tkrun run|init|stop|kill`,
+  `overnight` kept as an alias); `tkrun kill` hard-stops with a sentinel plus a
+  process-tree signal; leased `lanes` route a reservation-window provider to a
+  fallback. See `docs/overnight.md` and `docs/singularity.lanes.md`.
+- Tests are stdlib `unittest`, run on Linux and Windows in CI against a
   non-editable install.
+
+### Local test note (macOS)
+
+The suite shells out to `sys.executable -m taskerkeeper` for the TKRun tests, so
+the package must be importable by that interpreter: run `pip install -e .` first,
+or export `PYTHONPATH`. On macOS the `/var` → `/private/var` symlink also makes
+`Path.resolve().relative_to()` raise in a few temp-dir tests; that is an
+environment artifact, not a code failure.
 
 ## Parallel Execution (v0.5.0)
 
@@ -139,6 +183,16 @@ pyproject.toml                           setuptools packaging, console script
   over: no SDK dependency, no API keys, no network. Unknown settings
   (`--option effort=xhigh`) pass through untouched so a supervisor can use them
   without TaskerKeeper knowing what they mean.
+- **The unattended runner is TKRun.** `tkrun` is the name; `overnight` stays a
+  subparser alias so existing scripts and config paths keep working. `stop` is
+  cooperative (a `STOP` sentinel checked between tasks); `kill` is a hard stop
+  (writes `KILL` *and* tree-kills the runner PID so a mid-task agent dies too).
+  Claims are left to expire rather than edited, because the supervisor, not the
+  agent, owns taskerkeeper state.
+- **Leased lanes never book.** `lanes` only reads `GET /reservations`; keys come
+  from the environment (`infisical run`), and the generated `opencode.json` holds
+  `{env:...}` references, never values. A task already running when the window
+  closes is not interrupted — only the *next* task reroutes to `fallback`.
 
 ## Known Gaps / Next
 
@@ -153,6 +207,9 @@ pyproject.toml                           setuptools packaging, console script
   editing different functions in one file might be fine, and it cannot see a
   file a task forgot to declare.
 - The event log has no rotation or compaction.
+- The leased-lane reader has no booking and no renewal: if a provider changes its
+  reservations API shape, `lane_window` silently sees no window and every task
+  falls back. There is no test against a live API, only a stub.
 - `cli.py` still fuses scheduling logic, rendering, and argparse. Splitting it
   into an importable core is the next structural change — see
   `docs/module-plan.md`.

@@ -282,6 +282,30 @@ taskerkeeper sidebar docs/todo-v7.json --width 80 --height 40
 TASKERKEEPER_TODO=docs/todo-v7.json taskerkeeper sidebar --json
 ```
 
+## Unattended Runs (TKRun)
+
+`taskerkeeper tkrun run <file>` (`overnight` is a kept alias) works through a
+todo file unattended, one task at a time, inside a **git worktree** on a
+throwaway branch `overnight/<date>`. Your own checkout is never edited, and the
+branch is never merged, pushed, or tagged — you review it in the morning. Per
+task: claim, run the tier's agent headless, run *your* gate commands, read-only
+review, commit, `done`. Usage limits are slept through; failures park as stashes;
+two consecutive failures end the run.
+
+```bash
+taskerkeeper tkrun init docs/todo-v7.json             # infer a gate, write .taskerkeeper/overnight.json
+taskerkeeper tkrun run  docs/todo-v7.json --dry-run   # routing, gate, command, prompt
+taskerkeeper tkrun run  docs/todo-v7.json --hours 8   # go
+taskerkeeper tkrun stop docs/todo-v7.json             # cooperative: after the current task
+taskerkeeper tkrun kill docs/todo-v7.json             # hard stop: KILL sentinel + tree-kill now
+```
+
+Repo specifics (gate commands, prompt rules, `deny_edit` globs, `siblings`) live
+in `<repo>/.taskerkeeper/overnight.json`, never in code. A provider that only
+answers inside a reserved window goes under `lanes`: the runner reads
+reservations, uses the lane while more than `margin_minutes` remain, and
+otherwise routes the task to `fallback`. See `docs/overnight.md`.
+
 ## CI/CD Integration
 
 ### Pre-commit Hook

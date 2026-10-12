@@ -1,24 +1,26 @@
 # Overnight runner
 
-`taskerkeeper overnight run <todo.json>` works through a todo file unattended,
-one task at a time, inside a **git worktree** on a throwaway branch
-`overnight/<date>` cut from the base branch. Your own checkout is never edited
-(dirty, on another branch, open in an editor: all fine), and the branch is
-never merged: you review and merge it in the morning. It commits, but never
-pushes, tags, or touches the base branch.
+**TKRun.** `taskerkeeper tkrun run <todo.json>` (`overnight run` is a kept alias)
+works through a todo file unattended, one task at a time, inside a **git
+worktree** on a throwaway branch `overnight/<date>` cut from the base branch.
+Your own checkout is never edited (dirty, on another branch, open in an editor:
+all fine), and the branch is never merged: you review and merge it in the
+morning. It commits, but never pushes, tags, or touches the base branch.
 
 ## Any repo, three steps
 
 ```bash
-taskerkeeper overnight init docs/todo.json            # writes .taskerkeeper/overnight.json
-taskerkeeper overnight run  docs/todo.json --dry-run  # routing, gate, command, prompt; changes nothing
-taskerkeeper overnight run  docs/todo.json --hours 8  # go (commit todo.json changes first)
+taskerkeeper tkrun init docs/todo.json            # writes .taskerkeeper/overnight.json
+taskerkeeper tkrun run  docs/todo.json --dry-run  # routing, gate, command, prompt; changes nothing
+taskerkeeper tkrun run  docs/todo.json --hours 8  # go (commit todo.json changes first)
 ```
 
 `init` infers a gate from `Cargo.toml`, `package.json`, `pyproject.toml` or
 `go.mod`. With no config file at all the same inference applies. Stop early
-with `taskerkeeper overnight stop docs/todo.json` (after the current task).
-Keep the PC awake; a sleeping machine ends the run.
+with `taskerkeeper tkrun stop docs/todo.json` (after the current task), or
+`taskerkeeper tkrun kill docs/todo.json` to hard-stop now (sentinel plus a
+process-tree signal; see below). Keep the PC awake; a sleeping machine ends the
+run.
 
 ## Per task
 
@@ -87,8 +89,8 @@ with a vendored sibling lives in Zoid's `examples/specttyr`.
 ## Files and safety
 
 - Log: `.overnight/log.md`; transcripts and gate output: `.overnight/<date>/`;
-  STOP sentinel and pid file in `.overnight/`. The runner adds `.overnight/`
-  and `opencode.json` to `.git/info/exclude`.
+  STOP and KILL sentinels and the pid file in `.overnight/`. The runner adds
+  `.overnight/` and `opencode.json` to `.git/info/exclude`.
 - Refuses to start with uncommitted changes to the todo file (the worktree has
   the committed copy), a worktree path already used by another branch, or while
   another run is alive. Each agent call re-checks that the worktree is still on
@@ -97,7 +99,11 @@ with a vendored sibling lives in Zoid's `examples/specttyr`.
 - Build output is per worktree: the first gate in a fresh worktree compiles from
   scratch. Repos needing submodules or untracked setup must prepare that
   themselves.
-- Hard kill: the task stays `in_progress` with uncommitted changes in the
+- `tkrun stop` is cooperative: it writes the `STOP` sentinel, noticed between
+  tasks, so the current one finishes. `tkrun kill` is the hard stop: it writes
+  `KILL` *and* tree-kills the runner PID, so a mid-task agent subprocess dies
+  too. Task claims are left to expire on their own.
+- After a hard kill the task stays `in_progress` with uncommitted changes in the
   worktree; `taskerkeeper reset` it there and inspect `git status`.
 
 ## Morning
