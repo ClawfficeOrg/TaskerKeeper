@@ -16,6 +16,8 @@ Usage:
     taskerkeeper deps <todo.json> <task_id>      Dependency chain
     taskerkeeper add <todo.json> --phase <id> --title <t>
                                                  Append a task to a phase
+    taskerkeeper add-phase <todo.json> --phase <id> --title <t>
+                                                 Insert a new phase
     taskerkeeper release <todo.json> [phase]     Show/cut the tag a phase ships as
     taskerkeeper history <todo.json>             Replay the event log
     taskerkeeper convert <todo.json>             Render JSON as markdown
@@ -34,6 +36,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -673,6 +676,39 @@ def add_task(data: dict, phase_id: str, title: str, **fields) -> dict | None:
         phase.setdefault("tasks", []).append(task)
         return task
     return None
+
+PHASE_ID_RE = re.compile(r"^[0-9]+\.[0-9]+$")
+
+
+def add_phase(data: dict, phase_id: str, title: str, **fields) -> dict | None:
+    """Insert a new phase. Returns it, or None when the ID is already taken.
+
+    Appends at the end unless `after`/`before` names the anchor phase to sit
+    next to (callers check the anchor exists first, like cmd_add checks task
+    prerequisites). Scheduling needs no update: blockers_for already gates a
+    phase's tasks on its phase prerequisites.
+    """
+    phases = data.setdefault("phases", [])
+    if any(p.get("id") == phase_id for p in phases):
+        return None
+    phase: dict = {
+        "id": phase_id,
+        "title": title,
+        "goal": fields.get("goal") or "",
+        "tasks": [],
+    }
+    prereqs = list(fields.get("prerequisites") or [])
+    if prereqs:
+        phase["prerequisites"] = prereqs
+    anchor = fields.get("after") or fields.get("before")
+    if anchor:
+        index = next((i for i, p in enumerate(phases) if p.get("id") == anchor), None)
+        if index is None:
+            return None
+        phases.insert(index + 1 if fields.get("after") else index, phase)
+    else:
+        phases.append(phase)
+    return phase
 
 
 # ---------------------------------------------------------------------------
@@ -1382,6 +1418,52 @@ def cmd_add(args) -> int:
     return 0
 
 
+def cmd_add_phase(args) -> int:
+    if not PHASE_ID_RE.match(args.phase):
+        print(f"Error: invalid phase id {args.phase} (want MAJOR.MINOR, e.g. 7.2)")
+        return 1
+    if args.after and args.before:
+        print("Error: --after and --before are mutually exclusive")
+        return 1
+    if args.phase in (args.prereq or []):
+        print(f"Error: phase {args.phase} cannot require itself")
+        return 1
+    lock = FileLock(args.todo_file)
+    with lock:
+        report_lock(lock)
+        data = load_todo(args.todo_file)
+        ids = {p.get("id") for p in data.get("phases", [])}
+        if args.phase in ids:
+            print(f"Error: phase {args.phase} already exists")
+            return 1
+        for dep in args.prereq or []:
+            if dep not in ids:
+                print(f"Error: prerequisite phase {dep} does not exist")
+                return 1
+        anchor = args.after or args.before
+        if anchor and anchor not in ids:
+            print(f"Error: anchor phase {anchor} not found")
+            return 1
+        phase = add_phase(
+            data,
+            args.phase,
+            args.title,
+            goal=args.goal,
+            prerequisites=args.prereq,
+            after=args.after,
+            before=args.before,
+        )
+        if phase is None:
+            print(f"Error: phase {args.phase} already exists")
+            return 1
+        save_todo(data, args.todo_file)
+        record_event(args.todo_file, "add-phase", phase=phase["id"],
+                     owner=default_owner(), title=phase["title"])
+    where = f" after {args.after}" if args.after else f" before {args.before}" if args.before else ""
+    print(f"✓ Added phase {phase['id']} — {phase['title']}{where}")
+    return 0
+
+
 def cmd_release(args) -> int:
     """Report — and optionally cut — the tag a completed phase ships as.
 
@@ -1602,6 +1684,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--success", action="append", metavar="CRITERION",
                    help="Success criterion (repeatable)")
     p.set_defaults(func=cmd_add)
+
+    p = add_command("add-phase", "Insert a new phase")
+    p.add_argument("--phase", required=True, help="New phase ID (MAJOR.MINOR, e.g. 7.2)")
+    p.add_argument("--title", required=True, help="Phase title")
+    p.add_argument("--goal", help="Phase goal")
+    p.add_argument("--prereq", action="append", metavar="PHASE_ID",
+                   help="Prerequisite phase ID (repeatable)")
+    p.add_argument("--after", metavar="PHASE_ID", help="Insert after this phase")
+    p.add_argument("--before", metavar="PHASE_ID", help="Insert before this phase")
+    p.set_defaults(func=cmd_add_phase)
 
     p = add_command("release", "Show — or cut — the tag a completed phase ships as",
                     json_out=True)

@@ -349,6 +349,22 @@ taskerkeeper add my-todo.json --phase 7.1 \
 The new ID is the phase's highest sequence number plus one. Unknown
 prerequisites are rejected rather than written.
 
+### Adding Phases
+
+```bash
+taskerkeeper add-phase my-todo.json --phase 7.2 \
+  --title "Hardening" \
+  --goal "Polish, docs, and release prep." \
+  --prereq 7.1 --after 7.1
+```
+
+New phase IDs must match `MAJOR.MINOR` and must not already exist.
+`--prereq` takes phase IDs (repeatable; every one must already exist), and
+`--after`/`--before` pins the position (mutually exclusive, default: append).
+The new phase starts empty — `add` tasks into it, and the phase prerequisite
+immediately gates them: no scheduling change was needed, `blockers_for`
+already applies it. Over HTTP: `POST /api/<slug>/add-phase`.
+
 ### Batch Status Updates
 
 ```bash

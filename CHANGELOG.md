@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`taskerkeeper add-phase <file> --phase <id> --title <t>`.** Inserts a new
+  (empty) phase: `--goal`, repeatable `--prereq` of existing phase IDs,
+  `--after`/`--before` anchor (mutually exclusive, default append). IDs must
+  match `MAJOR.MINOR` and be unused; nothing half-writes on rejection. Also
+  `POST /api/<slug>/add-phase` on the serve API. Phase prerequisites
+  immediately gate the new phase's tasks through the existing `blockers_for`
+  path — no scheduling change.
+
 - **`taskerkeeper integrations list|install|uninstall`.** Installer for the
   harness sidebars: symlinks the Paseo plugin (copy fallback), merges the
   opencode `tui.json` plugin entry (refuses non-JSON, keeps a `.bak`),

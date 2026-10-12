@@ -279,6 +279,90 @@ class AddTest(unittest.TestCase):
             self.assertEqual(reload(path)["phases"][0]["tasks"][-1]["id"], "1.0.1")
 
 
+class AddPhaseTest(unittest.TestCase):
+    def test_add_phase_appends_by_default(self):
+        with TempTodo(todo(phase("1.0", task("1.0.1")))) as path:
+            code, out = run("add-phase", path, "--phase", "1.1",
+                            "--title", "Next", "--goal", "more work",
+                            "--prereq", "1.0")
+            self.assertEqual(code, 0)
+            self.assertIn("1.1", out)
+            phases = reload(path)["phases"]
+            self.assertEqual([p["id"] for p in phases], ["1.0", "1.1"])
+            added = phases[-1]
+            self.assertEqual(added["title"], "Next")
+            self.assertEqual(added["goal"], "more work")
+            self.assertEqual(added["prerequisites"], ["1.0"])
+            self.assertEqual(added["tasks"], [])
+            # A phase prerequisite gates: 1.1's first task waits on 1.0.
+            run("add", path, "--phase", "1.1", "--title", "T")
+            data = reload(path)
+            self.assertIn("phase 1.0", cli.blocked_report(data)[0]["blocked_by"])
+
+    def test_add_phase_after_and_before(self):
+        data = todo(phase("1.0", task("1.0.1")), phase("1.2", task("1.2.1")))
+        with TempTodo(data) as path:
+            code, _ = run("add-phase", path, "--phase", "1.1",
+                          "--title", "Mid", "--after", "1.0")
+            self.assertEqual(code, 0)
+            self.assertEqual([p["id"] for p in reload(path)["phases"]],
+                             ["1.0", "1.1", "1.2"])
+        with TempTodo(data) as path:
+            code, _ = run("add-phase", path, "--phase", "1.1",
+                          "--title", "Mid", "--before", "1.2")
+            self.assertEqual(code, 0)
+            self.assertEqual([p["id"] for p in reload(path)["phases"]],
+                             ["1.0", "1.1", "1.2"])
+
+    def test_add_phase_rejects_bad_id_dupe_and_dangling(self):
+        with TempTodo(todo(phase("1.0", task("1.0.1")))) as path:
+            self.assertEqual(run("add-phase", path, "--phase", "nope",
+                                 "--title", "X")[0], 1)
+            self.assertEqual(run("add-phase", path, "--phase", "1.0",
+                                 "--title", "X")[0], 1)
+            self.assertEqual(run("add-phase", path, "--phase", "1.1",
+                                 "--title", "X", "--prereq", "9.9")[0], 1)
+            self.assertEqual(run("add-phase", path, "--phase", "1.1",
+                                 "--title", "X", "--after", "9.9")[0], 1)
+            self.assertEqual(run("add-phase", path, "--phase", "1.1",
+                                 "--title", "X", "--after", "1.0",
+                                 "--before", "1.0")[0], 1)
+            # Nothing half-written on any rejection.
+            self.assertEqual([p["id"] for p in reload(path)["phases"]], ["1.0"])
+
+    def test_add_phase_logs_event_and_validates(self):
+        with TempTodo(todo(phase("1.0", task("1.0.1")))) as path:
+            code, _ = run("add-phase", path, "--phase", "1.1", "--title", "Next")
+            self.assertEqual(code, 0)
+            events = jsonio.read_events(path)
+            self.assertEqual(events[-1]["event"], "add-phase")
+            self.assertEqual(events[-1]["phase"], "1.1")
+            self.assertEqual(run("validate", path)[0], 0)
+
+    def test_serve_add_phase(self):
+        with TemporaryDirectory() as tmp:
+            todo_path = str(Path(tmp) / "todo.json")
+            Path(todo_path).write_text(
+                json.dumps(todo(phase("1.0", task("1.0.1")))), encoding="utf-8")
+            registry = str(Path(tmp) / "registry.json")
+            Path(registry).write_text(json.dumps({"projects": [
+                {"slug": "demo", "name": "Demo", "repo_url": "",
+                 "todo_path": todo_path, "default_branch": "main"},
+            ]}), encoding="utf-8")
+            db = str(Path(tmp) / "sessions.db")
+            status, payload = serve.handle_post(
+                "/api/{slug}/add-phase", "demo",
+                {"phase": "1.1", "title": "Next", "prerequisites": ["1.0"]},
+                registry, db)
+            self.assertEqual(status, 200)
+            self.assertEqual(payload["id"], "1.1")
+            phases = json.loads(Path(todo_path).read_text(encoding="utf-8"))["phases"]
+            self.assertEqual([p["id"] for p in phases], ["1.0", "1.1"])
+            dup, _ = serve.handle_post(
+                "/api/{slug}/add-phase", "demo",
+                {"phase": "1.1", "title": "Dup"}, registry, db)
+            self.assertEqual(dup, 409)
+
 class OutputTest(unittest.TestCase):
     def test_next_json_is_parseable(self):
         with TempTodo(todo(phase("1.0", task("1.0.1")))) as path:

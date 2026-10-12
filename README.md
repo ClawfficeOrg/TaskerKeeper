@@ -45,6 +45,7 @@ Without installing, `python -m taskerkeeper <command>` and `python scripts/taske
 | `parallel <file>` | Parallel groups, marking which members are runnable now |
 | `deps <file> <id>` | What a task waits on and what it unblocks |
 | `add <file> --phase <id> --title <t>` | Append a task. Accepts `--goal`, `--prereq` (repeatable), `--complexity`, `--agent`, `--parallel-group`, `--touches`, `--success` |
+| `add-phase <file> --phase <id> --title <t>` | Insert a phase (`--goal`, `--prereq` repeatable phase IDs, `--after`/`--before` anchor; also `POST /api/<slug>/add-phase`) |
 | `release <file> [phase]` | The tag a completed phase ships as. Prints it by default; `--tag` actually creates it |
 | `history <file>` | Replay the append-only event log. `--task <id>` filters, `--limit N` tails |
 | `convert <file>` | Render the JSON as markdown for human review (one-way) |

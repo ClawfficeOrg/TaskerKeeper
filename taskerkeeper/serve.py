@@ -49,6 +49,7 @@ ROUTES: dict[tuple[str, str], str] = {
     ("POST", "/api/{slug}/reset"): "cmd_reset",
     ("POST", "/api/{slug}/status"): "cmd_status",
     ("POST", "/api/{slug}/add"): "cmd_add",
+    ("POST", "/api/{slug}/add-phase"): "cmd_add_phase",
     ("POST", "/api/{slug}/heartbeat"): "heartbeat",
 }
 
@@ -799,6 +800,59 @@ def handle_post(route: str, slug: str | None, body: Mapping[str, object] | None,
                     "id": task["id"],
                     "phase": phase_id,
                 }
+
+    if route == "/api/{slug}/add-phase":
+        phase_id = str(data_in.get("phase") or data_in.get("phase_id")
+                       or data_in.get("id") or "").strip()
+        title = str(data_in.get("title") or "").strip()
+        if not phase_id:
+            return 400, {"error": "missing phase=<id>"}
+        if not title:
+            return 400, {"error": "missing title"}
+        if not cli.PHASE_ID_RE.match(phase_id):
+            return 400, {"error": f"invalid phase id {phase_id} (want MAJOR.MINOR)"}
+        prereqs = data_in.get("prerequisites") or data_in.get("prereq") or []
+        if isinstance(prereqs, str):
+            prereqs = [prereqs]
+        prereqs = list(prereqs)
+        after = data_in.get("after")
+        after = str(after).strip() if after else None
+        before = data_in.get("before")
+        before = str(before).strip() if before else None
+        if after and before:
+            return 400, {"error": "--after and --before are mutually exclusive"}
+        with _WRITE_LOCK:
+            with FileLock(todo_path):
+                data = cli.load_todo(todo_path)
+                ids = {p.get("id") for p in data.get("phases", [])}
+                if phase_id in ids:
+                    return 409, {"error": f"phase {phase_id} already exists"}
+                for dep in prereqs:
+                    if dep not in ids:
+                        return 404, {"error": f"prerequisite phase {dep} does not exist"}
+                anchor = after or before
+                if anchor and anchor not in ids:
+                    return 404, {"error": f"anchor phase {anchor} not found"}
+                phase = cli.add_phase(
+                    data,
+                    phase_id,
+                    title,
+                    goal=data_in.get("goal"),
+                    prerequisites=prereqs,
+                    after=after,
+                    before=before,
+                )
+                if phase is None:
+                    return 409, {"error": f"phase {phase_id} already exists"}
+                cli.save_todo(data, todo_path)
+                event_fields: dict = {
+                    "phase": phase["id"],
+                    "owner": owner,
+                    "title": phase.get("title", ""),
+                }
+                event_fields.update(extras)
+                cli.record_event(todo_path, "add-phase", **event_fields)
+                return 200, {"phase": phase, "id": phase["id"]}
 
     return 404, {"error": f"unknown route: {route}"}
 

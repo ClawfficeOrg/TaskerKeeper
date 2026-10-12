@@ -1,7 +1,7 @@
 ---
 name: taskerkeeper
 description: "Use when creating, reading, or managing TaskerKeeper JSON todo files. Structured task management with dependency DAG, parallel groups, and semver mapping."
-version: 2.3.0
+version: 2.4.0
 author: KITT (ClawfficeOrg)
 license: MIT
 metadata:
@@ -132,6 +132,25 @@ taskerkeeper ready docs/todo-v7.json --disjoint --json
 6. Assign to a `parallel_group` if it can run concurrently with others
 7. Set `complexity` and `agent` tier
 
+### Adding a New Phase
+
+New phases start empty — create the phase, then `add` tasks into it:
+
+```bash
+taskerkeeper add-phase docs/todo-v7.json --phase 7.3 --title "Hardening" \
+  --goal "Polish, docs, release prep." --prereq 7.2 --after 7.2
+```
+
+- New phase IDs must be `MAJOR.MINOR` and unused; self-require, duplicate,
+  dangling `--prereq`, and unknown `--after`/`--before` anchors are rejected
+  with nothing half-written
+- `--prereq` takes phase IDs (repeatable, all must exist); `--after` /
+  `--before` pins the position (mutually exclusive, default: append at end)
+- The phase prerequisite gates immediately — tasks added into the new phase
+  wait on it through the normal `blockers_for` path, no special handling
+- Over HTTP: `POST /api/<slug>/add-phase` with `phase`, `title`, `goal`,
+  `prerequisites`, `after` / `before`
+
 ### Claiming and Marking Tasks Done
 
 1. `start` the task first (`pending` → `in_progress`) so no other agent claims it
@@ -248,6 +267,9 @@ taskerkeeper deps docs/todo-v7.json 7.0.1
 
 # Add a task (new ID is the phase's max sequence + 1)
 taskerkeeper add docs/todo-v7.json --phase 7.2 --title "New feature"   --goal "..." --prereq 7.0.1 --complexity High --agent pro_dev_agent
+
+# Add a phase (new ID must be MAJOR.MINOR and unused; starts empty)
+taskerkeeper add-phase docs/todo-v7.json --phase 7.3 --title "Hardening"   --goal "..." --prereq 7.2 --after 7.2
 
 # Render for human review (one-way)
 taskerkeeper convert docs/todo-v7.json -o docs/todo-v7.md
