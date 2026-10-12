@@ -401,7 +401,7 @@ class AgentConfigTest(unittest.TestCase):
     def setUp(self):
         self._tmp = TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
-        self.root = Path(self._tmp.name)
+        self.root = Path(self._tmp.name).resolve()  # resolve(): agents.py resolves start dirs
         self.user_dir = self.root / "userconf"
         self.repo_dir = self.root / "repo"
         (self.repo_dir / ".git").mkdir(parents=True)

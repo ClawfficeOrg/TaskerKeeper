@@ -45,6 +45,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   network error, or no reservation). A task already running when the lease ends
   is not interrupted. Keys come only from the environment.
 
+### Fixed
+
+- **TKRun resolves the run root, not just the todo path.** `Runner.__post_init__`
+  resolved `todo` before `relative_to()` but left `home` as the raw root, so a
+  root that was not already canonical (a symlink, or macOS `/var` under
+  `/private/var`) raised `not in the subpath of`. `home` is now resolved too.
+
 ## [0.7.0] — 2026-09-23
 
 Harness sidebars: one budgeted payload, four thin adapters.

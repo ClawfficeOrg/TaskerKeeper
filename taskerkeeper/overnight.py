@@ -302,7 +302,7 @@ class Runner:
     def __post_init__(self):
         self.branch = f"{self.cfg['branch_prefix']}/{self.date}"
         self.owner = f"overnight-{self.date}"
-        self.home = self.root                      # the checkout you started from; never edited
+        self.home = self.root.resolve()            # the checkout you started from; never edited
         self.base = self.base_override or self.cfg["base_branch"]
         wt = self.cfg["worktree_dir"]
         self.wt_path = Path(os.path.expanduser(wt)).resolve() if wt else \

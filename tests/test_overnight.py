@@ -293,6 +293,21 @@ class OvernightRunTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("nothing would verify", out)
 
+    def test_symlinked_root_still_resolves_the_todo_path(self):
+        # A root that is not already canonical (a symlink, or macOS /var under
+        # /private/var) must not break todo_rel: __post_init__ resolves the todo
+        # path, so it must resolve home the same way or relative_to() raises.
+        s = self.scratch()
+        tmp = TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        link = Path(tmp.name) / "link"
+        link.symlink_to(s.root)
+        c = json.loads(json.dumps(overnight.DEFAULTS))
+        r = overnight.Runner(todo=link / s.todo.name, root=link, cfg=c,
+                             date="2026-01-01", deadline=datetime.now())
+        self.assertEqual(r.home, s.root.resolve())
+        self.assertEqual(r.todo_rel, s.todo.name)
+
 
 class OvernightUnitTests(unittest.TestCase):
     def runner(self, **cfg):
