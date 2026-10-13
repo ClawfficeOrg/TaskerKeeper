@@ -3,7 +3,7 @@
     {
       "slug": "tidetable",
       "name": "TideTable",
-      "repo_url": "https://github.com/ClawfficeOrg/TaskerKeeper",
+      "repo_url": "https://github.com/ClawfficeOrg/TideTable",
       "todo_path": "projects/tidetable/todo.json",
       "default_branch": "main"
     }

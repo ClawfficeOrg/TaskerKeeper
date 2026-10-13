@@ -21,7 +21,7 @@ TideTable solves all of these with structured JSON.
 ## Quick Start
 
 ```bash
-git clone https://github.com/ClawfficeOrg/TaskerKeeper.git
+git clone https://github.com/ClawfficeOrg/TideTable.git
 cd TideTable
 pip install .          # or: pip install -e .  for development
 

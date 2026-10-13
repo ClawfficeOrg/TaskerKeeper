@@ -26,7 +26,7 @@ TideTable works as a standalone tool. No frameworks or platforms required.
 ### Quick Start
 
 ```bash
-git clone https://github.com/ClawfficeOrg/TaskerKeeper.git
+git clone https://github.com/ClawfficeOrg/TideTable.git
 cd TideTable
 pip install .
 
