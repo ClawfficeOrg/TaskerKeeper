@@ -2,7 +2,7 @@
   "name": "tidetable-sidebar",
   "version": "0.1.0",
   "type": "module",
-  "description": "Tidetable sidebar block for the OpenCode TUI. Read-only view over `tidetable sidebar --json`. Requires opencode >= 1.18 TUI plugin API.",
+  "description": "TideTable sidebar block for the OpenCode TUI. Read-only view over `tidetable sidebar --json`. Requires opencode >= 1.18 TUI plugin API.",
   "exports": {
     "./tui": "./tk-sidebar.ts"
   },

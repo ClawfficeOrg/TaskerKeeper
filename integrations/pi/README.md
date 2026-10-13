@@ -1,6 +1,6 @@
 # pi-tidetable-sidebar
 
-Tidetable sidebar panel for [pi coding agent](https://github.com/earendil-works/pi).
+TideTable sidebar panel for [pi coding agent](https://github.com/earendil-works/pi).
 Same extension also loads under [oh-my-pi](https://github.com/can1357/oh-my-pi) (`omp`),
 which shares the Pi extension API and accepts the legacy `pi` manifest key.
 
@@ -74,7 +74,7 @@ Panel auto-refreshes on `session_start`, `turn_end`, and `message_end`.
    sections with owner/age/goal, waits, touches (basenames only), trees, and
    `…N more` counts, truncating every line to width.
 4. Missing CLI or bad JSON degrades to one line —
-   `Tidetable: unavailable (tidetable CLI not found)` — instead of
+   `TideTable: unavailable (tidetable CLI not found)` — instead of
    throwing in the TUI.
 
 ## Manual test (pi and omp)

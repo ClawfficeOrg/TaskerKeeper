@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * Render the shared Tidetable sidebar payload as fixed-width text lines.
+ * Render the shared TideTable sidebar payload as fixed-width text lines.
  *
  * The payload comes from `tidetable sidebar <todo> --json` (built by
  * tidetable/sidebar.py). This module formats, never decides: no ready /
@@ -16,7 +16,7 @@ function truncate(text, width) {
 }
 
 function unavailableLine() {
-  return "Tidetable: unavailable (tidetable CLI not found)";
+  return "TideTable: unavailable (tidetable CLI not found)";
 }
 
 function isPayload(payload) {
@@ -71,7 +71,7 @@ function renderPanel(payload, width) {
   const w = Math.max(20, Number(width) || 45);
   if (!isPayload(payload)) return [unavailableLine()];
   try {
-    const lines = ["Tidetable", "═".repeat(Math.min(w, 50))];
+    const lines = ["TideTable", "═".repeat(Math.min(w, 50))];
 
     const cur = payload.current;
     const curRows = [];

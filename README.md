@@ -1,8 +1,8 @@
-# Tidetable
+# TideTable
 
 **Structured task management for autonomous agents.**
 
-> Tidetable was **TaskerKeeper** before 0.9.0. The `taskerkeeper` command, `TASKERKEEPER_*`
+> TideTable was **TaskerKeeper** before 0.9.0. The `taskerkeeper` command, `TASKERKEEPER_*`
 > env vars and `.taskerkeeper/` config dirs still work; `tt` is the short command.
 
 JSON-based alternative to markdown todo files. Stable IDs, dependency DAG, parallel execution groups, and semver version mapping. Built for [ralph](https://github.com/ClawfficeOrg/Zoid) but works with any autonomous agent.
@@ -16,13 +16,13 @@ Markdown todo files (`docs/todo-v*.md`) are great for humans but painful for age
 - **No parallel support** — everything is linear by design
 - **Token waste** — agents read the whole file even for one task
 
-Tidetable solves all of these with structured JSON.
+TideTable solves all of these with structured JSON.
 
 ## Quick Start
 
 ```bash
 git clone https://github.com/ClawfficeOrg/TaskerKeeper.git
-cd Tidetable
+cd TideTable
 pip install .          # or: pip install -e .  for development
 
 tidetable validate my-todo.json
@@ -126,7 +126,7 @@ line to `<file>.events.jsonl`. Set `TIDETABLE_EVENTS=0` to turn it off.
 ## Which Model Runs a Task
 
 A task names an agent tier (`basic_dev_agent`, `mid_dev_agent`, `pro_dev_agent`,
-`flagship`). Tidetable turns that tier into a concrete provider and model, so
+`flagship`). TideTable turns that tier into a concrete provider and model, so
 a supervisor reading `ready --json` can dispatch without a second lookup.
 
 A task may name a `complexity` instead and let the tier table decide:
@@ -188,7 +188,7 @@ every tier in a scope while an `agents set` in that same scope still wins.
 layer won. Set `TIDETABLE_CONFIG_HOME` to relocate the user config.
 
 Any other key you set (`--option effort=xhigh`) passes through untouched into
-the resolved output — Tidetable does not call any provider itself, it only
+the resolved output — TideTable does not call any provider itself, it only
 tells your supervisor what to call.
 
 Resolved values appear on every task in `--json` output:
@@ -219,7 +219,7 @@ checked at all.
 
 ## Features
 
-| Feature | Markdown | Tidetable JSON |
+| Feature | Markdown | TideTable JSON |
 |---------|----------|-------------------|
 | Task ordering | Positional (line number) | ID-based (stable) |
 | Inserting a task | Resequence all below | Add anywhere, no renumber |
@@ -250,7 +250,7 @@ tidetable validate docs/todo-v7.json
 
 ## For Hermes
 
-Tidetable includes a Hermes skill at `skills/tidetable/SKILL.md`:
+TideTable includes a Hermes skill at `skills/tidetable/SKILL.md`:
 
 ```bash
 cp -r skills/tidetable ~/.hermes/skills/
@@ -294,7 +294,7 @@ todo-v1.0.md                     →    v1.0.0 (first stable)
 ## Project Structure
 
 ```
-Tidetable/
+TideTable/
 ├── tidetable/
 │   ├── cli.py                  # All CLI logic
 │   ├── agents.py               # Tier → provider/model resolution

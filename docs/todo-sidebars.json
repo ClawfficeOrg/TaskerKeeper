@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
   "project": {
-    "name": "Tidetable Harness Sidebars",
+    "name": "TideTable Harness Sidebars",
     "version": {
       "milestone": "sidebars",
       "release_version": "0.7.0"
@@ -48,7 +48,7 @@
           "id": "2.1.1",
           "title": "OpenCode TUI sidebar plugin",
           "status": "done",
-          "goal": "Create integrations/opencode/ TUI plugin registering sidebar_content slot in the public TUI plugin style (opencode-harness-panel pattern): collapsible Tidetable block rendering current, concurrent, upcoming, phase tree, overall tree from tidetable sidebar output polled on render. Read-only, basename paths only.",
+          "goal": "Create integrations/opencode/ TUI plugin registering sidebar_content slot in the public TUI plugin style (opencode-harness-panel pattern): collapsible TideTable block rendering current, concurrent, upcoming, phase tree, overall tree from tidetable sidebar output polled on render. Read-only, basename paths only.",
           "touches": [
             "integrations/opencode/"
           ],
@@ -92,7 +92,7 @@
           "id": "2.1.3",
           "title": "OpenChamber rail extension",
           "status": "done",
-          "goal": "Create integrations/openchamber/ extension (package.json openchamber manifest, panel/index.html, panel/main.js IIFE built for sandbox iframe via openchamber-guest-bundle): rail panel with current, concurrent, upcoming, phase tree, overall tree plus attach support for tasks. Reads Tidetable serve API through an integration apiOrigin; panel-only reading needs no capability.",
+          "goal": "Create integrations/openchamber/ extension (package.json openchamber manifest, panel/index.html, panel/main.js IIFE built for sandbox iframe via openchamber-guest-bundle): rail panel with current, concurrent, upcoming, phase tree, overall tree plus attach support for tasks. Reads TideTable serve API through an integration apiOrigin; panel-only reading needs no capability.",
           "touches": [
             "integrations/openchamber/"
           ],

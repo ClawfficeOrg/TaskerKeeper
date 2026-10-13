@@ -1,4 +1,4 @@
-# Tidetable sidebar for OpenCode TUI
+# TideTable sidebar for OpenCode TUI
 
 Read-only sidebar block driven by the shared core (`tidetable sidebar --json`).
 All scheduling logic lives in `tidetable/sidebar.py`; this plugin only shells
@@ -42,7 +42,7 @@ at startup, so edits only take effect on the next launch.
 
 ## What it renders
 
-Collapsible `Tidetable ▼` block with the same five sections as the core,
+Collapsible `TideTable ▼` block with the same five sections as the core,
 polled fresh on every render via `execFileSync("tidetable", ["sidebar",
 <todo>, "--json", ...])` with a 3s timeout:
 
@@ -57,7 +57,7 @@ The plugin first tries the `tidetable` console script, then falls back to
 `sidebar` command). Either way it is the same shared core — no DAG logic here.
 
 On any CLI error (missing binary, bad todo path, bad JSON) it renders the
-one-liner `Tidetable unavailable` and never throws.
+one-liner `TideTable unavailable` and never throws.
 
 ## Verify without opencode
 

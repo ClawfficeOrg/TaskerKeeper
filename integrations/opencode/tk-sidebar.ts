@@ -1,9 +1,9 @@
 /**
- * Tidetable sidebar block for the OpenCode TUI.
+ * TideTable sidebar block for the OpenCode TUI.
  *
  * Public TUI plugin style (opencode-harness-panel pattern): a `tui` factory
  * that registers a `sidebar_content` slot rendering a collapsible
- * Tidetable block. On each render it shells out to the shared core:
+ * TideTable block. On each render it shells out to the shared core:
  *
  *   tidetable sidebar <todo> --json --width <w> --height <h>
  *
@@ -130,7 +130,7 @@ export function renderText(payload: SidebarPayload, collapsed: boolean): string 
   const curTasks = cur.tasks ?? [];
   const conTasks = con.tasks ?? [];
   const upTasks = up.tasks ?? [];
-  const lines = ["Tidetable ▼", "═".repeat(24)];
+  const lines = ["TideTable ▼", "═".repeat(24)];
   if (collapsed) {
     lines.push(
       `current ${curTasks.length}${cur.more ? ` (+${cur.more})` : ""} · ` +
@@ -168,7 +168,7 @@ export function renderOnce(api: any, options?: TkSidebarOptions): string {
     const payload = loadPayload(todoFile, width, height);
     return renderText(payload, options?.collapsed ?? false);
   } catch {
-    return "Tidetable unavailable";
+    return "TideTable unavailable";
   }
 }
 

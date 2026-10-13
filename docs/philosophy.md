@@ -1,4 +1,4 @@
-# Tidetable Philosophy
+# TideTable Philosophy
 
 ## The Problem with Markdown Todos
 
@@ -25,9 +25,9 @@ them owns, so nothing could tell you whether running them together is safe.
 Agents read the entire file even when they only need one task. For large
 roadmaps (50+ tasks), this is significant overhead.
 
-## The Tidetable Solution
+## The TideTable Solution
 
-Tidetable replaces markdown todos with structured JSON that has:
+TideTable replaces markdown todos with structured JSON that has:
 
 1. **Stable IDs** — Task `7.0.3` is always `7.0.3`, regardless of where it
    sits in the file. Insert, delete, or reorder tasks without breaking
@@ -67,7 +67,7 @@ else — file format, tooling, workflow — serves this goal. Stable IDs mean:
 - History is traceable
 
 ### Pragmatic, Not Perfect
-Tidetable doesn't try to replace Jira, Linear, or GitHub Issues. It's
+TideTable doesn't try to replace Jira, Linear, or GitHub Issues. It's
 specifically designed for autonomous agent workflows where:
 
 - The "user" is an AI agent, not a human clicking buttons
@@ -76,7 +76,7 @@ specifically designed for autonomous agent workflows where:
 - Integration with ralph-style autonomous loops is the primary use case
 
 ### Backward Compatible
-Tidetable coexists with markdown todos. You can:
+TideTable coexists with markdown todos. You can:
 
 - Render JSON → markdown for human review (`tidetable convert`)
 - Run both formats side by side during migration
@@ -99,11 +99,11 @@ parser would guess. Model the roadmap in JSON by hand, then `validate`.
 | Scenario | Format |
 |----------|--------|
 | <20 tasks, linear execution | Markdown is fine |
-| >20 tasks or parallel work | Tidetable JSON |
-| Frequent task insertion/deletion | Tidetable JSON |
-| Agent-driven development | Tidetable JSON |
+| >20 tasks or parallel work | TideTable JSON |
+| Frequent task insertion/deletion | TideTable JSON |
+| Agent-driven development | TideTable JSON |
 | Human-only review | Markdown (or convert from JSON) |
-| CI/CD integration | Tidetable JSON |
+| CI/CD integration | TideTable JSON |
 
 ## Future Directions
 

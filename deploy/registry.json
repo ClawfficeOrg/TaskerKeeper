@@ -2,7 +2,7 @@
   "projects": [
     {
       "slug": "tidetable",
-      "name": "Tidetable",
+      "name": "TideTable",
       "repo_url": "https://github.com/ClawfficeOrg/TaskerKeeper",
       "todo_path": "projects/tidetable/todo.json",
       "default_branch": "main"

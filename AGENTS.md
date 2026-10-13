@@ -5,7 +5,7 @@ rules file; `CLAUDE.md` only points here.
 
 ## What this project is
 
-Tidetable is a JSON todo format plus a Python CLI for driving autonomous
+TideTable is a JSON todo format plus a Python CLI for driving autonomous
 agents through a task DAG. A todo file describes a milestone as phases, each
 phase holding tasks with stable IDs, prerequisites, and parallel groups. The
 CLI answers one question well: *what can be worked on right now?*
@@ -103,7 +103,7 @@ was checking. `jsonio._pid_alive` uses `OpenProcess`/`GetExitCodeProcess` there
 and returns `None` when it cannot tell; a test asserts `os.kill` is never
 called. Unknown liveness falls back to lock age, never to "assume dead".
 
-**Tidetable does not touch git except in `release --tag`.** `done` reports
+**TideTable does not touch git except in `release --tag`.** `done` reports
 `release_ready` and stops. The last task of a phase is an ordinary task, and a
 tag created as its side effect appears at a moment nobody chose. Keep tagging
 behind the explicit command and the explicit flag. The one other exception is
@@ -119,7 +119,7 @@ roadmap stays small and diffable, and a torn append costs one line.
 writes a temp file and renames. Both live in `tidetable/jsonio.py`. Parallel
 agents are the entire point; a plain `open(path, "w")` reintroduces lost updates.
 
-**Tidetable never calls a provider.** `agents.py` resolves a tier to a
+**TideTable never calls a provider.** `agents.py` resolves a tier to a
 provider/model string and hands it to whoever is dispatching. Do not add an SDK
 dependency, an API key lookup, or a network call — the supervisor owns that.
 Model IDs in `DEFAULT_TIERS` are data, not endorsements; keep them current but
@@ -181,7 +181,7 @@ in the same change.
 - Bump `version` in `pyproject.toml` and `__version__` in
   `tidetable/__init__.py` together, and add a `CHANGELOG.md` entry.
 
-## Working on a Tidetable todo file
+## Working on a TideTable todo file
 
 When driving a project's roadmap (this repo's own, or another's):
 

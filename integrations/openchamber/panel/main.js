@@ -1,4 +1,4 @@
-/* Tidetable OpenChamber rail panel.
+/* TideTable OpenChamber rail panel.
  *
  * Dependency-free IIFE (no imports): the sandbox iframe loads this as a
  * classic script, so there is no build step. If @openchamber/sdk imports are
@@ -6,8 +6,8 @@
  *   bunx openchamber-guest-bundle panel/main.js panel/main.js
  * (or esbuild --format=iife --platform=browser) and ship the built file.
  *
- * Data: Tidetable serve API over host.request (integration token
- * apiOrigin points at the Tidetable server):
+ * Data: TideTable serve API over host.request (integration token
+ * apiOrigin points at the TideTable server):
  *   GET /api/<slug>/ready?disjoint=1 -> { ready, in_progress, blocked, deferred, conflicts }
  *   GET /api/<slug>/list             -> { phases: [{ id, title, complete, tasks }], summary }
  * Five sections mirror tidetable/sidebar.py: Current, Concurrent,
@@ -84,7 +84,7 @@
   function refresh() {
     if (!host) return;
     if (!connected) {
-      view.error = "Not connected. Paste a Tidetable token in Settings -> Integrations -> Tidetable.";
+      view.error = "Not connected. Paste a TideTable token in Settings -> Integrations -> TideTable.";
       render();
       return;
     }
@@ -157,7 +157,7 @@
 
   function render() {
     var html = "";
-    html += "<div class=\"tk-head\"><div class=\"tk-title\">Tidetable" + (slug ? " &middot; " + esc(slug) : "") + "</div>";
+    html += "<div class=\"tk-head\"><div class=\"tk-title\">TideTable" + (slug ? " &middot; " + esc(slug) : "") + "</div>";
     html += "<button class=\"tk-refresh\" id=\"tk-refresh\" type=\"button\">Refresh</button></div>";
     html += "<div class=\"tk-meta\">" + (lastUpdated ? "Updated " + esc(lastUpdated.toLocaleTimeString()) : "Not loaded yet") + "</div>";
     if (view.error) {

@@ -1,10 +1,10 @@
-# Module Plan — Tidetable as a dependency
+# Module Plan — TideTable as a dependency
 
 **Status:** plan, not yet implemented (as of v0.5.0)
-**Goal:** a project can add Tidetable as a dependency and drive it from
+**Goal:** a project can add TideTable as a dependency and drive it from
 Python, instead of cloning the repo and shelling out to a CLI.
 
-Tidetable works today, but only as a program. Everything a consumer needs —
+TideTable works today, but only as a program. Everything a consumer needs —
 the DAG, the claim rules, the conflict detection — is fused into `cli.py`
 alongside argparse and box-drawing output, and the package is not published, so
 "reusable module" currently means "clone it and parse `--json`". This is the

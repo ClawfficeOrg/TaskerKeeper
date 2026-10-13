@@ -1,8 +1,8 @@
-# Tidetable panel for OpenChamber
+# TideTable panel for OpenChamber
 
 Read-only rail panel for [OpenChamber](https://docs.openchamber.dev/sdk/): Current,
 Concurrent, Upcoming, phase tree and overall tree, read live from the
-Tidetable serve API. Click any task to attach it to the chat via
+TideTable serve API. Click any task to attach it to the chat via
 `host.attach`. No build step: `panel/main.js` is a hand-written,
 dependency-free IIFE (classic `<script>`, no ES modules) because the panel
 loads in a sandboxed iframe.
@@ -17,16 +17,16 @@ Settings -> Extensions -> Add, then one of:
   `package.json` is raised; pin `#tag`/`#branch` to follow one),
 - local `.zip` of this folder.
 
-Approve the dialog. The Tidetable icon appears on the rail; the full board
+Approve the dialog. The TideTable icon appears on the rail; the full board
 opens from Extension pages above the session list (`contributes.page: true`);
 the `+` menu next to the chat box offers task attach (`contributes.attach:
 "dialog"`).
 
 ## Configure
 
-1. Serve Tidetable (the panel cannot spawn processes; it only speaks HTTP):
+1. Serve TideTable (the panel cannot spawn processes; it only speaks HTTP):
    `tidetable serve --port 8471` with `TK_API_TOKEN` set in its environment.
-2. Settings -> Integrations -> Tidetable: paste the same token, then set
+2. Settings -> Integrations -> TideTable: paste the same token, then set
    `slug` to the project slug from `deploy/registry.json` (default
    `tidetable`) and optionally `pollSeconds` (default 15, minimum 5).
 3. The manifest `token.apiOrigin` is `http://127.0.0.1:8471`. Serving on

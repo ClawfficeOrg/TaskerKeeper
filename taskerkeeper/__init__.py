@@ -1,4 +1,4 @@
-"""Compatibility shim: Tidetable was named TaskerKeeper before 0.9.0.
+"""Compatibility shim: TideTable was named TaskerKeeper before 0.9.0.
 
 `import taskerkeeper` and `python -m taskerkeeper` keep working; every
 submodule (`taskerkeeper.cli`, `taskerkeeper.jsonio`, ...) is the same module

@@ -11,7 +11,7 @@ It never touches the base branch, never pushes, never tags.
 Everything repo-specific lives in `<repo>/.tidetable/overnight.json`
 (`tidetable overnight init` writes a starter from the detected stack).
 
-This is the one supervisor-side module. The rest of Tidetable never calls a
+This is the one supervisor-side module. The rest of TideTable never calls a
 provider or touches git; keep that split — `cli.py` only registers the
 subcommand and no scheduling logic may depend on this module.
 """

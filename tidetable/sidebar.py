@@ -165,7 +165,7 @@ def _section(lines: list[str], title: str, rows: list[str], more: int, width: in
 def render_sidebar(payload: dict, width: int = 80) -> str:
     """Plain-text render of a payload. Glyphs match list_tasks."""
     width = max(20, width)
-    lines = ["Tidetable", "═" * min(width, 50)]
+    lines = ["TideTable", "═" * min(width, 50)]
 
     def fmt(t: dict) -> str:
         head = f"{t['icon']} {t['id']} — {t['title']}"

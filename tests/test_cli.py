@@ -1,4 +1,4 @@
-"""Tests for the Tidetable CLI.
+"""Tests for the TideTable CLI.
 
 Stdlib unittest on purpose: `python -m unittest` works in a bare checkout with
 no dev dependencies. pytest runs these too.

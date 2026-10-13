@@ -63,7 +63,7 @@
 
 <main>
   <header>
-    <h1>Tidetable Fleet</h1>
+    <h1>TideTable Fleet</h1>
     <div class="auth">
       <!-- BetterAuth OIDC: sign-in goes through Authentik (the OIDC IdP).
            Wiring lands with the auth step: better-auth generic-OAuth provider
