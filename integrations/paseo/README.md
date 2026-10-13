@@ -1,6 +1,6 @@
 # paseo-tidetable
 
-Read-only Paseo plugin for Tidetable. The nav badge shows the
+Read-only Paseo plugin for TideTable. The nav badge shows the
 in-progress count; the workspace tab renders the five `tidetable
 sidebar` sections (current with details, concurrent, upcoming with
 waits, current-phase tree, overall tree). All scheduling stays in
@@ -23,7 +23,7 @@ waits, current-phase tree, overall tree). All scheduling stays in
 1. Copy (or symlink) this folder to your Paseo plugins directory, or add it
    via the Paseo plugin manager pointing at this path.
 2. Enable the `paseo-tidetable` plugin and restart Paseo.
-3. The "Tidetable" nav entry and workspace tab appear across Paseo
+3. The "TideTable" nav entry and workspace tab appear across Paseo
    clients (desktop and web share the same client/server split).
 
 Requires the `tidetable` CLI on the server's `PATH`.
@@ -40,15 +40,15 @@ Requires the `tidetable` CLI on the server's `PATH`.
 
 ## Screenshots (description)
 
-- Nav: "Tidetable" entry with a numeric badge equal to the
+- Nav: "TideTable" entry with a numeric badge equal to the
   `current.tasks` length (blank when zero).
-- Panel tab "Tidetable": five stacked sections — Current (icon, id,
+- Panel tab "TideTable": five stacked sections — Current (icon, id,
   title, `[owner age]` line plus goal and `touches:` basenames),
   Concurrent ("safe to fan out" list), Upcoming (pending rows show
   `[waits: ...]`), `Phase <id>: <title>` tree, Overall phase tree —
   each with an "…N more" line when the height budget cuts rows.
 - Misconfigured (no todo path) or CLI failure: panel shows a single
-  dim line, e.g. `Tidetable: no todo file configured …`.
+  dim line, e.g. `TideTable: no todo file configured …`.
 
 ## Manual load test (paseo plugin scaffold shape)
 
@@ -57,5 +57,5 @@ Requires the `tidetable` CLI on the server's `PATH`.
    `await require('./server.js').handle({ method: 'tidetable.sidebar',
    params: {} }, {})` → `{ ok: true, payload: { current, concurrent,
    upcoming, phase, overall } }`.
-3. Load the plugin in Paseo and open the Tidetable tab: all five
+3. Load the plugin in Paseo and open the TideTable tab: all five
    sections render; badge matches `current.tasks` length.

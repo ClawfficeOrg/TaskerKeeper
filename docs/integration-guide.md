@@ -1,4 +1,4 @@
-# Tidetable Integration Guide
+# TideTable Integration Guide
 
 ## Remote machines (hub client)
 
@@ -21,13 +21,13 @@ HTTPS with the bearer token — the API is never exposed unauthenticated.
 
 ## Standalone Usage
 
-Tidetable works as a standalone tool. No frameworks or platforms required.
+TideTable works as a standalone tool. No frameworks or platforms required.
 
 ### Quick Start
 
 ```bash
-git clone https://github.com/ClawfficeOrg/TaskerKeeper.git
-cd Tidetable
+git clone https://github.com/ClawfficeOrg/TideTable.git
+cd TideTable
 pip install .
 
 # Validate a todo file (schema + semantic checks)
@@ -67,8 +67,8 @@ keep working.
 
 ## Integration with ZoidMatter
 
-Tidetable is designed to work as a built-in component for ZoidMatter projects.
-When a project uses ZoidMatter, Tidetable provides the structured task format
+TideTable is designed to work as a built-in component for ZoidMatter projects.
+When a project uses ZoidMatter, TideTable provides the structured task format
 that ralph consumes.
 
 ### Setup
@@ -111,7 +111,7 @@ tidetable convert docs/todo-v7.json -o docs/todo-v7.md
 
 ### File Layout
 
-A typical ZoidMatter project with Tidetable:
+A typical ZoidMatter project with TideTable:
 
 ```
 your-project/
@@ -168,13 +168,13 @@ the roadmap, so the user scope is the right home for it. Use the repo or todo
 scope when a project or a milestone genuinely needs to pin something; commit
 `.tidetable/agents.json` when you want everyone on the project to inherit it.
 
-Settings Tidetable does not know about pass through untouched:
+Settings TideTable does not know about pass through untouched:
 
 ```bash
 tidetable agents set pro_dev_agent --option effort=xhigh --option speed=fast
 ```
 
-Tidetable never calls a provider — it resolves the strings and puts them in
+TideTable never calls a provider — it resolves the strings and puts them in
 `--json` output for whatever dispatches your agents.
 
 ## Parallel Agents

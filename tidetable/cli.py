@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-tidetable — CLI for managing Tidetable JSON todo files.
+tidetable — CLI for managing TideTable JSON todo files.
 
 Usage:
     tidetable validate <todo.json>            Schema + semantic validation
@@ -1605,7 +1605,7 @@ def cmd_serve(args) -> int:
 def build_parser() -> argparse.ArgumentParser:
     from tidetable import __version__
 
-    parser = argparse.ArgumentParser(prog="tidetable", description="Tidetable CLI")
+    parser = argparse.ArgumentParser(prog="tidetable", description="TideTable CLI")
     parser.add_argument("--version", action="version", version=f"tidetable {__version__}")
     parser.add_argument("--server", metavar="URL",
                         help="Run against a `tidetable serve` hub (default: $TIDETABLE_SERVER). "

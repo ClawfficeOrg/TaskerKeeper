@@ -1,4 +1,4 @@
-# Tidetable Memory
+# TideTable Memory
 
 Project state and decisions for agents. Read before starting work. Rules for
 working on this repo live in `AGENTS.md`.
@@ -179,10 +179,10 @@ environment artifact, not a code failure.
   a tier is a property of whoever runs the agents, so the user layer is its
   normal home. The repo and todo layers exist for projects that genuinely need
   to pin something, not as the default place to put it.
-- **Tidetable never calls a provider.** It resolves strings and hands them
+- **TideTable never calls a provider.** It resolves strings and hands them
   over: no SDK dependency, no API keys, no network. Unknown settings
   (`--option effort=xhigh`) pass through untouched so a supervisor can use them
-  without Tidetable knowing what they mean.
+  without TideTable knowing what they mean.
 - **The unattended runner is TKRun.** `tkrun` is the name; `overnight` stays a
   subparser alias so existing scripts and config paths keep working. `stop` is
   cooperative (a `STOP` sentinel checked between tasks); `kill` is a hard stop

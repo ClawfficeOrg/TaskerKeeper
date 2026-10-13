@@ -1,4 +1,4 @@
--- 001_init.sql — Postgres projection schema v1 for Tidetable VPS Hub.
+-- 001_init.sql — Postgres projection schema v1 for TideTable VPS Hub.
 -- Postgres is a read projection of the JSON source of truth; DAG logic stays in tidetable/cli.py.
 -- Projection only, never scheduling: all DAG transitions happen in cli.py under FileLock;
 -- the projector mirrors JSON state here best-effort for fast multi-project reads.

@@ -1,4 +1,4 @@
-// web/src/lib/api.ts — fleet client for the Tidetable core API.
+// web/src/lib/api.ts — fleet client for the TideTable core API.
 //
 // Shapes mirror tidetable/serve.py handle_get payloads:
 //   GET /api/projects      -> { projects: [{ slug, name, repo_url, todo_path, ... }] }

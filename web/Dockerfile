@@ -1,4 +1,4 @@
-# Tidetable dashboard image (task 1.3.1 scaffold).
+# TideTable dashboard image (task 1.3.1 scaffold).
 # Compose builds ./web and routes tk.example.com to port 3000.
 FROM node:20-alpine AS build
 WORKDIR /app

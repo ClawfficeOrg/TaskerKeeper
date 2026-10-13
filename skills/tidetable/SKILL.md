@@ -1,6 +1,6 @@
 ---
 name: tidetable
-description: "Use when creating, reading, or managing Tidetable JSON todo files. Structured task management with dependency DAG, parallel groups, and semver mapping."
+description: "Use when creating, reading, or managing TideTable JSON todo files. Structured task management with dependency DAG, parallel groups, and semver mapping."
 version: 2.4.0
 author: KITT (ClawfficeOrg)
 license: MIT
@@ -10,7 +10,7 @@ metadata:
     related_skills: [ralph-todo-format, development-workflows]
 ---
 
-# Tidetable Skill
+# TideTable Skill
 
 Task management for autonomous agents using structured JSON instead of markdown. Stable IDs, dependency DAG, parallel execution groups, and semver version mapping.
 
@@ -23,7 +23,7 @@ Task management for autonomous agents using structured JSON instead of markdown.
 
 ## File Format
 
-Tidetable uses JSON files (typically `docs/todo-v{N}.json`) with this structure:
+TideTable uses JSON files (typically `docs/todo-v{N}.json`) with this structure:
 
 ```json
 {
@@ -319,7 +319,7 @@ supervisor dispatches in one lookup:
 ```
 
 Prefer moving a whole tier over pinning individual tasks — a per-task `model`
-is for the genuine exception. Tidetable only resolves the strings; it never
+is for the genuine exception. TideTable only resolves the strings; it never
 calls a provider itself.
 
 Every read command accepts `--json`. Parse that, not the box-drawing output.

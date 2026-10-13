@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * pi-tidetable-sidebar — Tidetable sidebar panel for pi (and oh-my-pi).
+ * pi-tidetable-sidebar — TideTable sidebar panel for pi (and oh-my-pi).
  *
  * pi-sidebar-tui style: package manifest registers this entry via the "pi"
  * field (plus "omp" for oh-my-pi, which accepts the legacy pi key), the
@@ -138,7 +138,7 @@ function tidetableSidebarExtension(pi, options) {
     if (!sub || sub === "status") {
       refresh();
       notify(
-        "Tidetable sidebar " +
+        "TideTable sidebar " +
           (state.enabled ? "on" : "off") +
           " · width " +
           state.width +
@@ -151,12 +151,12 @@ function tidetableSidebarExtension(pi, options) {
     if (sub === "on") {
       state.enabled = true;
       refresh();
-      notify("Tidetable sidebar on");
+      notify("TideTable sidebar on");
       return;
     }
     if (sub === "off") {
       state.enabled = false;
-      notify("Tidetable sidebar off");
+      notify("TideTable sidebar off");
       return;
     }
     if (sub === "width" || sub === "w") {
@@ -167,13 +167,13 @@ function tidetableSidebarExtension(pi, options) {
       }
       state.width = n;
       refresh();
-      notify("Tidetable sidebar width " + n);
+      notify("TideTable sidebar width " + n);
       return;
     }
     if (sub === "toggle" || sub === "toggle-panel") {
       state.enabled = !state.enabled;
       if (state.enabled) refresh();
-      notify("Tidetable sidebar " + (state.enabled ? "on" : "off"));
+      notify("TideTable sidebar " + (state.enabled ? "on" : "off"));
       return;
     }
     notify("Usage: /tk-sidebar on|off|width N|status", "warning");
@@ -212,14 +212,14 @@ function tidetableSidebarExtension(pi, options) {
   // Slash command. Modern hosts take (name, def); accept legacy { name } too.
   try {
     pi.registerCommand("tk-sidebar", {
-      description: "Tidetable sidebar: on|off|width N|status",
+      description: "TideTable sidebar: on|off|width N|status",
       handler: handleTkSidebar,
     });
   } catch (_err) {
     try {
       pi.registerCommand({
         name: "tk-sidebar",
-        description: "Tidetable sidebar: on|off|width N|status",
+        description: "TideTable sidebar: on|off|width N|status",
         handler: handleTkSidebar,
       });
     } catch (_err2) {

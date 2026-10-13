@@ -37,7 +37,7 @@ Thumbs.db
 *.log
 .env.local
 
-# Tidetable
+# TideTable
 # Lock files left behind by an interrupted CLI write
 *.json.lock
 

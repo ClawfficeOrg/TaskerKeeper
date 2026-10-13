@@ -1,4 +1,4 @@
-// Paseo server half: read-only RPC over the Tidetable sidebar CLI.
+// Paseo server half: read-only RPC over the TideTable sidebar CLI.
 //
 // Exposes one RPC method:
 //

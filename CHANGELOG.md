@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **TaskerKeeper is now Tidetable (0.9.0).** Package `taskerkeeper/` is
+- **TaskerKeeper is now TideTable (0.9.0).** Package `taskerkeeper/` is
   `tidetable/`; commands `tidetable` and the short `tt`; env vars
   `TIDETABLE_*`; repo config `.tidetable/`; user config
   `~/.config/tidetable/`; skill `skills/tidetable/`; distribution name

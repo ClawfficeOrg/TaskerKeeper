@@ -1,9 +1,9 @@
-// Paseo client half: Tidetable nav badge + workspace panel.
+// Paseo client half: TideTable nav badge + workspace panel.
 //
 // Registers (via the @getpaseo/client SDK shape):
-//   - addSidebarItem: "Tidetable" nav entry whose badge shows the
+//   - addSidebarItem: "TideTable" nav entry whose badge shows the
 //     in-progress count.
-//   - addWorkspacePanel: "Tidetable" tab rendering the five sidebar
+//   - addWorkspacePanel: "TideTable" tab rendering the five sidebar
 //     sections (current with details, concurrent, upcoming with waits,
 //     current-phase tree, overall tree) fetched through the server RPC
 //     `tidetable.sidebar`. Polls every 15s; every failure renders
@@ -126,7 +126,7 @@ function activate(ctx) {
       if (!res || !res.ok) {
         const msg = (res && res.error) || "sidebar RPC failed";
         if (els.panel) {
-          els.panel.innerHTML = '<p class="tk-dim">Tidetable: ' + esc(msg) + "</p>";
+          els.panel.innerHTML = '<p class="tk-dim">TideTable: ' + esc(msg) + "</p>";
         }
         if (els.badge) {
           els.badge.textContent = "";
@@ -144,7 +144,7 @@ function activate(ctx) {
     } catch (err) {
       if (els.panel) {
         els.panel.innerHTML =
-          '<p class="tk-dim">Tidetable: ' + esc((err && err.message) || err) + "</p>";
+          '<p class="tk-dim">TideTable: ' + esc((err && err.message) || err) + "</p>";
       }
     }
   }
@@ -152,7 +152,7 @@ function activate(ctx) {
   if (ctx && typeof ctx.addSidebarItem === "function") {
     const item = ctx.addSidebarItem({
       id: "tidetable",
-      title: "Tidetable",
+      title: "TideTable",
       badge: () => (els.badge ? els.badge.textContent : ""),
       onClick: () => {
         if (ctx && typeof ctx.openWorkspacePanel === "function") {
@@ -168,11 +168,11 @@ function activate(ctx) {
   if (ctx && typeof ctx.addWorkspacePanel === "function") {
     ctx.addWorkspacePanel({
       id: "tidetable",
-      title: "Tidetable",
+      title: "TideTable",
       render: (root) => {
         const div = root.ownerDocument.createElement("div");
         div.className = "tk-panel";
-        div.innerHTML = '<p class="tk-dim">Loading Tidetable…</p>';
+        div.innerHTML = '<p class="tk-dim">Loading TideTable…</p>';
         root.appendChild(div);
         els.panel = div;
         refresh();

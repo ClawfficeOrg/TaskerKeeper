@@ -31,7 +31,7 @@ def find_source(explicit: str | None = None) -> Path:
         if all((c / n).is_dir() for n in NAMES):
             return c.resolve()
     raise ValueError("integrations/ not found beside the package (a plain `pip install .` does not "
-                     "ship it). Run from a Tidetable checkout or pass --source <checkout>/integrations.")
+                     "ship it). Run from a TideTable checkout or pass --source <checkout>/integrations.")
 
 
 def opencode_config_path(override: str | None = None) -> Path:

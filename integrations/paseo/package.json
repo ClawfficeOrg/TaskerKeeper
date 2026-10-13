@@ -1,7 +1,7 @@
 {
   "name": "paseo-tidetable",
   "version": "0.1.0",
-  "description": "Tidetable sidebar and workspace panel for Paseo, driven by `tidetable sidebar --json`.",
+  "description": "TideTable sidebar and workspace panel for Paseo, driven by `tidetable sidebar --json`.",
   "license": "MIT",
   "main": "server.js",
   "files": [
@@ -14,14 +14,14 @@
     "check": "node --check server.js && node --check client.js"
   },
   "paseo": {
-    "displayName": "Tidetable",
-    "description": "Read-only Tidetable sidebar: current, concurrent, upcoming, phase tree, overall tree.",
+    "displayName": "TideTable",
+    "description": "Read-only TideTable sidebar: current, concurrent, upcoming, phase tree, overall tree.",
     "client": "./client.js",
     "server": "./server.js",
     "settings": {
       "todo": {
         "type": "string",
-        "description": "Path to the Tidetable todo file (falls back to TIDETABLE_TODO env).",
+        "description": "Path to the TideTable todo file (falls back to TIDETABLE_TODO env).",
         "default": ""
       },
       "width": {

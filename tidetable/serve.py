@@ -860,7 +860,7 @@ def handle_post(route: str, slug: str | None, body: Mapping[str, object] | None,
 class _Handler(BaseHTTPRequestHandler):
     """Bearer gate + route table lookup; GET reads delegate to cli via handle_get."""
 
-    server_version = "TidetableServe/0.1"
+    server_version = "TideTableServe/0.1"
 
     def _send_json(self, status: int, payload: dict) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -1013,7 +1013,7 @@ def main(argv: list[str] | None = None) -> int:
         args.registry, args.sessions_db)
     server.tokens_db = tokens_db_for_registry(  # type: ignore[attr-defined]
         args.registry, args.tokens_db)
-    print(f"✓ Serving Tidetable core API on {args.bind}:{args.port}")
+    print(f"✓ Serving TideTable core API on {args.bind}:{args.port}")
     print(f"  registry: {args.registry}")
     print(f"  sessions: {server.sessions_db}")
     print(f"  tokens: {server.tokens_db}")
