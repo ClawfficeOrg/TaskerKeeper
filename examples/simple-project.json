@@ -6,7 +6,7 @@
       "milestone": "v1",
       "release_version": "0.1.0"
     },
-    "description": "A minimal example showing TaskerKeeper basics."
+    "description": "A minimal example showing Tidetable basics."
   },
   "phases": [
     {

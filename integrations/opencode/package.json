@@ -1,8 +1,8 @@
 {
-  "name": "taskerkeeper-sidebar",
+  "name": "tidetable-sidebar",
   "version": "0.1.0",
   "type": "module",
-  "description": "TaskerKeeper sidebar block for the OpenCode TUI. Read-only view over `taskerkeeper sidebar --json`. Requires opencode >= 1.18 TUI plugin API.",
+  "description": "Tidetable sidebar block for the OpenCode TUI. Read-only view over `tidetable sidebar --json`. Requires opencode >= 1.18 TUI plugin API.",
   "exports": {
     "./tui": "./tk-sidebar.ts"
   },

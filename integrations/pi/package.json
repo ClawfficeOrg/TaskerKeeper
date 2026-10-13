@@ -1,7 +1,7 @@
 {
-  "name": "pi-taskerkeeper-sidebar",
+  "name": "pi-tidetable-sidebar",
   "version": "0.1.0",
-  "description": "TaskerKeeper sidebar panel for pi coding agent (also loads under oh-my-pi omp). Spawns `taskerkeeper sidebar --json` and renders current/concurrent/upcoming/phase/overall sections.",
+  "description": "Tidetable sidebar panel for pi coding agent (also loads under oh-my-pi omp). Spawns `tidetable sidebar --json` and renders current/concurrent/upcoming/phase/overall sections.",
   "type": "commonjs",
   "main": "index.js",
   "files": [

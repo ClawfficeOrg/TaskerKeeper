@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "taskerkeeper/todo-v1",
-  "title": "TaskerKeeper Todo (JSON)",
+  "$id": "tidetable/todo-v1",
+  "title": "Tidetable Todo (JSON)",
   "description": "Structured JSON alternative to markdown todo-v*.md files. Stable IDs, dependency DAG, parallel tracks, machine-readable. Maps planning milestones to semver releases.",
   "type": "object",
   "required": ["schema_version", "project", "phases"],
@@ -83,7 +83,7 @@
             },
             "tag_on_complete": {
               "type": "boolean",
-              "description": "Marks this phase as one that ships a tag. Nothing tags automatically: when the phase completes, `done --json` reports `release_ready` and `taskerkeeper release <file> <phase> --tag` creates the annotated tag."
+              "description": "Marks this phase as one that ships a tag. Nothing tags automatically: when the phase completes, `done --json` reports `release_ready` and `tidetable release <file> <phase> --tag` creates the annotated tag."
             },
             "release_notes": {
               "type": "string",
@@ -92,7 +92,7 @@
             "changelog_entries": {
               "type": "array",
               "items": { "type": "string" },
-              "description": "Individual changelog lines. Appended by `taskerkeeper done` from each completed task's `changelog` field; a task whose phase has no release object files under the last phase that does."
+              "description": "Individual changelog lines. Appended by `tidetable done` from each completed task's `changelog` field; a task whose phase has no release object files under the last phase that does."
             }
           }
         },
@@ -132,7 +132,7 @@
         "prerequisites": {
           "type": "array",
           "items": { "type": "string" },
-          "description": "Task IDs that must be 'done' before this task can start. Enables DAG, not linear. Only 'done' satisfies a prerequisite — a prerequisite left 'cancelled' or 'moved' blocks its dependents forever, which `taskerkeeper validate` warns about."
+          "description": "Task IDs that must be 'done' before this task can start. Enables DAG, not linear. Only 'done' satisfies a prerequisite — a prerequisite left 'cancelled' or 'moved' blocks its dependents forever, which `tidetable validate` warns about."
         },
         "parallel_group": {
           "type": "string",
@@ -185,7 +185,7 @@
     },
     "agent_config": {
       "type": "object",
-      "description": "Agent tier configuration for ralph. Provider/model settings here are the highest-priority layer, above the repo config (.taskerkeeper/agents.json), the user config, and the built-in defaults. Pin a model here only when this milestone genuinely needs one.",
+      "description": "Agent tier configuration for ralph. Provider/model settings here are the highest-priority layer, above the repo config (.tidetable/agents.json), the user config, and the built-in defaults. Pin a model here only when this milestone genuinely needs one.",
       "properties": {
         "provider": {
           "type": "string",

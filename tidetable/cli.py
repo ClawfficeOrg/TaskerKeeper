@@ -1,32 +1,32 @@
 #!/usr/bin/env python3
 """
-taskerkeeper — CLI for managing TaskerKeeper JSON todo files.
+tidetable — CLI for managing Tidetable JSON todo files.
 
 Usage:
-    taskerkeeper validate <todo.json>            Schema + semantic validation
-    taskerkeeper next <todo.json>                Next task to work on
-    taskerkeeper ready <todo.json>               Every currently-runnable task
-    taskerkeeper start <todo.json> <task_id>     Claim a task (-> in_progress)
-    taskerkeeper done <todo.json> <task_id>      Mark a task done
-    taskerkeeper reset <todo.json> <task_id>     in_progress -> pending
-    taskerkeeper status <todo.json> <task_id> <status>
+    tidetable validate <todo.json>            Schema + semantic validation
+    tidetable next <todo.json>                Next task to work on
+    tidetable ready <todo.json>               Every currently-runnable task
+    tidetable start <todo.json> <task_id>     Claim a task (-> in_progress)
+    tidetable done <todo.json> <task_id>      Mark a task done
+    tidetable reset <todo.json> <task_id>     in_progress -> pending
+    tidetable status <todo.json> <task_id> <status>
                                                  Set any status (cancelled/moved/...)
-    taskerkeeper list <todo.json>                Status overview
-    taskerkeeper parallel <todo.json>            Parallel groups
-    taskerkeeper deps <todo.json> <task_id>      Dependency chain
-    taskerkeeper add <todo.json> --phase <id> --title <t>
+    tidetable list <todo.json>                Status overview
+    tidetable parallel <todo.json>            Parallel groups
+    tidetable deps <todo.json> <task_id>      Dependency chain
+    tidetable add <todo.json> --phase <id> --title <t>
                                                  Append a task to a phase
-    taskerkeeper add-phase <todo.json> --phase <id> --title <t>
+    tidetable add-phase <todo.json> --phase <id> --title <t>
                                                  Insert a new phase
-    taskerkeeper release <todo.json> [phase]     Show/cut the tag a phase ships as
-    taskerkeeper history <todo.json>             Replay the event log
-    taskerkeeper convert <todo.json>             Render JSON as markdown
+    tidetable release <todo.json> [phase]     Show/cut the tag a phase ships as
+    tidetable history <todo.json>             Replay the event log
+    tidetable convert <todo.json>             Render JSON as markdown
 
 Every read command accepts --json for machine-readable output.
 
 Claiming: `start` records an owner and a lease, so `next` never hands a live
-task to a second agent. `TASKERKEEPER_OWNER` names the agent;
-`TASKERKEEPER_LEASE_MINUTES` sets how long a claim holds.
+task to a second agent. `TIDETABLE_OWNER` names the agent;
+`TIDETABLE_LEASE_MINUTES` sets how long a claim holds.
 
 Requirements: pip install jsonschema
 """
@@ -43,8 +43,9 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from taskerkeeper import agents
-from taskerkeeper.jsonio import (
+from tidetable import agents
+from tidetable.jsonio import (
+    env_get,
     FileLock,
     LockTimeout,
     append_event,
@@ -100,7 +101,7 @@ def schema_path() -> Path:
     try:
         from importlib.resources import files
 
-        packaged = Path(str(files("taskerkeeper").joinpath("schema/todo-v1.schema.json")))
+        packaged = Path(str(files("tidetable").joinpath("schema/todo-v1.schema.json")))
         if packaged.is_file():
             return packaged
     except (ImportError, TypeError, FileNotFoundError, ModuleNotFoundError):
@@ -123,7 +124,7 @@ def utc_now() -> str:
 
 
 # ---------------------------------------------------------------------------
-# File IO — see taskerkeeper/jsonio.py for the lock and the atomic write.
+# File IO — see tidetable/jsonio.py for the lock and the atomic write.
 # ---------------------------------------------------------------------------
 
 
@@ -145,15 +146,15 @@ def save_todo(data: dict, path: str) -> None:
 def default_owner() -> str:
     """Who this process is, for claim bookkeeping.
 
-    `TASKERKEEPER_OWNER` when a supervisor wants stable agent names across
+    `TIDETABLE_OWNER` when a supervisor wants stable agent names across
     restarts; host:pid otherwise, which is at least unique.
     """
-    named = os.environ.get("TASKERKEEPER_OWNER", "").strip()
+    named = env_get("OWNER").strip()
     return named or f"{socket.gethostname()}:{os.getpid()}"
 
 
 def default_lease_minutes() -> int:
-    raw = os.environ.get("TASKERKEEPER_LEASE_MINUTES", "").strip()
+    raw = env_get("LEASE_MINUTES").strip()
     try:
         value = int(raw)
     except ValueError:
@@ -1154,7 +1155,7 @@ def cmd_done(args) -> int:
         print(f"\nPhase {phase['id']} is complete.")
         if release and release["tag_on_complete"]:
             print(f"  Release {release['version'] or '?'} is ready to tag:")
-            print(f"    taskerkeeper release {args.todo_file} {phase['id']} --tag")
+            print(f"    tidetable release {args.todo_file} {phase['id']} --tag")
     return 0
 
 
@@ -1216,7 +1217,7 @@ def cmd_list(args) -> int:
 
 
 def cmd_sidebar(args) -> int:
-    from taskerkeeper import sidebar
+    from tidetable import sidebar
 
     data = load_todo(args.todo_file)
     payload = sidebar.sidebar_payload(data, args.width, args.height)
@@ -1262,7 +1263,7 @@ def cmd_agents(args) -> int:
             print(f"\n{name}{marker}")
             for tier in sorted(preset):
                 print(f"  {tier:<18} {preset[tier].get('model', '-')}")
-        print("\nSwitch with: taskerkeeper agents use <provider>")
+        print("\nSwitch with: tidetable agents use <provider>")
         return 0
 
     if args.agents_command == "use":
@@ -1280,7 +1281,7 @@ def cmd_agents(args) -> int:
         if args.provider not in agents.PROVIDER_PRESETS:
             known = ", ".join(agents.PROVIDER_PRESETS)
             print(f"Error: no preset named {args.provider!r}. Known presets: {known}")
-            print("Set individual tiers instead: taskerkeeper agents set <tier> "
+            print("Set individual tiers instead: tidetable agents set <tier> "
                   "--provider ... --model ...")
             return 1
         path = agents.set_provider(args.scope, args.provider, todo_path)
@@ -1508,7 +1509,7 @@ def cmd_release(args) -> int:
             print("\nPhase is not complete — nothing to tag yet.")
             return 1
         print("\nTag it with:")
-        print(f"  taskerkeeper release {args.todo_file} {phase['id']} --tag")
+        print(f"  tidetable release {args.todo_file} {phase['id']} --tag")
         return 0
 
     if not version:
@@ -1587,7 +1588,7 @@ def cmd_convert(args) -> int:
 
 def cmd_serve(args) -> int:
     """Serve the single-writer core API. Lazy import avoids a circular import."""
-    from taskerkeeper import serve
+    from tidetable import serve
 
     argv = ["--port", str(args.port), "--bind", args.bind,
             "--registry", args.registry]
@@ -1602,10 +1603,10 @@ def cmd_serve(args) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    from taskerkeeper import __version__
+    from tidetable import __version__
 
-    parser = argparse.ArgumentParser(prog="taskerkeeper", description="TaskerKeeper CLI")
-    parser.add_argument("--version", action="version", version=f"taskerkeeper {__version__}")
+    parser = argparse.ArgumentParser(prog="tidetable", description="Tidetable CLI")
+    parser.add_argument("--version", action="version", version=f"tidetable {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
 
     def add_command(name, help_text, *, task_id=False, json_out=False):
@@ -1620,7 +1621,7 @@ def build_parser() -> argparse.ArgumentParser:
     def add_owner(p):
         p.add_argument("--owner", metavar="NAME",
                        help="Agent identity for the claim log "
-                            "(default: $TASKERKEEPER_OWNER, else host:pid)")
+                            "(default: $TIDETABLE_OWNER, else host:pid)")
         return p
 
     p = add_command("validate", "Schema + semantic validation")
@@ -1645,7 +1646,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--force", action="store_true", help="Start despite unmet prerequisites")
     p.add_argument("--lease", type=int, metavar="MINUTES",
                    help=f"How long the claim holds (default: "
-                        f"$TASKERKEEPER_LEASE_MINUTES, else {DEFAULT_LEASE_MINUTES})")
+                        f"$TIDETABLE_LEASE_MINUTES, else {DEFAULT_LEASE_MINUTES})")
     p.set_defaults(func=cmd_start)
 
     p = add_owner(add_command("done", "Mark a task done", task_id=True, json_out=True))
@@ -1729,15 +1730,15 @@ def build_parser() -> argparse.ArgumentParser:
     s.set_defaults(func=cmd_serve)
 
     build_agents_parser(sub)
-    from taskerkeeper import overnight
+    from tidetable import overnight
     overnight.add_parser(sub)
-    from taskerkeeper import integrations
+    from tidetable import integrations
     integrations.add_parser(sub)
     return parser
 
 
 def build_agents_parser(sub) -> None:
-    """`taskerkeeper agents ...` — the provider/model mapping per agent tier."""
+    """`tidetable agents ...` — the provider/model mapping per agent tier."""
     p = sub.add_parser("agents", help="Configure which provider/model runs each tier")
     p.set_defaults(func=cmd_agents)
     inner = p.add_subparsers(dest="agents_command", required=True)

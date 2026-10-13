@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **TaskerKeeper is now Tidetable (0.9.0).** Package `taskerkeeper/` is
+  `tidetable/`; commands `tidetable` and the short `tt`; env vars
+  `TIDETABLE_*`; repo config `.tidetable/`; user config
+  `~/.config/tidetable/`; skill `skills/tidetable/`; distribution name
+  `tidetable`. Nothing in the todo format, the `--json` output, or the
+  scheduling semantics changed.
+- **Compatibility, so existing agents keep working.** The `taskerkeeper`
+  command, `python -m taskerkeeper` and `import taskerkeeper` (same module
+  objects as `tidetable`) still work. `TASKERKEEPER_*` env vars are read as a
+  fallback (the new name wins). A `.taskerkeeper/` repo dir and a
+  `~/.config/taskerkeeper/` user dir apply until the new one exists; new files
+  are written to the new names. `scripts/taskerkeeper.py` stays as a shim.
+  The `tkrun`/`overnight` subcommands and the `TK_*` serve env vars are
+  unchanged.
+
 ### Added
 
 - **`taskerkeeper add-phase <file> --phase <id> --title <t>`.** Inserts a new

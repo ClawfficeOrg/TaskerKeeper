@@ -6,7 +6,7 @@ upcoming work, the current phase as a tree, and all phases as a tree.
 Sections that do not fit the room report a more-count instead of silently
 dropping tasks, so a narrow sidebar never looks complete when it is not.
 
-All scheduling answers come from taskerkeeper.cli — this module formats,
+All scheduling answers come from tidetable.cli — this module formats,
 never decides. Touches are basenamed (privacy: no absolute paths leak into
 a shared sidebar).
 """
@@ -16,7 +16,7 @@ from __future__ import annotations
 import os
 from datetime import datetime, timezone
 
-from taskerkeeper import cli
+from tidetable import cli
 
 #: Fixed caps for the three task sections; trees split what is left.
 CURRENT_CAP = 6
@@ -165,7 +165,7 @@ def _section(lines: list[str], title: str, rows: list[str], more: int, width: in
 def render_sidebar(payload: dict, width: int = 80) -> str:
     """Plain-text render of a payload. Glyphs match list_tasks."""
     width = max(20, width)
-    lines = ["TaskerKeeper", "═" * min(width, 50)]
+    lines = ["Tidetable", "═" * min(width, 50)]
 
     def fmt(t: dict) -> str:
         head = f"{t['icon']} {t['id']} — {t['title']}"
@@ -199,7 +199,7 @@ def render_sidebar(payload: dict, width: int = 80) -> str:
 def main(argv: list[str] | None = None) -> dict:
     """Build a payload from a todo file path. Adapters call this via the CLI."""
     import argparse
-    parser = argparse.ArgumentParser(prog="taskerkeeper sidebar")
+    parser = argparse.ArgumentParser(prog="tidetable sidebar")
     parser.add_argument("todo_file")
     parser.add_argument("--width", type=int, default=80)
     parser.add_argument("--height", type=int, default=40)

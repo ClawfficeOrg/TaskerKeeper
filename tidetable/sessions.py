@@ -1,4 +1,4 @@
-"""taskerkeeper.sessions — sqlite-backed agent presence for the VPS hub core API.
+"""tidetable.sessions — sqlite-backed agent presence for the VPS hub core API.
 
 Heartbeat store behind ``POST /api/<slug>/heartbeat`` (task 1.1.3). One row
 per agent: the latest heartbeat plus which task it holds. Stale means the

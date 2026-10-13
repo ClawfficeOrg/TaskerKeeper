@@ -5,7 +5,7 @@ rules file; `CLAUDE.md` only points here.
 
 ## What this project is
 
-TaskerKeeper is a JSON todo format plus a Python CLI for driving autonomous
+Tidetable is a JSON todo format plus a Python CLI for driving autonomous
 agents through a task DAG. A todo file describes a milestone as phases, each
 phase holding tasks with stable IDs, prerequisites, and parallel groups. The
 CLI answers one question well: *what can be worked on right now?*
@@ -16,16 +16,17 @@ Every read command has a `--json` mode; do not break it.
 ## Layout
 
 ```
-taskerkeeper/cli.py                    All CLI logic. One file on purpose.
-taskerkeeper/agents.py                 Tier -> provider/model resolution
-taskerkeeper/integrations.py           `integrations list|install|uninstall` for the sidebar adapters
-taskerkeeper/overnight.py              Unattended runner TKRun (`tkrun run|init|stop|kill`, `overnight` alias), the one supervisor
-taskerkeeper/jsonio.py                 Atomic writes, the file lock, the event log
-taskerkeeper/__main__.py               python -m taskerkeeper
-taskerkeeper/schema/todo-v1.schema.json  JSON Schema (draft 2020-12), package data
-scripts/taskerkeeper.py                Backward-compatible shim, no logic
+tidetable/cli.py                    All CLI logic. One file on purpose.
+tidetable/agents.py                 Tier -> provider/model resolution
+tidetable/integrations.py           `integrations list|install|uninstall` for the sidebar adapters
+tidetable/overnight.py              Unattended runner TKRun (`tkrun run|init|stop|kill`, `overnight` alias), the one supervisor
+tidetable/jsonio.py                 Atomic writes, the file lock, the event log
+tidetable/__main__.py               python -m tidetable
+taskerkeeper/                          Pre-0.9 name: aliases every tidetable module, no logic
+tidetable/schema/todo-v1.schema.json  JSON Schema (draft 2020-12), package data
+scripts/tidetable.py                Forwarding shim, no logic (scripts/taskerkeeper.py is the legacy twin)
 ralph/ralph-json.sh                    Thin wrapper that execs the CLI, no logic
-skills/taskerkeeper/SKILL.md           Hermes skill describing the format
+skills/tidetable/SKILL.md           Hermes skill describing the format
 tests/test_cli.py                      stdlib unittest suite
 examples/                              simple-project, zoidmatter-v7
 docs/                                  philosophy, integration-guide, memory, module-plan, notes
@@ -35,19 +36,26 @@ docs/                                  philosophy, integration-guide, memory, mo
 
 ```bash
 python -m unittest discover -s tests -v     # the whole suite, under a second
-taskerkeeper agents show                    # resolved tier -> provider/model
-taskerkeeper validate examples/simple-project.json
+tidetable agents show                    # resolved tier -> provider/model
+tidetable validate examples/simple-project.json
 pip install .                               # non-editable install must keep working
 ```
 
 Run both before claiming any change works. `pip install .` matters because the
-schema is package data; a change that moves it out of `taskerkeeper/` bricks
+schema is package data; a change that moves it out of `tidetable/` bricks
 every non-editable install.
 
 ## Rules
 
-**One implementation of the DAG logic.** It lives in `taskerkeeper/cli.py`.
-`ralph/ralph-json.sh` and `scripts/taskerkeeper.py` are forwarding shims and
+**The old name keeps working.** The project was TaskerKeeper before 0.9.0.
+`TASKERKEEPER_*` env vars are read through `jsonio.env_get` (new name wins),
+`.taskerkeeper/` and `~/.config/taskerkeeper/` apply until the new directory
+exists, and `import taskerkeeper` aliases the same module objects. New code
+uses the new names; do not add logic to the `taskerkeeper/` shim package, and
+do not remove a fallback without a changelog line.
+
+**One implementation of the DAG logic.** It lives in `tidetable/cli.py`.
+`ralph/ralph-json.sh`, `scripts/tidetable.py` and the `taskerkeeper/` package are forwarding shims and
 must stay that way. A second implementation in bash/jq existed once, drifted
 from the Python within a single release, and disagreed about task ordering and
 prerequisite enforcement. Do not reintroduce one.
@@ -85,7 +93,7 @@ was checking. `jsonio._pid_alive` uses `OpenProcess`/`GetExitCodeProcess` there
 and returns `None` when it cannot tell; a test asserts `os.kill` is never
 called. Unknown liveness falls back to lock age, never to "assume dead".
 
-**TaskerKeeper does not touch git except in `release --tag`.** `done` reports
+**Tidetable does not touch git except in `release --tag`.** `done` reports
 `release_ready` and stops. The last task of a phase is an ordinary task, and a
 tag created as its side effect appears at a moment nobody chose. Keep tagging
 behind the explicit command and the explicit flag. The one other exception is
@@ -98,23 +106,23 @@ roadmap stays small and diffable, and a torn append costs one line.
 
 **Writes are locked and atomic.** Mutating commands go through
 `with FileLock(path):`, reload inside the lock, and save via `write_json`, which
-writes a temp file and renames. Both live in `taskerkeeper/jsonio.py`. Parallel
+writes a temp file and renames. Both live in `tidetable/jsonio.py`. Parallel
 agents are the entire point; a plain `open(path, "w")` reintroduces lost updates.
 
-**TaskerKeeper never calls a provider.** `agents.py` resolves a tier to a
+**Tidetable never calls a provider.** `agents.py` resolves a tier to a
 provider/model string and hands it to whoever is dispatching. Do not add an SDK
 dependency, an API key lookup, or a network call — the supervisor owns that.
 Model IDs in `DEFAULT_TIERS` are data, not endorsements; keep them current but
 do not build logic around specific ones.
 
-**`overnight.py` is the only supervisor.** `taskerkeeper tkrun run` (alias
+**`overnight.py` is the only supervisor.** `tidetable tkrun run` (alias
 `overnight run`) shells
 out to agent CLIs and to git, because an unattended loop has to. That is
 allowed in exactly that module: it never imports an SDK or reads an API key
 (the CLIs own auth), `cli.py` only registers its subparser, and no scheduling
 logic may depend on it. It must never touch the base branch, push, or tag; the
-runner, not the agent, owns git history and taskerkeeper state. Everything
-repo-specific belongs in `<repo>/.taskerkeeper/overnight.json`, never in code.
+runner, not the agent, owns git history and tidetable state. Everything
+repo-specific belongs in `<repo>/.tidetable/overnight.json`, never in code.
 
 **Config layering is last-wins, and the order is fixed:** built-in, user, repo,
 todo file, then a task's own `provider`/`model`. Each config layer contributes
@@ -143,7 +151,7 @@ reconfigure block.
 
 **Docs must match the code.** This repo previously advertised commands that did
 not exist. If you add, rename, or remove a command, update `README.md`,
-`skills/taskerkeeper/SKILL.md`, `docs/integration-guide.md`, and `CHANGELOG.md`
+`skills/tidetable/SKILL.md`, `docs/integration-guide.md`, and `CHANGELOG.md`
 in the same change.
 
 **Every behavior change gets a test.** `tests/test_cli.py` is stdlib
@@ -153,7 +161,7 @@ in the same change.
 
 - Python ≥ 3.10, `from __future__ import annotations`, 4-space indent, type
   hints on function signatures.
-- Tests that touch agent config must set `TASKERKEEPER_CONFIG_HOME` to a temp
+- Tests that touch agent config must set `TIDETABLE_CONFIG_HOME` to a temp
   directory. A test that reads the developer's real `~/.config` is a bug.
 - The only runtime dependency is `jsonschema`. Do not add more without a reason
   that survives "could the stdlib do this".
@@ -161,16 +169,16 @@ in the same change.
   code prevents; match that.
 - Conventional Commits (`feat:`, `fix:`, `docs:`, `test:`, `chore:`).
 - Bump `version` in `pyproject.toml` and `__version__` in
-  `taskerkeeper/__init__.py` together, and add a `CHANGELOG.md` entry.
+  `tidetable/__init__.py` together, and add a `CHANGELOG.md` entry.
 
-## Working on a TaskerKeeper todo file
+## Working on a Tidetable todo file
 
 When driving a project's roadmap (this repo's own, or another's):
 
 ```bash
-taskerkeeper ready docs/todo-v7.json --json   # fan these out in parallel
-taskerkeeper start docs/todo-v7.json 7.0.1    # claim before working
-taskerkeeper done docs/todo-v7.json 7.0.1 --changelog "Added the Go SDK"
+tidetable ready docs/todo-v7.json --json   # fan these out in parallel
+tidetable start docs/todo-v7.json 7.0.1    # claim before working
+tidetable done docs/todo-v7.json 7.0.1 --changelog "Added the Go SDK"
 ```
 
 Claim with `start` before doing the work, so a second agent does not pick up the

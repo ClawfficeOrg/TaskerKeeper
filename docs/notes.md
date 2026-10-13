@@ -26,7 +26,7 @@ No tests, no CI.
 No atomic writes / locking: jq version tmp+rename, Python overwrites in-place. Two agents = lost update.
 add has no flags for prereqs/complexity/agent/parallel_group; crashes on malformed existing IDs (int(t["id"].split(".")[-1]), cli.py:202).
 Nits
-README "Project Structure" block stale: says convert exists, omits taskerkeeper/ package and pyproject.toml
+README "Project Structure" block stale: says convert exists, omits tidetable/ package and pyproject.toml
 philosophy.md: "Python 3 standard library only" — pyproject requires jsonschema
 Schema agent enum has flagship; agent_config.tiers defines only three tiers
 _phase_id in examples: redundant denormalization, not in schema

@@ -1,21 +1,21 @@
 "use strict";
 
 /**
- * pi-taskerkeeper-sidebar — TaskerKeeper sidebar panel for pi (and oh-my-pi).
+ * pi-tidetable-sidebar — Tidetable sidebar panel for pi (and oh-my-pi).
  *
  * pi-sidebar-tui style: package manifest registers this entry via the "pi"
  * field (plus "omp" for oh-my-pi, which accepts the legacy pi key), the
  * factory hooks session_start / turn_end / message_end to refresh cached
  * state, and /tk-sidebar controls the panel.
  *
- * Scheduling lives in `taskerkeeper sidebar <todo> --json`
- * (taskerkeeper/sidebar.py). This file shells out and renders only.
+ * Scheduling lives in `tidetable sidebar <todo> --json`
+ * (tidetable/sidebar.py). This file shells out and renders only.
  * Read-only: never writes the todo file. Fail-soft: a missing CLI becomes
  * one unavailable line, never an exception in the TUI.
  */
 
 const { spawnSync } = require("node:child_process");
-const { renderPanel, unavailableLine } = require("./panels/taskerkeeper");
+const { renderPanel, unavailableLine } = require("./panels/tidetable");
 
 const DEFAULT_TODO = "docs/todo-sidebars.json";
 const DEFAULT_WIDTH = 45;
@@ -23,14 +23,14 @@ const DEFAULT_HEIGHT = 40;
 
 function resolveTodo(options) {
   if (options && typeof options.todo === "string" && options.todo) return options.todo;
-  const env = process.env.TASKERKEEPER_TODO;
+  const env = process.env.TIDETABLE_TODO;
   if (env) return env;
   return DEFAULT_TODO;
 }
 
 function resolveWidth(options) {
   const raw =
-    (options && options.width) || process.env.TASKERKEEPER_SIDEBAR_WIDTH || DEFAULT_WIDTH;
+    (options && options.width) || process.env.TIDETABLE_SIDEBAR_WIDTH || DEFAULT_WIDTH;
   const n = parseInt(String(raw), 10);
   if (!Number.isFinite(n)) return DEFAULT_WIDTH;
   return Math.min(120, Math.max(10, n));
@@ -38,7 +38,7 @@ function resolveWidth(options) {
 
 function resolveHeight(options) {
   const raw =
-    (options && options.height) || process.env.TASKERKEEPER_SIDEBAR_HEIGHT || DEFAULT_HEIGHT;
+    (options && options.height) || process.env.TIDETABLE_SIDEBAR_HEIGHT || DEFAULT_HEIGHT;
   const n = parseInt(String(raw), 10);
   if (!Number.isFinite(n)) return DEFAULT_HEIGHT;
   return Math.min(200, Math.max(10, n));
@@ -47,14 +47,14 @@ function resolveHeight(options) {
 /** Run the CLI once, synchronously. Returns { payload } or { error }. */
 function fetchPayload(todo, width, height) {
   const args = ["sidebar", todo, "--json", "--width", String(width), "--height", String(height)];
-  // Prefer the installed binary; fall back to `python -m taskerkeeper`
+  // Prefer the installed binary; fall back to `python -m tidetable`
   // so dev checkouts without PATH setup still work.
   const attempts = [
-    { cmd: "taskerkeeper", args },
-    { cmd: "python", args: ["-m", "taskerkeeper", ...args] },
-    { cmd: "python3", args: ["-m", "taskerkeeper", ...args] },
+    { cmd: "tidetable", args },
+    { cmd: "python", args: ["-m", "tidetable", ...args] },
+    { cmd: "python3", args: ["-m", "tidetable", ...args] },
   ];
-  let lastError = "taskerkeeper CLI not found";
+  let lastError = "tidetable CLI not found";
   for (const a of attempts) {
     try {
       const res = spawnSync(a.cmd, a.args, { encoding: "utf8", timeout: 8000 });
@@ -84,7 +84,7 @@ function clampWidth(n) {
   return Math.min(120, Math.max(10, n));
 }
 
-function taskerkeeperSidebarExtension(pi, options) {
+function tidetableSidebarExtension(pi, options) {
   const opts = options && typeof options === "object" ? options : {};
   const state = {
     enabled: true,
@@ -107,7 +107,7 @@ function taskerkeeperSidebarExtension(pi, options) {
     }
     // Expose for sidebar compositors that poll the extension instance.
     try {
-      pi.taskerkeeperSidebar = {
+      pi.tidetableSidebar = {
         lines: state.lines,
         enabled: state.enabled,
         width: state.width,
@@ -138,7 +138,7 @@ function taskerkeeperSidebarExtension(pi, options) {
     if (!sub || sub === "status") {
       refresh();
       notify(
-        "TaskerKeeper sidebar " +
+        "Tidetable sidebar " +
           (state.enabled ? "on" : "off") +
           " · width " +
           state.width +
@@ -151,12 +151,12 @@ function taskerkeeperSidebarExtension(pi, options) {
     if (sub === "on") {
       state.enabled = true;
       refresh();
-      notify("TaskerKeeper sidebar on");
+      notify("Tidetable sidebar on");
       return;
     }
     if (sub === "off") {
       state.enabled = false;
-      notify("TaskerKeeper sidebar off");
+      notify("Tidetable sidebar off");
       return;
     }
     if (sub === "width" || sub === "w") {
@@ -167,13 +167,13 @@ function taskerkeeperSidebarExtension(pi, options) {
       }
       state.width = n;
       refresh();
-      notify("TaskerKeeper sidebar width " + n);
+      notify("Tidetable sidebar width " + n);
       return;
     }
     if (sub === "toggle" || sub === "toggle-panel") {
       state.enabled = !state.enabled;
       if (state.enabled) refresh();
-      notify("TaskerKeeper sidebar " + (state.enabled ? "on" : "off"));
+      notify("Tidetable sidebar " + (state.enabled ? "on" : "off"));
       return;
     }
     notify("Usage: /tk-sidebar on|off|width N|status", "warning");
@@ -212,14 +212,14 @@ function taskerkeeperSidebarExtension(pi, options) {
   // Slash command. Modern hosts take (name, def); accept legacy { name } too.
   try {
     pi.registerCommand("tk-sidebar", {
-      description: "TaskerKeeper sidebar: on|off|width N|status",
+      description: "Tidetable sidebar: on|off|width N|status",
       handler: handleTkSidebar,
     });
   } catch (_err) {
     try {
       pi.registerCommand({
         name: "tk-sidebar",
-        description: "TaskerKeeper sidebar: on|off|width N|status",
+        description: "Tidetable sidebar: on|off|width N|status",
         handler: handleTkSidebar,
       });
     } catch (_err2) {
@@ -230,7 +230,7 @@ function taskerkeeperSidebarExtension(pi, options) {
   return { refresh, getLines, getState, handleTkSidebar };
 }
 
-module.exports = taskerkeeperSidebarExtension;
-module.exports.default = taskerkeeperSidebarExtension;
+module.exports = tidetableSidebarExtension;
+module.exports.default = tidetableSidebarExtension;
 module.exports.fetchPayload = fetchPayload;
 module.exports.resolveTodo = resolveTodo;

@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
   "project": {
-    "name": "TaskerKeeper Harness Sidebars",
+    "name": "Tidetable Harness Sidebars",
     "version": {
       "milestone": "sidebars",
       "release_version": "0.7.0"
@@ -18,9 +18,9 @@
           "id": "2.0.1",
           "title": "Sidebar payload builder and CLI command",
           "status": "done",
-          "goal": "Create taskerkeeper/sidebar.py with sidebar_payload() (current in_progress with claim age and goal, concurrent disjoint set, upcoming ready plus top blocked, current-phase tree, overall phase tree, all truncated to width/height with more-counts) and render_sidebar() text form. Wire taskerkeeper sidebar <file> [--json] [--width] [--height] in cli.py. All scheduling calls delegate to existing cli functions.",
+          "goal": "Create tidetable/sidebar.py with sidebar_payload() (current in_progress with claim age and goal, concurrent disjoint set, upcoming ready plus top blocked, current-phase tree, overall phase tree, all truncated to width/height with more-counts) and render_sidebar() text form. Wire tidetable sidebar <file> [--json] [--width] [--height] in cli.py. All scheduling calls delegate to existing cli functions.",
           "touches": [
-            "taskerkeeper/sidebar.py"
+            "tidetable/sidebar.py"
           ],
           "success": [
             "sidebar --json returns current, concurrent, upcoming, phase_tree, overall sections",
@@ -48,7 +48,7 @@
           "id": "2.1.1",
           "title": "OpenCode TUI sidebar plugin",
           "status": "done",
-          "goal": "Create integrations/opencode/ TUI plugin registering sidebar_content slot in the public TUI plugin style (opencode-harness-panel pattern): collapsible TaskerKeeper block rendering current, concurrent, upcoming, phase tree, overall tree from taskerkeeper sidebar output polled on render. Read-only, basename paths only.",
+          "goal": "Create integrations/opencode/ TUI plugin registering sidebar_content slot in the public TUI plugin style (opencode-harness-panel pattern): collapsible Tidetable block rendering current, concurrent, upcoming, phase tree, overall tree from tidetable sidebar output polled on render. Read-only, basename paths only.",
           "touches": [
             "integrations/opencode/"
           ],
@@ -70,7 +70,7 @@
           "id": "2.1.2",
           "title": "Pi extension sidebar panel",
           "status": "done",
-          "goal": "Create integrations/pi/ extension in pi-sidebar-tui style (pi manifest field, event hooks, panels/taskerkeeper panel, /tk-sidebar toggle): same five sections from sidebar command output. Must also load under oh-my-pi omp, which shares the Pi extension API.",
+          "goal": "Create integrations/pi/ extension in pi-sidebar-tui style (pi manifest field, event hooks, panels/tidetable panel, /tk-sidebar toggle): same five sections from sidebar command output. Must also load under oh-my-pi omp, which shares the Pi extension API.",
           "touches": [
             "integrations/pi/"
           ],
@@ -92,7 +92,7 @@
           "id": "2.1.3",
           "title": "OpenChamber rail extension",
           "status": "done",
-          "goal": "Create integrations/openchamber/ extension (package.json openchamber manifest, panel/index.html, panel/main.js IIFE built for sandbox iframe via openchamber-guest-bundle): rail panel with current, concurrent, upcoming, phase tree, overall tree plus attach support for tasks. Reads TaskerKeeper serve API through an integration apiOrigin; panel-only reading needs no capability.",
+          "goal": "Create integrations/openchamber/ extension (package.json openchamber manifest, panel/index.html, panel/main.js IIFE built for sandbox iframe via openchamber-guest-bundle): rail panel with current, concurrent, upcoming, phase tree, overall tree plus attach support for tasks. Reads Tidetable serve API through an integration apiOrigin; panel-only reading needs no capability.",
           "touches": [
             "integrations/openchamber/"
           ],

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ralph-json.sh — thin wrapper around the taskerkeeper CLI.
+# ralph-json.sh — thin wrapper around the tidetable CLI.
 #
 # This used to be a second, jq-based implementation of the same DAG logic. Two
 # implementations drift: they disagreed on task ordering and on whether unmet
@@ -17,23 +17,23 @@
 #   ./ralph-json.sh deps <todo.json> <task_id> [--json]
 #   ./ralph-json.sh validate <todo.json>
 #
-# Run `taskerkeeper --help` for the full command set.
+# Run `tidetable --help` for the full command set.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-if command -v taskerkeeper >/dev/null 2>&1; then
-    exec taskerkeeper "$@"
+if command -v tidetable >/dev/null 2>&1; then
+    exec tidetable "$@"
 fi
 
 for py in python3 python; do
     if command -v "$py" >/dev/null 2>&1; then
-        PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}" exec "$py" -m taskerkeeper "$@"
+        PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}" exec "$py" -m tidetable "$@"
     fi
 done
 
-echo "Error: neither the 'taskerkeeper' command nor python3 is available." >&2
+echo "Error: neither the 'tidetable' command nor python3 is available." >&2
 echo "Install with: pip install -e $REPO_ROOT" >&2
 exit 1

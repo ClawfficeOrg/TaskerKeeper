@@ -1,7 +1,7 @@
-"""taskerkeeper.projector — Postgres/sqlite read projection of the JSON source of truth.
+"""tidetable.projector — Postgres/sqlite read projection of the JSON source of truth.
 
 Projection only, never scheduling: all DAG transitions happen in
-taskerkeeper.cli under FileLock; this module mirrors JSON state into
+tidetable.cli under FileLock; this module mirrors JSON state into
 ``tasks_snap`` and ``events`` tables best-effort for fast multi-project reads
 (task 1.2.1, after SQL migration 001_init.sql and locked POST writes 1.1.2).
 
@@ -162,7 +162,7 @@ def resnap_todo(conn: Any, slug: str, todo_data: dict, seq: int | None = None) -
     ``seq`` stamps ``updated_seq`` so readers can order snapshots; ``None``
     leaves the column NULL. Only ``status``/``title``/``touches`` (plus the
     ``agent``/``provider``/``model`` labels) are mirrored — scheduling stays
-    in ``taskerkeeper.cli``.
+    in ``tidetable.cli``.
     """
     ensure_schema(conn)
     rows = 0

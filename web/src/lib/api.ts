@@ -1,6 +1,6 @@
-// web/src/lib/api.ts — fleet client for the TaskerKeeper core API.
+// web/src/lib/api.ts — fleet client for the Tidetable core API.
 //
-// Shapes mirror taskerkeeper/serve.py handle_get payloads:
+// Shapes mirror tidetable/serve.py handle_get payloads:
 //   GET /api/projects      -> { projects: [{ slug, name, repo_url, todo_path, ... }] }
 //   GET /api/<slug>/list   -> cli.list_payload: { phases, summary }
 //   GET /api/stream        -> SSE frames, one JSON event per `data:` line

@@ -1,15 +1,15 @@
 /**
- * TaskerKeeper sidebar block for the OpenCode TUI.
+ * Tidetable sidebar block for the OpenCode TUI.
  *
  * Public TUI plugin style (opencode-harness-panel pattern): a `tui` factory
  * that registers a `sidebar_content` slot rendering a collapsible
- * TaskerKeeper block. On each render it shells out to the shared core:
+ * Tidetable block. On each render it shells out to the shared core:
  *
- *   taskerkeeper sidebar <todo> --json --width <w> --height <h>
+ *   tidetable sidebar <todo> --json --width <w> --height <h>
  *
  * and renders the five sections from that payload: Current, Concurrent,
  * Upcoming, phase tree, overall tree. Read-only: this file never writes to
- * the todo file. All DAG/scheduling logic lives in taskerkeeper/sidebar.py;
+ * the todo file. All DAG/scheduling logic lives in tidetable/sidebar.py;
  * this adapter only renders. Touches arrive already basenamed from core, so
  * no absolute paths leak. Fail-soft: any CLI error renders a one-liner and
  * never throws.
@@ -28,9 +28,9 @@ export type TuiPlugin = (api: any, options?: any, meta?: any) => Promise<void>;
 export type TkSidebarOptions = {
   /** Todo file path. Absolute, or relative to the session directory. */
   todoFile?: string;
-  /** Sidebar width budget forwarded to `taskerkeeper sidebar --width`. */
+  /** Sidebar width budget forwarded to `tidetable sidebar --width`. */
   width?: number;
-  /** Sidebar height budget forwarded to `taskerkeeper sidebar --height`. */
+  /** Sidebar height budget forwarded to `tidetable sidebar --height`. */
   height?: number;
   /** Slot order. Internal sidebar blocks use 100-500; default sits with them. */
   order?: number;
@@ -61,9 +61,9 @@ type SidebarPayload = {
 const DEFAULT_TODO = path.join("docs", "todo-sidebars.json");
 const CLI_TIMEOUT_MS = 3000;
 
-/** Resolve the todo file: explicit option, else $TASKERKEEPER_TODO, else default under the session directory. */
+/** Resolve the todo file: explicit option, else $TIDETABLE_TODO, else default under the session directory. */
 export function resolveTodoFile(api: any, options?: TkSidebarOptions): string {
-  const explicit = options?.todoFile ?? process.env["TASKERKEEPER_TODO"];
+  const explicit = options?.todoFile ?? process.env["TIDETABLE_TODO"];
   if (explicit) {
     if (path.isAbsolute(explicit)) return explicit;
     return path.resolve(baseDir(api), explicit);
@@ -83,7 +83,7 @@ function baseDir(api: any): string {
 export function loadPayload(todoFile: string, width: number, height: number): SidebarPayload {
   const args = ["sidebar", todoFile, "--json", "--width", String(width), "--height", String(height)];
   try {
-    const out = execFileSync("taskerkeeper", args, {
+    const out = execFileSync("tidetable", args, {
       encoding: "utf8",
       timeout: CLI_TIMEOUT_MS,
       stdio: ["ignore", "pipe", "pipe"],
@@ -92,7 +92,7 @@ export function loadPayload(todoFile: string, width: number, height: number): Si
   } catch (e: any) {
     // Fall back to the module: boxes whose console script is stale (no
     // `sidebar` command) or missing still have the package importable.
-    const out = execFileSync("python", ["-m", "taskerkeeper", ...args], {
+    const out = execFileSync("python", ["-m", "tidetable", ...args], {
       encoding: "utf8",
       timeout: CLI_TIMEOUT_MS,
       stdio: ["ignore", "pipe", "pipe"],
@@ -130,7 +130,7 @@ export function renderText(payload: SidebarPayload, collapsed: boolean): string 
   const curTasks = cur.tasks ?? [];
   const conTasks = con.tasks ?? [];
   const upTasks = up.tasks ?? [];
-  const lines = ["TaskerKeeper ▼", "═".repeat(24)];
+  const lines = ["Tidetable ▼", "═".repeat(24)];
   if (collapsed) {
     lines.push(
       `current ${curTasks.length}${cur.more ? ` (+${cur.more})` : ""} · ` +
@@ -168,7 +168,7 @@ export function renderOnce(api: any, options?: TkSidebarOptions): string {
     const payload = loadPayload(todoFile, width, height);
     return renderText(payload, options?.collapsed ?? false);
   } catch {
-    return "TaskerKeeper unavailable";
+    return "Tidetable unavailable";
   }
 }
 
@@ -189,7 +189,7 @@ export const tui: TuiPlugin = async (api: any, options?: TkSidebarOptions): Prom
 
 /** Default export for loader compat: file modules resolve `default { id, tui }`. */
 const plugin = {
-  id: "taskerkeeper-sidebar",
+  id: "tidetable-sidebar",
   tui,
 };
 

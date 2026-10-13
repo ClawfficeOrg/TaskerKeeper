@@ -1,4 +1,4 @@
-"""taskerkeeper.tokens — per-project machine tokens for the VPS hub core API.
+"""tidetable.tokens — per-project machine tokens for the VPS hub core API.
 
 Mint/verify behind task 1.4.1. Stdlib + sqlite3 only. Secrets are never
 stored: ``mint_token`` returns the presented token once, persists only its

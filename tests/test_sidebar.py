@@ -9,7 +9,7 @@ import json
 import unittest
 from datetime import datetime, timezone
 
-from taskerkeeper import cli, sidebar
+from tidetable import cli, sidebar
 
 
 def fixture() -> dict:

@@ -1,36 +1,36 @@
-# TaskerKeeper Integration Guide
+# Tidetable Integration Guide
 
 ## Standalone Usage
 
-TaskerKeeper works as a standalone tool. No frameworks or platforms required.
+Tidetable works as a standalone tool. No frameworks or platforms required.
 
 ### Quick Start
 
 ```bash
 git clone https://github.com/ClawfficeOrg/TaskerKeeper.git
-cd TaskerKeeper
+cd Tidetable
 pip install .
 
 # Validate a todo file (schema + semantic checks)
-taskerkeeper validate my-todo.json
+tidetable validate my-todo.json
 
 # Everything that can start right now
-taskerkeeper ready my-todo.json
+tidetable ready my-todo.json
 
 # The one task to pick up (resumes your own in_progress task if there is one)
-taskerkeeper next my-todo.json
+tidetable next my-todo.json
 
 # Claim it, then finish it
-taskerkeeper start my-todo.json 7.0.1
-taskerkeeper done my-todo.json 7.0.1 --changelog "Added the Go SDK"
+tidetable start my-todo.json 7.0.1
+tidetable done my-todo.json 7.0.1 --changelog "Added the Go SDK"
 
 # Show all tasks / one dependency chain
-taskerkeeper list my-todo.json
-taskerkeeper deps my-todo.json 7.0.1
+tidetable list my-todo.json
+tidetable deps my-todo.json 7.0.1
 ```
 
-From a checkout without installing, `python -m taskerkeeper ...` and
-`python scripts/taskerkeeper.py ...` behave identically.
+From a checkout without installing, `python -m tidetable ...` and
+`python scripts/tidetable.py ...` behave identically.
 
 ### Using ralph-json.sh
 
@@ -48,15 +48,15 @@ keep working.
 
 ## Integration with ZoidMatter
 
-TaskerKeeper is designed to work as a built-in component for ZoidMatter projects.
-When a project uses ZoidMatter, TaskerKeeper provides the structured task format
+Tidetable is designed to work as a built-in component for ZoidMatter projects.
+When a project uses ZoidMatter, Tidetable provides the structured task format
 that ralph consumes.
 
 ### Setup
 
 1. **Install the CLI** (the schema travels with it — you do not copy it around):
    ```bash
-   pip install taskerkeeper
+   pip install tidetable
    ```
 
 2. **Create your first todo file**:
@@ -66,11 +66,11 @@ that ralph consumes.
 
 3. **Install the Hermes skill** (optional, for AI-assisted task management):
    ```bash
-   cp -r skills/taskerkeeper ~/.hermes/skills/
+   cp -r skills/tidetable ~/.hermes/skills/
    ```
 
 4. **Point ralph at the JSON variant** in your `AGENTS.md` or ralph config:
-   use `ralph-json.sh` (or `taskerkeeper` directly) instead of `ralph.sh` for
+   use `ralph-json.sh` (or `tidetable` directly) instead of `ralph.sh` for
    JSON todo files.
 
 ### Migration from Markdown
@@ -81,18 +81,18 @@ parser would guess. Model the roadmap as JSON using the schema (see
 `examples/simple-project.json`), then:
 
 ```bash
-taskerkeeper validate docs/todo-v7.json
+tidetable validate docs/todo-v7.json
 ```
 
 The reverse direction is automated — render JSON as markdown for human review:
 
 ```bash
-taskerkeeper convert docs/todo-v7.json -o docs/todo-v7.md
+tidetable convert docs/todo-v7.json -o docs/todo-v7.md
 ```
 
 ### File Layout
 
-A typical ZoidMatter project with TaskerKeeper:
+A typical ZoidMatter project with Tidetable:
 
 ```
 your-project/
@@ -104,7 +104,7 @@ your-project/
 │   └── learnings.md              # Technical discoveries
 ├── AGENTS.md                     # Agent instructions
 └── skills/
-    └── taskerkeeper/
+    └── tidetable/
         └── SKILL.md              # Hermes skill
 ```
 
@@ -113,13 +113,13 @@ your-project/
 Each task names an agent tier; the tier resolves to a provider and model:
 
 ```bash
-taskerkeeper agents providers                               # presets on offer
-taskerkeeper agents use opencode-go                         # switch every tier at once
-taskerkeeper agents show                                    # current mapping + sources
-taskerkeeper agents set mid_dev_agent --model claude-sonnet-5
-taskerkeeper agents set pro_dev_agent --model claude-opus-5 --scope repo
-taskerkeeper agents unset mid_dev_agent --key model
-taskerkeeper agents path --scope repo                       # which file that writes
+tidetable agents providers                               # presets on offer
+tidetable agents use opencode-go                         # switch every tier at once
+tidetable agents show                                    # current mapping + sources
+tidetable agents set mid_dev_agent --model claude-sonnet-5
+tidetable agents set pro_dev_agent --model claude-opus-5 --scope repo
+tidetable agents unset mid_dev_agent --key model
+tidetable agents path --scope repo                       # which file that writes
 ```
 
 A preset is a whole tier table for one provider:
@@ -134,8 +134,8 @@ A preset is a whole tier table for one provider:
 Layers, last wins:
 
 1. the built-in `anthropic` preset
-2. `~/.config/taskerkeeper/agents.json` (`--scope user`, the default)
-3. `<repo>/.taskerkeeper/agents.json` (`--scope repo`)
+2. `~/.config/tidetable/agents.json` (`--scope user`, the default)
+3. `<repo>/.tidetable/agents.json` (`--scope repo`)
 4. the todo file's `agent_config` (`--scope todo --todo <file>`)
 5. a task's own `provider` / `model`
 
@@ -147,15 +147,15 @@ the preset.
 Model choice is normally a property of the machine running the agents, not of
 the roadmap, so the user scope is the right home for it. Use the repo or todo
 scope when a project or a milestone genuinely needs to pin something; commit
-`.taskerkeeper/agents.json` when you want everyone on the project to inherit it.
+`.tidetable/agents.json` when you want everyone on the project to inherit it.
 
-Settings TaskerKeeper does not know about pass through untouched:
+Settings Tidetable does not know about pass through untouched:
 
 ```bash
-taskerkeeper agents set pro_dev_agent --option effort=xhigh --option speed=fast
+tidetable agents set pro_dev_agent --option effort=xhigh --option speed=fast
 ```
 
-TaskerKeeper never calls a provider — it resolves the strings and puts them in
+Tidetable never calls a provider — it resolves the strings and puts them in
 `--json` output for whatever dispatches your agents.
 
 ## Parallel Agents
@@ -164,7 +164,7 @@ TaskerKeeper never calls a provider — it resolves the strings and puts them in
 whose task **and** phase prerequisites are satisfied:
 
 ```bash
-taskerkeeper ready docs/todo-v7.json --json
+tidetable ready docs/todo-v7.json --json
 ```
 
 ```json
@@ -194,7 +194,7 @@ time — 7.0.1 and 7.0.2 may both be unblocked and both own `src/client.go`.
 task's `touches`:
 
 ```bash
-taskerkeeper ready docs/todo-v7.json --disjoint --json
+tidetable ready docs/todo-v7.json --disjoint --json
 ```
 
 ```json
@@ -215,13 +215,13 @@ are still reported, as a warning.
 Each worker calls `start` before touching code, under its own name:
 
 ```bash
-TASKERKEEPER_OWNER=worker-3 taskerkeeper start docs/todo-v7.json 7.0.1
+TIDETABLE_OWNER=worker-3 tidetable start docs/todo-v7.json 7.0.1
 ```
 
 That records `claimed_by`, `claimed_at`, and `lease_expires_at` on the task, and
 those are enforced: a second worker's `start` on the same task fails, `next`
 will not hand out a live claim, and `done` on someone else's claim needs
-`--force`. Set the lease with `--lease MINUTES` or `TASKERKEEPER_LEASE_MINUTES`
+`--force`. Set the lease with `--lease MINUTES` or `TIDETABLE_LEASE_MINUTES`
 (default 60) — long enough to cover your slowest task.
 
 If a worker dies mid-task, its task stays `in_progress` until the lease lapses,
@@ -233,16 +233,16 @@ gone.
 ### Auditing a run
 
 ```bash
-taskerkeeper history docs/todo-v7.json --task 7.0.1
+tidetable history docs/todo-v7.json --task 7.0.1
 ```
 
 Every transition appends a line to `<file>.events.jsonl` with the owner and
 timestamp, so a fleet that misbehaved overnight can be reconstructed. Disable
-with `TASKERKEEPER_EVENTS=0`.
+with `TIDETABLE_EVENTS=0`.
 
 ## Serving the Hub
 
-`taskerkeeper serve` exposes the same DAG logic over HTTP for remote workers
+`tidetable serve` exposes the same DAG logic over HTTP for remote workers
 and the read-only dashboard. It is the single writer: GET routes
 (`ready`, `next`, `list`, `deps`, `history`, `validate`, `parallel`) call the
 CLI functions and return the `--json` shapes; POST routes (`start`, `done`,
@@ -251,17 +251,17 @@ the lock, and enforce claim leases. `POST /api/<slug>/heartbeat` records agent
 presence (repo, branch, task) with a 180s staleness horizon, and
 `GET /api/stream` replays the event log as SSE. Auth is a shared
 `TK_API_TOKEN` bearer today, per-project machine tokens
-(`taskerkeeper/tokens.py`) next. Postgres (`deploy/migrations/001_init.sql`)
-is a read projection tailed by `taskerkeeper/projector.py`, never a scheduler.
+(`tidetable/tokens.py`) next. Postgres (`deploy/migrations/001_init.sql`)
+is a read projection tailed by `tidetable/projector.py`, never a scheduler.
 
 ```bash
-TK_API_TOKEN=... taskerkeeper serve --port 8471 --registry deploy/registry.json
-curl -H "Authorization: Bearer $TK_API_TOKEN" localhost:8471/api/taskerkeeper/ready
+TK_API_TOKEN=... tidetable serve --port 8471 --registry deploy/registry.json
+curl -H "Authorization: Bearer $TK_API_TOKEN" localhost:8471/api/tidetable/ready
 ```
 
 ## Harness Sidebars
 
-`taskerkeeper sidebar <file>` emits one budgeted payload every harness panel
+`tidetable sidebar <file>` emits one budgeted payload every harness panel
 renders: **current** (in-progress with owner, claim age, goal, touches),
 **concurrent** (the disjoint set, safe to fan out), **upcoming** (deferred
 plus blocked with reasons), then the **current-phase tree** and the
@@ -278,13 +278,13 @@ absolute path leaks into a shared sidebar. Thin adapters under
 | Paseo | `integrations/paseo/` | Sidebar item + workspace panel via server RPC |
 
 ```bash
-taskerkeeper sidebar docs/todo-v7.json --width 80 --height 40
-TASKERKEEPER_TODO=docs/todo-v7.json taskerkeeper sidebar --json
+tidetable sidebar docs/todo-v7.json --width 80 --height 40
+TIDETABLE_TODO=docs/todo-v7.json tidetable sidebar --json
 ```
 
 ## Unattended Runs (TKRun)
 
-`taskerkeeper tkrun run <file>` (`overnight` is a kept alias) works through a
+`tidetable tkrun run <file>` (`overnight` is a kept alias) works through a
 todo file unattended, one task at a time, inside a **git worktree** on a
 throwaway branch `overnight/<date>`. Your own checkout is never edited, and the
 branch is never merged, pushed, or tagged — you review it in the morning. Per
@@ -293,15 +293,15 @@ review, commit, `done`. Usage limits are slept through; failures park as stashes
 two consecutive failures end the run.
 
 ```bash
-taskerkeeper tkrun init docs/todo-v7.json             # infer a gate, write .taskerkeeper/overnight.json
-taskerkeeper tkrun run  docs/todo-v7.json --dry-run   # routing, gate, command, prompt
-taskerkeeper tkrun run  docs/todo-v7.json --hours 8   # go
-taskerkeeper tkrun stop docs/todo-v7.json             # cooperative: after the current task
-taskerkeeper tkrun kill docs/todo-v7.json             # hard stop: KILL sentinel + tree-kill now
+tidetable tkrun init docs/todo-v7.json             # infer a gate, write .tidetable/overnight.json
+tidetable tkrun run  docs/todo-v7.json --dry-run   # routing, gate, command, prompt
+tidetable tkrun run  docs/todo-v7.json --hours 8   # go
+tidetable tkrun stop docs/todo-v7.json             # cooperative: after the current task
+tidetable tkrun kill docs/todo-v7.json             # hard stop: KILL sentinel + tree-kill now
 ```
 
 Repo specifics (gate commands, prompt rules, `deny_edit` globs, `siblings`) live
-in `<repo>/.taskerkeeper/overnight.json`, never in code. A provider that only
+in `<repo>/.tidetable/overnight.json`, never in code. A provider that only
 answers inside a reserved window goes under `lanes`: the runner reads
 reservations, uses the lane while more than `margin_minutes` remain, and
 otherwise routes the task to `fallback`. See `docs/overnight.md`.
@@ -317,7 +317,7 @@ otherwise routes the task to `fallback`. See `docs/overnight.md`.
 # Validate any changed todo JSON files
 for file in $(git diff --cached --name-only | grep '\.json$'); do
     if grep -q '"schema_version"' "$file" 2>/dev/null; then
-        taskerkeeper validate "$file" || exit 1
+        tidetable validate "$file" || exit 1
     fi
 done
 ```
@@ -333,11 +333,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: pip install taskerkeeper
+      - run: pip install tidetable
       - name: Validate todo JSON files
         run: |
           for f in docs/todo-*.json; do
-            [ -f "$f" ] && taskerkeeper validate "$f"
+            [ -f "$f" ] && tidetable validate "$f"
           done
 ```
 
@@ -351,16 +351,16 @@ silently unrunnable.
 
 ```bash
 # What a task waits on and what it unblocks
-taskerkeeper deps my-todo.json 7.0.1 --json
+tidetable deps my-todo.json 7.0.1 --json
 
 # Which parallel-group members are runnable right now
-taskerkeeper parallel my-todo.json
+tidetable parallel my-todo.json
 ```
 
 ### Adding Tasks Programmatically
 
 ```bash
-taskerkeeper add my-todo.json --phase 7.1 \
+tidetable add my-todo.json --phase 7.1 \
   --title "Add logging" \
   --goal "Emit structured logs with level filtering." \
   --prereq 7.0.1 --prereq 7.0.2 \
@@ -376,7 +376,7 @@ prerequisites are rejected rather than written.
 ### Adding Phases
 
 ```bash
-taskerkeeper add-phase my-todo.json --phase 7.2 \
+tidetable add-phase my-todo.json --phase 7.2 \
   --title "Hardening" \
   --goal "Polish, docs, and release prep." \
   --prereq 7.1 --after 7.1
@@ -393,6 +393,6 @@ already applies it. Over HTTP: `POST /api/<slug>/add-phase`.
 
 ```bash
 for id in 7.0.1 7.0.2 7.0.3; do
-  taskerkeeper done my-todo.json "$id"
+  tidetable done my-todo.json "$id"
 done
 ```

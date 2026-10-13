@@ -1,4 +1,4 @@
-"""Tests for `taskerkeeper integrations`: installs touch only temp dirs."""
+"""Tests for `tidetable integrations`: installs touch only temp dirs."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from taskerkeeper import cli, integrations
+from tidetable import cli, integrations
 
 
 def run(*argv: str) -> tuple[int, str]:
@@ -82,16 +82,16 @@ class IntegrationsTests(unittest.TestCase):
         plugins = self.tmp / "plugins"
         code, out = run("integrations", "install", "paseo", "--copy", "--paseo-dir", str(plugins), *self.base)
         self.assertEqual(code, 0, out)
-        self.assertTrue((plugins / "paseo-taskerkeeper" / "server.js").exists())
+        self.assertTrue((plugins / "paseo-tidetable" / "server.js").exists())
         code, out = run("integrations", "uninstall", "paseo", "--paseo-dir", str(plugins), *self.base)
         self.assertEqual(code, 1)           # a copy is never deleted for you
-        self.assertTrue((plugins / "paseo-taskerkeeper").exists())
+        self.assertTrue((plugins / "paseo-tidetable").exists())
 
     def test_paseo_symlink_roundtrip(self):
         plugins = self.tmp / "plugins"
         code, out = run("integrations", "install", "paseo", "--paseo-dir", str(plugins), *self.base)
         self.assertEqual(code, 0, out)
-        dst = plugins / "paseo-taskerkeeper"
+        dst = plugins / "paseo-tidetable"
         if not dst.is_symlink():
             self.skipTest("symlinks not permitted here; fell back to a copy")
         code, out = run("integrations", "list", "--paseo-dir", str(plugins), *self.base)

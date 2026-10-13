@@ -1,6 +1,9 @@
-# TaskerKeeper
+# Tidetable
 
 **Structured task management for autonomous agents.**
+
+> Tidetable was **TaskerKeeper** before 0.9.0. The `taskerkeeper` command, `TASKERKEEPER_*`
+> env vars and `.taskerkeeper/` config dirs still work; `tt` is the short command.
 
 JSON-based alternative to markdown todo files. Stable IDs, dependency DAG, parallel execution groups, and semver version mapping. Built for [ralph](https://github.com/ClawfficeOrg/Zoid) but works with any autonomous agent.
 
@@ -13,22 +16,22 @@ Markdown todo files (`docs/todo-v*.md`) are great for humans but painful for age
 - **No parallel support** — everything is linear by design
 - **Token waste** — agents read the whole file even for one task
 
-TaskerKeeper solves all of these with structured JSON.
+Tidetable solves all of these with structured JSON.
 
 ## Quick Start
 
 ```bash
 git clone https://github.com/ClawfficeOrg/TaskerKeeper.git
-cd TaskerKeeper
+cd Tidetable
 pip install .          # or: pip install -e .  for development
 
-taskerkeeper validate my-todo.json
-taskerkeeper ready my-todo.json          # everything runnable right now
-taskerkeeper start my-todo.json 7.0.1    # claim it
-taskerkeeper done my-todo.json 7.0.1     # finish it
+tidetable validate my-todo.json
+tidetable ready my-todo.json          # everything runnable right now
+tidetable start my-todo.json 7.0.1    # claim it
+tidetable done my-todo.json 7.0.1     # finish it
 ```
 
-Without installing, `python -m taskerkeeper <command>` and `python scripts/taskerkeeper.py <command>` both work from a checkout.
+Without installing, `python -m tidetable <command>` and `python scripts/tidetable.py <command>` both work from a checkout.
 
 ## Commands
 
@@ -57,13 +60,13 @@ Without installing, `python -m taskerkeeper <command>` and `python scripts/taske
 | `agents path` | Print the config file a scope writes to |
 | `serve [--port 8471] [--bind 127.0.0.1]` | Single-writer core API over HTTP: GET reads, locked POST writes, heartbeats, and an SSE stream — all delegating to the same DAG logic, never a second implementation |
 | `sidebar <file> [--width 80] [--height 40]` | Budgeted sidebar payload for harness panels: current, concurrent (disjoint), upcoming, current-phase tree, overall tree — sections cut to room with `more` counts instead of silent drops |
-| `tkrun run <file> [--hours 8] [--dry-run]` | Unattended loop (**TKRun**; `overnight` is a kept alias): claims each ready task, runs its tier's agent headless in its own git worktree on `overnight/<date>`, gates it with *your* commands, reviews, commits, closes. Commits only there: never merges, pushes, or touches the base branch. `tkrun init` writes `.taskerkeeper/overnight.json` from the detected stack; `tkrun stop` ends a run after the current task; `tkrun kill` hard-stops now (sentinel plus process-tree signal). Leased lanes route a reservation-window provider to a fallback when the window closes. See [docs/overnight.md](docs/overnight.md) |
+| `tkrun run <file> [--hours 8] [--dry-run]` | Unattended loop (**TKRun**; `overnight` is a kept alias): claims each ready task, runs its tier's agent headless in its own git worktree on `overnight/<date>`, gates it with *your* commands, reviews, commits, closes. Commits only there: never merges, pushes, or touches the base branch. `tkrun init` writes `.tidetable/overnight.json` from the detected stack; `tkrun stop` ends a run after the current task; `tkrun kill` hard-stops now (sentinel plus process-tree signal). Leased lanes route a reservation-window provider to a fallback when the window closes. See [docs/overnight.md](docs/overnight.md) |
 | `integrations list\|install\|uninstall <name\|all>` | Wire `integrations/` (opencode, pi, paseo, openchamber) into the tools that load them: symlinks the Paseo plugin, adds the opencode `tui.json` entry without touching your other plugins, runs `pi install`, prints the OpenChamber folder to paste. Needs a checkout; `--dry-run` previews |
 
 Every read command takes `--json`, so agents parse structured output instead of scraping box-drawing characters:
 
 ```bash
-taskerkeeper ready docs/todo-v7.json --json
+tidetable ready docs/todo-v7.json --json
 ```
 
 ## Claiming Work
@@ -85,8 +88,8 @@ That is what lets several agents share one file safely:
 - A crashed agent's task becomes claimable again when its lease expires — no
   human editing fields by hand.
 
-Name the agent with `--owner`, or `TASKERKEEPER_OWNER`; without either it is
-`host:pid`. The lease is `--lease MINUTES`, or `TASKERKEEPER_LEASE_MINUTES`,
+Name the agent with `--owner`, or `TIDETABLE_OWNER`; without either it is
+`host:pid`. The lease is `--lease MINUTES`, or `TIDETABLE_LEASE_MINUTES`,
 default 60.
 
 ## Fanning Out Safely
@@ -96,7 +99,7 @@ failure this tool exists to prevent, so `--disjoint` answers the question a
 supervisor actually has — what can I dispatch **together**:
 
 ```bash
-taskerkeeper ready docs/todo-v7.json --disjoint --json
+tidetable ready docs/todo-v7.json --disjoint --json
 ```
 
 Tasks conflict when their `touches` paths overlap: the same path, or one a
@@ -114,16 +117,16 @@ Status fields are overwritten in place, so the todo file cannot answer "how many
 times did this task get reset, and by whom". An append-only log beside it can:
 
 ```bash
-taskerkeeper history docs/todo-v7.json --task 7.0.1
+tidetable history docs/todo-v7.json --task 7.0.1
 ```
 
 Every `start`, `done`, `reset`, `status`, `add`, and `release` appends one JSON
-line to `<file>.events.jsonl`. Set `TASKERKEEPER_EVENTS=0` to turn it off.
+line to `<file>.events.jsonl`. Set `TIDETABLE_EVENTS=0` to turn it off.
 
 ## Which Model Runs a Task
 
 A task names an agent tier (`basic_dev_agent`, `mid_dev_agent`, `pro_dev_agent`,
-`flagship`). TaskerKeeper turns that tier into a concrete provider and model, so
+`flagship`). Tidetable turns that tier into a concrete provider and model, so
 a supervisor reading `ready --json` can dispatch without a second lookup.
 
 A task may name a `complexity` instead and let the tier table decide:
@@ -143,10 +146,10 @@ task always wins, and resolved output reports `agent_derived: true` when the
 tier was inferred.
 
 ```bash
-taskerkeeper agents providers                 # the presets on offer
-taskerkeeper agents use opencode-go           # switch every tier at once
-taskerkeeper agents show                      # what that resolved to, and why
-taskerkeeper agents set pro_dev_agent --model claude-opus-5 --scope repo
+tidetable agents providers                 # the presets on offer
+tidetable agents use opencode-go           # switch every tier at once
+tidetable agents show                      # what that resolved to, and why
+tidetable agents set pro_dev_agent --model claude-opus-5 --scope repo
 ```
 
 ### Provider presets
@@ -171,9 +174,9 @@ Configuration is layered, last wins:
 
 | Layer | Where | For |
 |-------|-------|-----|
-| built-in | the `anthropic` preset in `taskerkeeper/agents.py` | Works unconfigured |
-| user | `~/.config/taskerkeeper/agents.json` (under `%APPDATA%` on Windows) | Your machine's normal choice |
-| repo | `<repo>/.taskerkeeper/agents.json` | A project pinning something different |
+| built-in | the `anthropic` preset in `tidetable/agents.py` | Works unconfigured |
+| user | `~/.config/tidetable/agents.json` (under `%APPDATA%` on Windows) | Your machine's normal choice |
+| repo | `<repo>/.tidetable/agents.json` | A project pinning something different |
 | todo | the todo file's `agent_config` | One milestone pinning something different |
 | task | a task's own `provider` / `model` | The one task that needs a specific model |
 
@@ -182,10 +185,10 @@ Each of the user, repo, and todo layers contributes twice: the preset it names
 every tier in a scope while an `agents set` in that same scope still wins.
 
 `agents show` prints the source of every resolved setting, so you can see which
-layer won. Set `TASKERKEEPER_CONFIG_HOME` to relocate the user config.
+layer won. Set `TIDETABLE_CONFIG_HOME` to relocate the user config.
 
 Any other key you set (`--option effort=xhigh`) passes through untouched into
-the resolved output — TaskerKeeper does not call any provider itself, it only
+the resolved output — Tidetable does not call any provider itself, it only
 tells your supervisor what to call.
 
 Resolved values appear on every task in `--json` output:
@@ -216,7 +219,7 @@ checked at all.
 
 ## Features
 
-| Feature | Markdown | TaskerKeeper JSON |
+| Feature | Markdown | Tidetable JSON |
 |---------|----------|-------------------|
 | Task ordering | Positional (line number) | ID-based (stable) |
 | Inserting a task | Resequence all below | Add anywhere, no renumber |
@@ -229,10 +232,10 @@ checked at all.
 
 ## Schema
 
-The JSON Schema ships inside the package at `taskerkeeper/schema/todo-v1.schema.json`, so it resolves from any install. Validate any todo file:
+The JSON Schema ships inside the package at `tidetable/schema/todo-v1.schema.json`, so it resolves from any install. Validate any todo file:
 
 ```bash
-taskerkeeper validate docs/todo-v7.json
+tidetable validate docs/todo-v7.json
 ```
 
 ## For Ralph
@@ -247,10 +250,10 @@ taskerkeeper validate docs/todo-v7.json
 
 ## For Hermes
 
-TaskerKeeper includes a Hermes skill at `skills/taskerkeeper/SKILL.md`:
+Tidetable includes a Hermes skill at `skills/tidetable/SKILL.md`:
 
 ```bash
-cp -r skills/taskerkeeper ~/.hermes/skills/
+cp -r skills/tidetable ~/.hermes/skills/
 ```
 
 ## Releases
@@ -267,8 +270,8 @@ git side effect fired from it lands at a moment nobody chose — so `done --json
 reports `release_ready` and stops there. Tagging is its own step:
 
 ```bash
-taskerkeeper release docs/todo-v7.json          # what would be tagged, and why
-taskerkeeper release docs/todo-v7.json 7.1 --tag
+tidetable release docs/todo-v7.json          # what would be tagged, and why
+tidetable release docs/todo-v7.json 7.1 --tag
 ```
 
 `--tag` writes an annotated tag whose message is the release notes followed by
@@ -291,20 +294,20 @@ todo-v1.0.md                     →    v1.0.0 (first stable)
 ## Project Structure
 
 ```
-TaskerKeeper/
-├── taskerkeeper/
+Tidetable/
+├── tidetable/
 │   ├── cli.py                  # All CLI logic
 │   ├── agents.py               # Tier → provider/model resolution
 │   ├── jsonio.py               # Atomic writes + the file lock
-│   ├── __main__.py             # python -m taskerkeeper
+│   ├── __main__.py             # python -m tidetable
 │   └── schema/
 │       └── todo-v1.schema.json # JSON Schema, shipped as package data
 ├── ralph/
 │   └── ralph-json.sh           # Thin wrapper around the CLI
 ├── scripts/
-│   └── taskerkeeper.py         # Backward-compatible shim
+│   └── tidetable.py         # Backward-compatible shim
 ├── skills/
-│   └── taskerkeeper/
+│   └── tidetable/
 │       └── SKILL.md            # Hermes skill for AI models
 ├── tests/
 │   └── test_cli.py             # stdlib unittest suite

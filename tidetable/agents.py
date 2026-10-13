@@ -2,13 +2,13 @@
 
 A task names an agent tier (`basic_dev_agent`, `mid_dev_agent`, ...). This module
 turns that tier into a concrete provider and model, so a supervisor reading
-`taskerkeeper ready --json` can dispatch without a second lookup.
+`tidetable ready --json` can dispatch without a second lookup.
 
 Configuration is layered, last wins:
 
     1. built-in defaults          the `anthropic` preset in this file
-    2. user config                ~/.config/taskerkeeper/agents.json
-    3. repo config                <repo>/.taskerkeeper/agents.json
+    2. user config                ~/.config/tidetable/agents.json
+    3. repo config                <repo>/.tidetable/agents.json
     4. the todo file itself       agent_config
 
 Each of layers 2-4 contributes twice: first the preset named by its `provider`
@@ -27,7 +27,7 @@ import os
 import re
 from pathlib import Path
 
-from taskerkeeper.jsonio import FileLock, read_json, write_json
+from tidetable.jsonio import FileLock, env_get, read_json, write_json
 
 #: Where a tier's settings came from, for `agents show`.
 LAYER_BUILTIN = "built-in"
@@ -138,7 +138,8 @@ def preset_tiers(provider: str) -> dict[str, dict[str, str]]:
     return {tier: dict(cfg) for tier, cfg in PROVIDER_PRESETS.get(provider, {}).items()}
 
 CONFIG_FILENAME = "agents.json"
-REPO_CONFIG_DIR = ".taskerkeeper"
+REPO_CONFIG_DIR = ".tidetable"
+LEGACY_REPO_CONFIG_DIR = ".taskerkeeper"
 
 
 # ---------------------------------------------------------------------------
@@ -149,29 +150,35 @@ REPO_CONFIG_DIR = ".taskerkeeper"
 def user_config_path() -> Path:
     """The per-machine config file.
 
-    `TASKERKEEPER_CONFIG_HOME` overrides everything, which is also what the tests
+    `TIDETABLE_CONFIG_HOME` overrides everything, which is also what the tests
     use to stay out of the real home directory.
     """
-    override = os.environ.get("TASKERKEEPER_CONFIG_HOME")
+    override = env_get("CONFIG_HOME")
     if override:
         return Path(override) / CONFIG_FILENAME
 
+    base = None
     if os.name == "nt":
         appdata = os.environ.get("APPDATA")
         if appdata:
-            return Path(appdata) / "taskerkeeper" / CONFIG_FILENAME
+            base = Path(appdata)
+    if base is None:
+        xdg = os.environ.get("XDG_CONFIG_HOME")
+        base = Path(xdg) if xdg else Path.home() / ".config"
 
-    xdg = os.environ.get("XDG_CONFIG_HOME")
-    base = Path(xdg) if xdg else Path.home() / ".config"
-    return base / "taskerkeeper" / CONFIG_FILENAME
+    current = base / "tidetable" / CONFIG_FILENAME
+    legacy = base / "taskerkeeper" / CONFIG_FILENAME
+    # A pre-rename config keeps applying until the new file exists.
+    return legacy if legacy.is_file() and not current.is_file() else current
 
 
 def find_repo_config(start: str | Path | None = None) -> Path | None:
-    """An existing `.taskerkeeper/agents.json` at or above `start`."""
+    """An existing `.tidetable/agents.json` (or legacy `.taskerkeeper/`) at or above `start`."""
     for directory in _ancestors(start):
-        candidate = directory / REPO_CONFIG_DIR / CONFIG_FILENAME
-        if candidate.is_file():
-            return candidate
+        for dirname in (REPO_CONFIG_DIR, LEGACY_REPO_CONFIG_DIR):
+            candidate = directory / dirname / CONFIG_FILENAME
+            if candidate.is_file():
+                return candidate
     return None
 
 
