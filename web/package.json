@@ -1,9 +1,9 @@
 {
-  "name": "taskerkeeper-dashboard",
+  "name": "tidetable-dashboard",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "TaskerKeeper VPS hub dashboard: read-only SvelteKit fleet wall over the core API (task 1.3.1 scaffold).",
+  "description": "Tidetable VPS hub dashboard: read-only SvelteKit fleet wall over the core API (task 1.3.1 scaffold).",
   "scripts": {
     "dev": "vite dev",
     "build": "vite build",

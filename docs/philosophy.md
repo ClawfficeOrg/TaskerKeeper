@@ -1,4 +1,4 @@
-# TaskerKeeper Philosophy
+# Tidetable Philosophy
 
 ## The Problem with Markdown Todos
 
@@ -25,9 +25,9 @@ them owns, so nothing could tell you whether running them together is safe.
 Agents read the entire file even when they only need one task. For large
 roadmaps (50+ tasks), this is significant overhead.
 
-## The TaskerKeeper Solution
+## The Tidetable Solution
 
-TaskerKeeper replaces markdown todos with structured JSON that has:
+Tidetable replaces markdown todos with structured JSON that has:
 
 1. **Stable IDs** — Task `7.0.3` is always `7.0.3`, regardless of where it
    sits in the file. Insert, delete, or reorder tasks without breaking
@@ -37,7 +37,7 @@ TaskerKeeper replaces markdown todos with structured JSON that has:
    is eligible only when all its prerequisites are `done`. This enables
    non-linear execution paths.
 
-3. **Safe Fan-Out** — `taskerkeeper ready` emits the whole runnable set at
+3. **Safe Fan-Out** — `tidetable ready` emits the whole runnable set at
    once, and `--disjoint` narrows it to tasks whose `touches` paths do not
    collide, so a supervisor can dispatch the set without two agents editing one
    file. `parallel_group` is a label on top of that, for reading — it groups
@@ -67,7 +67,7 @@ else — file format, tooling, workflow — serves this goal. Stable IDs mean:
 - History is traceable
 
 ### Pragmatic, Not Perfect
-TaskerKeeper doesn't try to replace Jira, Linear, or GitHub Issues. It's
+Tidetable doesn't try to replace Jira, Linear, or GitHub Issues. It's
 specifically designed for autonomous agent workflows where:
 
 - The "user" is an AI agent, not a human clicking buttons
@@ -76,9 +76,9 @@ specifically designed for autonomous agent workflows where:
 - Integration with ralph-style autonomous loops is the primary use case
 
 ### Backward Compatible
-TaskerKeeper coexists with markdown todos. You can:
+Tidetable coexists with markdown todos. You can:
 
-- Render JSON → markdown for human review (`taskerkeeper convert`)
+- Render JSON → markdown for human review (`tidetable convert`)
 - Run both formats side by side during migration
 - Use the same task ID scheme in both formats
 
@@ -99,11 +99,11 @@ parser would guess. Model the roadmap in JSON by hand, then `validate`.
 | Scenario | Format |
 |----------|--------|
 | <20 tasks, linear execution | Markdown is fine |
-| >20 tasks or parallel work | TaskerKeeper JSON |
-| Frequent task insertion/deletion | TaskerKeeper JSON |
-| Agent-driven development | TaskerKeeper JSON |
+| >20 tasks or parallel work | Tidetable JSON |
+| Frequent task insertion/deletion | Tidetable JSON |
+| Agent-driven development | Tidetable JSON |
 | Human-only review | Markdown (or convert from JSON) |
-| CI/CD integration | TaskerKeeper JSON |
+| CI/CD integration | Tidetable JSON |
 
 ## Future Directions
 

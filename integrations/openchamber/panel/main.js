@@ -1,4 +1,4 @@
-/* TaskerKeeper OpenChamber rail panel.
+/* Tidetable OpenChamber rail panel.
  *
  * Dependency-free IIFE (no imports): the sandbox iframe loads this as a
  * classic script, so there is no build step. If @openchamber/sdk imports are
@@ -6,18 +6,18 @@
  *   bunx openchamber-guest-bundle panel/main.js panel/main.js
  * (or esbuild --format=iife --platform=browser) and ship the built file.
  *
- * Data: TaskerKeeper serve API over host.request (integration token
- * apiOrigin points at the TaskerKeeper server):
+ * Data: Tidetable serve API over host.request (integration token
+ * apiOrigin points at the Tidetable server):
  *   GET /api/<slug>/ready?disjoint=1 -> { ready, in_progress, blocked, deferred, conflicts }
  *   GET /api/<slug>/list             -> { phases: [{ id, title, complete, tasks }], summary }
- * Five sections mirror taskerkeeper/sidebar.py: Current, Concurrent,
+ * Five sections mirror tidetable/sidebar.py: Current, Concurrent,
  * Upcoming, phase tree, overall. Click a task to attach it to the chat.
  * Read-only: no prompt/sessions/files capabilities needed.
  */
 (function () {
   "use strict";
 
-  var DEFAULT_SLUG = "taskerkeeper";
+  var DEFAULT_SLUG = "tidetable";
   var DEFAULT_POLL_MS = 15000;
   var MIN_POLL_MS = 5000;
 
@@ -84,7 +84,7 @@
   function refresh() {
     if (!host) return;
     if (!connected) {
-      view.error = "Not connected. Paste a TaskerKeeper token in Settings -> Integrations -> TaskerKeeper.";
+      view.error = "Not connected. Paste a Tidetable token in Settings -> Integrations -> Tidetable.";
       render();
       return;
     }
@@ -120,7 +120,7 @@
   function attachTask(t) {
     if (!host) return;
     var text = (t.goal || t.title || t.id) + " [" + (t.status || "pending") + "]";
-    host.attach({ providerId: "taskerkeeper", id: String(t.id), title: String(t.title || t.id), text: String(text).slice(0, 16000) }).then(function () {
+    host.attach({ providerId: "tidetable", id: String(t.id), title: String(t.title || t.id), text: String(text).slice(0, 16000) }).then(function () {
       if (ctxState.surface === "dialog" && typeof host.close === "function") host.close();
       if (typeof host.toast === "function") host.toast({ kind: "success", message: "Attached " + t.id });
     }).catch(function (err) {
@@ -157,7 +157,7 @@
 
   function render() {
     var html = "";
-    html += "<div class=\"tk-head\"><div class=\"tk-title\">TaskerKeeper" + (slug ? " &middot; " + esc(slug) : "") + "</div>";
+    html += "<div class=\"tk-head\"><div class=\"tk-title\">Tidetable" + (slug ? " &middot; " + esc(slug) : "") + "</div>";
     html += "<button class=\"tk-refresh\" id=\"tk-refresh\" type=\"button\">Refresh</button></div>";
     html += "<div class=\"tk-meta\">" + (lastUpdated ? "Updated " + esc(lastUpdated.toLocaleTimeString()) : "Not loaded yet") + "</div>";
     if (view.error) {

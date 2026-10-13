@@ -1,5 +1,5 @@
 """
-Unattended task runner: `taskerkeeper overnight run <todo.json>`.
+Unattended task runner: `tidetable overnight run <todo.json>`.
 
 Works through a todo file one task at a time on a throwaway branch
 (`overnight/<date>` cut from the base branch). Per task it claims the task,
@@ -8,10 +8,10 @@ opencode-go -> `opencode run`), then the *runner* — not the agent — runs the
 repo's gate commands, asks a read-only reviewer, commits, and closes the task.
 It never touches the base branch, never pushes, never tags.
 
-Everything repo-specific lives in `<repo>/.taskerkeeper/overnight.json`
-(`taskerkeeper overnight init` writes a starter from the detected stack).
+Everything repo-specific lives in `<repo>/.tidetable/overnight.json`
+(`tidetable overnight init` writes a starter from the detected stack).
 
-This is the one supervisor-side module. The rest of TaskerKeeper never calls a
+This is the one supervisor-side module. The rest of Tidetable never calls a
 provider or touches git; keep that split — `cli.py` only registers the
 subcommand and no scheduling logic may depend on this module.
 """
@@ -32,10 +32,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from taskerkeeper import jsonio
+from tidetable import jsonio
 
 CONFIG_NAME = "overnight.json"
-CONFIG_DIR = ".taskerkeeper"
+CONFIG_DIR = ".tidetable"
+LEGACY_CONFIG_DIR = ".taskerkeeper"
 RUN_DIR_NAME = ".overnight"
 RATE_FALLBACK_SEC = 900
 
@@ -43,16 +44,16 @@ RATE_FALLBACK_SEC = 900
 # the config (or `init`).
 BASE_SHELL_ALLOW = [
     "git status*", "git diff*", "git log*", "git show*", "git ls-files*",
-    "taskerkeeper list*", "taskerkeeper deps*", "taskerkeeper history*",
+    "tidetable list*", "tidetable deps*", "tidetable history*",
     "ls *", "ls", "pwd", "diff *", "wc *",
 ]
-# The runner owns git history and taskerkeeper state; the agent never does.
+# The runner owns git history and tidetable state; the agent never does.
 BASE_SHELL_DENY = [
     "git push*", "git tag*", "git commit*", "git checkout*", "git switch*",
     "git reset*", "git merge*", "git rebase*", "git branch*", "git stash*",
     "git clean*",
-    "taskerkeeper start*", "taskerkeeper done*", "taskerkeeper reset*",
-    "taskerkeeper status*",
+    "tidetable start*", "tidetable done*", "tidetable reset*",
+    "tidetable status*",
 ]
 REVIEW_ALLOWED = ["Read", "Glob", "Grep", "Bash(git status*)", "Bash(git diff*)",
                   "Bash(git show*)", "Bash(git log*)"]
@@ -243,8 +244,15 @@ def detect_stacks(root: Path) -> list[str]:
     return [name for name in STACKS if (root / name).exists()]
 
 
+def config_path(root: Path) -> Path:
+    """`<repo>/.tidetable/overnight.json`, or the legacy `.taskerkeeper/` one if only it exists."""
+    current = root / CONFIG_DIR / CONFIG_NAME
+    legacy = root / LEGACY_CONFIG_DIR / CONFIG_NAME
+    return legacy if legacy.is_file() and not current.is_file() else current
+
+
 def load_config(root: Path) -> tuple[dict, Path | None]:
-    path = root / CONFIG_DIR / CONFIG_NAME
+    path = config_path(root)
     cfg = json.loads(json.dumps(DEFAULTS))
     if path.is_file():
         user = json.loads(path.read_text(encoding="utf-8"))
@@ -411,17 +419,17 @@ class Runner:
             with open(self.log_file, "a", encoding="utf-8") as f:
                 f.write(f"- {datetime.now():%Y-%m-%d %H:%M:%S} {msg}\n")
 
-    # ── taskerkeeper
+    # ── tidetable
     def tk(self, *args: str) -> Proc:
-        return run_proc([sys.executable, "-m", "taskerkeeper", *args], self.root,
-                        env={"TASKERKEEPER_OWNER": self.owner})
+        return run_proc([sys.executable, "-m", "tidetable", *args], self.root,
+                        env={"TIDETABLE_OWNER": self.owner, "TASKERKEEPER_OWNER": self.owner})
 
     def next_task(self, skip: list[str]) -> dict | None:
         r = self.tk("ready", str(self.todo), "--json")
         try:
             ready = json.loads(r.out).get("ready", [])
         except json.JSONDecodeError:
-            raise RuntimeError(f"taskerkeeper ready failed: {r.out}{r.err}")
+            raise RuntimeError(f"tidetable ready failed: {r.out}{r.err}")
         for t in ready:
             if t.get("status") == "pending" and t["id"] not in skip:
                 return t
@@ -445,8 +453,8 @@ class Runner:
             return self.split_agent(env)
         if task.get("provider") and task.get("model"):
             return self.split_agent(f"{task['provider']}/{task['model']}")
-        raise ValueError(f"taskerkeeper gave no provider/model for {task['id']} "
-                         f"(tier '{tier}'); see `taskerkeeper agents show`")
+        raise ValueError(f"tidetable gave no provider/model for {task['id']} "
+                         f"(tier '{tier}'); see `tidetable agents show`")
 
     # ── prompts
     def human_check(self, task: dict) -> list[str]:
@@ -484,7 +492,7 @@ class Runner:
         rules = [
             "Scope: edit only the owned paths above" + (f", plus {extra}" if extra else "")
             + ". Nothing else unless the task cannot work without it; say so in your summary.",
-            "Do not run git commit/checkout/switch/branch/stash/reset/push/tag or taskerkeeper "
+            "Do not run git commit/checkout/switch/branch/stash/reset/push/tag or tidetable "
             "start/done/reset/status. The runner does all of that.",
             "Do not install anything and do not take screenshots or drive a GUI.",
             "After you finish, the runner runs these itself; run them first for what you touched:\n"
@@ -656,7 +664,7 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
                 self.opencode_cfg.write_text(call["opencode"], encoding="utf-8")
             try:
                 res = run_proc(call["argv"], self.root, stdin=call["stdin"], timeout=cap,
-                               env={"TASKERKEEPER_OWNER": self.owner})
+                               env={"TIDETABLE_OWNER": self.owner, "TASKERKEEPER_OWNER": self.owner})
             finally:
                 if call["opencode"]:
                     self.opencode_cfg.unlink(missing_ok=True)
@@ -748,7 +756,7 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
                     raise RuntimeError(f"could not stash {s['path']} work for {tid}: {r.out}{r.err}")
         r = self.tk("reset", str(self.todo), tid, "--owner", self.owner)
         if r.code:
-            self.log(f"WARN taskerkeeper reset {tid} failed: {r.out}{r.err}")
+            self.log(f"WARN tidetable reset {tid} failed: {r.out}{r.err}")
         todo = changed_paths(self.root, self.todo_paths)
         if todo:
             self.commit_paths(self.root, todo, f"chore(overnight): {tid} attempt failed, back to pending\n\n{reason}")
@@ -896,7 +904,7 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
             cl = task.get("changelog") or task.get("title", tid)
             r = self.tk("done", str(self.todo), tid, "--owner", self.owner, "--changelog", cl)
             if r.code:
-                parsed.update(status="PARTIAL", detail=f"taskerkeeper done refused: {r.out}{r.err}")
+                parsed.update(status="PARTIAL", detail=f"tidetable done refused: {r.out}{r.err}")
         if parsed["status"] == "DONE":
             self.commit_task(task, spec, parsed, "done", sib_changed)
             self.log(f"DONE {tid} - {parsed['summary']}")
@@ -928,7 +936,7 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
         self.say(f"branch {self.branch}; owner {self.owner}; deadline {self.deadline:%Y-%m-%d %H:%M}; lease {self.lease}m")
         self.say(f"review: {self.review_spec if self.review_enabled else 'off'}")
         if not gates:
-            self.say("WARNING: no gate configured; run `taskerkeeper overnight init` or tasks close on review alone")
+            self.say("WARNING: no gate configured; run `tidetable overnight init` or tasks close on review alone")
         for s in gates:
             self.say(f"gate: {s.get('name')}: {' '.join(s['cmd'])}"
                      + (f" (repo {s['repo']})" if s.get("repo") else ""))
@@ -1012,7 +1020,7 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
             return self.show_dry_run(cur)
         if not self.cfg["gate"] and not self.review_enabled:
             raise RuntimeError("no gate and no review configured: nothing would verify a task. "
-                               "Run `taskerkeeper overnight init` or enable review.")
+                               "Run `tidetable overnight init` or enable review.")
         if self.pid_file.exists():
             old = self.pid_file.read_text().strip()
             if old.isdigit() and jsonio._pid_alive(int(old)):
@@ -1038,7 +1046,7 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
         with open(self.log_file, "a", encoding="utf-8") as f:
             f.write(f"\n## {self.date} run (pid {os.getpid()})\n\n")
         self.log(f"worktree {self.wt_path} on {self.branch}; deadline {self.deadline:%H:%M}; "
-                 f"stop: taskerkeeper overnight stop {self.home / self.todo_rel}")
+                 f"stop: tidetable overnight stop {self.home / self.todo_rel}")
 
         counts = dict.fromkeys(("done", "partial", "skipped", "failed", "limited"), 0)
         tried: list[str] = []
@@ -1100,8 +1108,8 @@ def cmd_run(args) -> int:
                     review_model=args.review_model or "", dry_run=args.dry_run,
                     base_override=args.base or "")
     if path is None:
-        runner.say("no .taskerkeeper/overnight.json; using detected stack defaults "
-                   "(`taskerkeeper overnight init` writes one)")
+        runner.say("no .tidetable/overnight.json; using detected stack defaults "
+                   "(`tidetable overnight init` writes one)")
     try:
         return runner.execute()
     except RuntimeError as e:
@@ -1112,7 +1120,7 @@ def cmd_run(args) -> int:
 def cmd_init(args) -> int:
     todo = Path(args.todo_file).resolve()
     root = repo_root_for(todo)
-    path = root / CONFIG_DIR / CONFIG_NAME
+    path = config_path(root)
     if path.exists() and not args.force:
         print(f"Error: {path} exists (use --force to overwrite)")
         return 1
@@ -1159,7 +1167,7 @@ def cmd_kill(args) -> int:
     instead of claiming more work. Task claims are left alone: their leases
     expire on their own and the partial work stays in the run worktree.
     """
-    from taskerkeeper.jsonio import _pid_alive  # local import: supervisor-side only
+    from tidetable.jsonio import _pid_alive  # local import: supervisor-side only
 
     root = repo_root_for(Path(args.todo_file).resolve())
     rundir = root / RUN_DIR_NAME
@@ -1188,7 +1196,7 @@ def cmd_kill(args) -> int:
 
 
 def add_parser(sub) -> None:
-    """`taskerkeeper tkrun run|init|stop|kill <todo.json>` (`overnight` kept as an alias)."""
+    """`tidetable tkrun run|init|stop|kill <todo.json>` (`overnight` kept as an alias)."""
     p = sub.add_parser("tkrun", aliases=["overnight"], help="TKRun: task runner on a throwaway branch")
     inner = p.add_subparsers(dest="overnight_command", required=True)
 
@@ -1203,7 +1211,7 @@ def add_parser(sub) -> None:
     run.add_argument("--no-review", action="store_true", help="Close on the gate alone")
     run.set_defaults(func=cmd_run)
 
-    init = inner.add_parser("init", help="Write a starter .taskerkeeper/overnight.json for this repo")
+    init = inner.add_parser("init", help="Write a starter .tidetable/overnight.json for this repo")
     init.add_argument("todo_file", help="Path to todo JSON file (locates the repo)")
     init.add_argument("--force", action="store_true", help="Overwrite an existing config")
     init.set_defaults(func=cmd_init)

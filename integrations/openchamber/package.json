@@ -1,8 +1,8 @@
 {
-  "name": "@taskerkeeper/openchamber",
+  "name": "@tidetable/openchamber",
   "version": "0.7.0",
   "private": true,
-  "description": "TaskerKeeper rail panel for OpenChamber: current, concurrent and upcoming work plus phase trees, read from the TaskerKeeper serve API. Read-only; click a task to attach it to the chat.",
+  "description": "Tidetable rail panel for OpenChamber: current, concurrent and upcoming work plus phase trees, read from the Tidetable serve API. Read-only; click a task to attach it to the chat.",
   "openchamber": {
     "apiVersion": 1,
     "engines": {
@@ -10,16 +10,16 @@
     },
     "contributes": {
       "panel": {
-        "id": "taskerkeeper",
-        "name": "TaskerKeeper",
+        "id": "tidetable",
+        "name": "Tidetable",
         "icon": "task-line",
         "entry": "panel/index.html"
       },
       "attach": "dialog",
       "page": true,
       "integration": {
-        "name": "TaskerKeeper",
-        "description": "Task roadmap from your TaskerKeeper serve API (read-only).",
+        "name": "Tidetable",
+        "description": "Task roadmap from your Tidetable serve API (read-only).",
         "token": {
           "apiOrigin": "http://127.0.0.1:8471",
           "scheme": "bearer"
@@ -27,7 +27,7 @@
         "settings": [
           {
             "id": "slug",
-            "label": "Project slug (registry slug, e.g. taskerkeeper)"
+            "label": "Project slug (registry slug, e.g. tidetable)"
           },
           {
             "id": "pollSeconds",

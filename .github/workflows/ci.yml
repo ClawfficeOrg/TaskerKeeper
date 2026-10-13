@@ -28,7 +28,7 @@ jobs:
         shell: bash
         run: |
           for f in examples/*.json; do
-            taskerkeeper validate "$f"
+            tidetable validate "$f"
           done
 
   ralph-wrapper:

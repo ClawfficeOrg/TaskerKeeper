@@ -1,4 +1,4 @@
-"""Tests for `taskerkeeper overnight`, with a stub agent and a scratch git repo.
+"""Tests for `tidetable overnight`, with a stub agent and a scratch git repo.
 
 No model is ever called: OVERNIGHT_CLAUDE points at a python stub whose
 behaviour STUB_MODE selects.
@@ -18,7 +18,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import mock
 
-from taskerkeeper import cli, overnight
+from tidetable import cli, overnight
 
 STUB = r'''
 import os, sys, time
@@ -68,7 +68,7 @@ class Scratch:
                 "phases": [{"id": "1", "title": "P", "goal": "g", "tasks": task_list}]}
         self.todo = self.root / "todo.json"
         self.todo.write_text(json.dumps(todo), encoding="utf-8")
-        self.cfg_path = self.root / ".taskerkeeper" / "overnight.json"
+        self.cfg_path = self.root / ".tidetable" / "overnight.json"
         self.cfg_path.parent.mkdir()
         self.set_config({"gate": [{"name": "gate", "cmd": [sys.executable, "-c",
                                                            f"raise SystemExit({gate_exit})"]}],
@@ -356,8 +356,8 @@ class OvernightUnitTests(unittest.TestCase):
     def test_unknown_config_key_is_rejected(self):
         with TemporaryDirectory() as d:
             root = Path(d)
-            (root / ".taskerkeeper").mkdir()
-            (root / ".taskerkeeper" / "overnight.json").write_text('{"gates": []}')
+            (root / ".tidetable").mkdir()
+            (root / ".tidetable" / "overnight.json").write_text('{"gates": []}')
             with self.assertRaises(ValueError):
                 overnight.load_config(root)
 
@@ -374,7 +374,7 @@ class OvernightUnitTests(unittest.TestCase):
         r = self.runner(rules=["custom rule"])
         p = r.build_prompt({"id": "9.9", "title": "T", "success": ["window looks right"]}, "a/b", False)
         self.assertIn("custom rule", p)
-        self.assertIn("taskerkeeper\nstart/done/reset/status".replace("\n", " "), p)
+        self.assertIn("tidetable\nstart/done/reset/status".replace("\n", " "), p)
         self.assertIn("window looks right", p.split("likely needing a human")[1])
         self.assertIn("git push*", r.shell_deny)
 

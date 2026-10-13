@@ -1,6 +1,6 @@
-"""Allow ``python -m taskerkeeper ...`` — used by ralph/ralph-json.sh."""
+"""``python -m taskerkeeper`` — legacy entry point, forwards to tidetable."""
 
-from taskerkeeper.cli import main
+from tidetable.cli import main
 
 if __name__ == "__main__":
     main()

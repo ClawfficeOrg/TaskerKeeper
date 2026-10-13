@@ -1,4 +1,4 @@
-"""Tests for taskerkeeper.projector (task 1.2.1). Stdlib unittest only."""
+"""Tests for tidetable.projector (task 1.2.1). Stdlib unittest only."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from taskerkeeper import cli, projector
+from tidetable import cli, projector
 
 
 def todo_data() -> dict:

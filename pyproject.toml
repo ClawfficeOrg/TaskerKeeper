@@ -3,8 +3,8 @@ requires = ["setuptools>=64"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "taskerkeeper"
-version = "0.8.0"
+name = "tidetable"
+version = "0.9.0"
 description = "Structured task management for autonomous agents"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -15,11 +15,14 @@ dependencies = [
 ]
 
 [project.scripts]
-taskerkeeper = "taskerkeeper.cli:main"
+tidetable = "tidetable.cli:main"
+tt = "tidetable.cli:main"
+# Pre-0.9 name, kept so existing agents and scripts keep working.
+taskerkeeper = "tidetable.cli:main"
 
 [tool.setuptools]
-packages = ["taskerkeeper"]
+packages = ["tidetable", "taskerkeeper"]
 
 [tool.setuptools.package-data]
 # The schema ships inside the package so a non-editable install can find it.
-taskerkeeper = ["schema/*.json"]
+tidetable = ["schema/*.json"]

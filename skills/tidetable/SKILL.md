@@ -1,6 +1,6 @@
 ---
-name: taskerkeeper
-description: "Use when creating, reading, or managing TaskerKeeper JSON todo files. Structured task management with dependency DAG, parallel groups, and semver mapping."
+name: tidetable
+description: "Use when creating, reading, or managing Tidetable JSON todo files. Structured task management with dependency DAG, parallel groups, and semver mapping."
 version: 2.4.0
 author: KITT (ClawfficeOrg)
 license: MIT
@@ -10,7 +10,7 @@ metadata:
     related_skills: [ralph-todo-format, development-workflows]
 ---
 
-# TaskerKeeper Skill
+# Tidetable Skill
 
 Task management for autonomous agents using structured JSON instead of markdown. Stable IDs, dependency DAG, parallel execution groups, and semver version mapping.
 
@@ -23,7 +23,7 @@ Task management for autonomous agents using structured JSON instead of markdown.
 
 ## File Format
 
-TaskerKeeper uses JSON files (typically `docs/todo-v{N}.json`) with this structure:
+Tidetable uses JSON files (typically `docs/todo-v{N}.json`) with this structure:
 
 ```json
 {
@@ -75,7 +75,7 @@ Each task has:
 - **`touches`**: File paths this task owns. `ready --disjoint` uses them to emit a set that is safe to dispatch together — two tasks whose paths overlap are never handed out at once.
 - **`parallel_group`**: A label for related work. Purely descriptive: it does not schedule, gate, or order anything. Use `prerequisites` for real ordering.
 - **`complexity`**: `Low` / `Medium` / `High` / `Very High`. With no `agent`, this picks the tier (Low→basic, Medium→mid, High→pro, Very High→flagship, unless a tier's `complexity_range` says otherwise).
-- **`agent`**: Which agent tier handles this: `basic_dev_agent`, `mid_dev_agent`, `pro_dev_agent`, `flagship`. Optional — derived from `complexity` when absent. The tier resolves to a concrete provider and model — run `taskerkeeper agents show` to see the mapping, and read `provider`/`model` off `ready --json` to dispatch.
+- **`agent`**: Which agent tier handles this: `basic_dev_agent`, `mid_dev_agent`, `pro_dev_agent`, `flagship`. Optional — derived from `complexity` when absent. The tier resolves to a concrete provider and model — run `tidetable agents show` to see the mapping, and read `provider`/`model` off `ready --json` to dispatch.
 - **`claimed_by`** / **`claimed_at`** / **`lease_expires_at`**: Written by `start`, cleared on any non-`in_progress` status. Do not hand-edit; use `start` and `reset`.
 - **`provider`** / **`model`**: Optional per-task override, for the one task that needs a specific model. Configure the tier instead when a whole class of work should move.
 
@@ -83,8 +83,8 @@ Each task has:
 
 ### Find Next Task
 
-Prefer the CLI over reimplementing this: `taskerkeeper ready <file> --json` for
-the whole runnable set, `taskerkeeper next <file> --json` for a single task.
+Prefer the CLI over reimplementing this: `tidetable ready <file> --json` for
+the whole runnable set, `tidetable next <file> --json` for a single task.
 
 The rule the CLI applies, if you must reason about it directly:
 
@@ -110,7 +110,7 @@ For a task like `7.1.1` with `prerequisites: ["7.0.1", "7.0.2", "7.0.3", "7.0.4"
 Ask for the conflict-free set, do not eyeball it:
 
 ```bash
-taskerkeeper ready docs/todo-v7.json --disjoint --json
+tidetable ready docs/todo-v7.json --disjoint --json
 ```
 
 - `ready` is everything runnable; `--disjoint` is everything runnable that does
@@ -137,7 +137,7 @@ taskerkeeper ready docs/todo-v7.json --disjoint --json
 New phases start empty — create the phase, then `add` tasks into it:
 
 ```bash
-taskerkeeper add-phase docs/todo-v7.json --phase 7.3 --title "Hardening" \
+tidetable add-phase docs/todo-v7.json --phase 7.3 --title "Hardening" \
   --goal "Polish, docs, release prep." --prereq 7.2 --after 7.2
 ```
 
@@ -158,7 +158,7 @@ taskerkeeper add-phase docs/todo-v7.json --phase 7.3 --title "Hardening" \
 3. Check if this unblocks any other tasks (their prereqs are now all met)
 4. Report unblocked tasks
 
-Use `taskerkeeper start` / `taskerkeeper done` rather than editing the file
+Use `tidetable start` / `tidetable done` rather than editing the file
 directly: they take a lock, write atomically, refuse unmet prerequisites without
 `--force`, and file the task's `--changelog` line under the phase release.
 
@@ -166,7 +166,7 @@ directly: they take a lock, write atomically, refuse unmet prerequisites without
 and that claim is enforced:
 
 ```bash
-TASKERKEEPER_OWNER=worker-3 taskerkeeper start docs/todo-v7.json 7.0.1
+TIDETABLE_OWNER=worker-3 tidetable start docs/todo-v7.json 7.0.1
 ```
 
 - Another agent's `start` on the same task fails while the lease holds
@@ -176,7 +176,7 @@ TASKERKEEPER_OWNER=worker-3 taskerkeeper start docs/todo-v7.json 7.0.1
   immediately
 
 Every transition is appended to `<file>.events.jsonl`; read it with
-`taskerkeeper history`.
+`tidetable history`.
 
 ### Moving Tasks
 
@@ -213,8 +213,8 @@ Nothing tags automatically. Finishing the phase's last task makes `done --json`
 report `"release_ready": true`; creating the tag is an explicit step:
 
 ```bash
-taskerkeeper release docs/todo-v7.json 7.1        # what would be tagged
-taskerkeeper release docs/todo-v7.json 7.1 --tag  # create it
+tidetable release docs/todo-v7.json 7.1        # what would be tagged
+tidetable release docs/todo-v7.json 7.1 --tag  # create it
 ```
 
 ## Pitfalls
@@ -233,77 +233,77 @@ taskerkeeper release docs/todo-v7.json 7.1 --tag  # create it
 
 ```bash
 # Validate: JSON Schema plus semantic checks (dangling prereqs, cycles, dupes)
-taskerkeeper validate docs/todo-v7.json
+tidetable validate docs/todo-v7.json
 
 # Everything runnable right now — fan these out across parallel agents
-taskerkeeper ready docs/todo-v7.json --json
+tidetable ready docs/todo-v7.json --json
 
 # Only what is safe to dispatch together (no overlapping owned paths)
-taskerkeeper ready docs/todo-v7.json --disjoint --json
+tidetable ready docs/todo-v7.json --disjoint --json
 
 # One task to pick up (resumes your own in_progress task, never someone else's)
-taskerkeeper next docs/todo-v7.json --owner worker-3 --json
+tidetable next docs/todo-v7.json --owner worker-3 --json
 
 # Claim, finish, or recover a task
-taskerkeeper start docs/todo-v7.json 7.0.1 --owner worker-3
-taskerkeeper done docs/todo-v7.json 7.0.1 --changelog "Added the Go SDK"
-taskerkeeper reset docs/todo-v7.json 7.0.1
+tidetable start docs/todo-v7.json 7.0.1 --owner worker-3
+tidetable done docs/todo-v7.json 7.0.1 --changelog "Added the Go SDK"
+tidetable reset docs/todo-v7.json 7.0.1
 
 # Release for a finished phase: report, then tag
-taskerkeeper release docs/todo-v7.json 7.1
-taskerkeeper release docs/todo-v7.json 7.1 --tag
+tidetable release docs/todo-v7.json 7.1
+tidetable release docs/todo-v7.json 7.1 --tag
 
 # Everything that ever happened to a task
-taskerkeeper history docs/todo-v7.json --task 7.0.1
+tidetable history docs/todo-v7.json --task 7.0.1
 
 # Retire a task without deleting it
-taskerkeeper status docs/todo-v7.json 7.0.5 cancelled
-taskerkeeper status docs/todo-v7.json 7.0.6 moved --moved-to 8.0.1
+tidetable status docs/todo-v7.json 7.0.5 cancelled
+tidetable status docs/todo-v7.json 7.0.6 moved --moved-to 8.0.1
 
 # List all / parallel groups / one dependency chain
-taskerkeeper list docs/todo-v7.json
-taskerkeeper parallel docs/todo-v7.json
-taskerkeeper deps docs/todo-v7.json 7.0.1
+tidetable list docs/todo-v7.json
+tidetable parallel docs/todo-v7.json
+tidetable deps docs/todo-v7.json 7.0.1
 
 # Add a task (new ID is the phase's max sequence + 1)
-taskerkeeper add docs/todo-v7.json --phase 7.2 --title "New feature"   --goal "..." --prereq 7.0.1 --complexity High --agent pro_dev_agent
+tidetable add docs/todo-v7.json --phase 7.2 --title "New feature"   --goal "..." --prereq 7.0.1 --complexity High --agent pro_dev_agent
 
 # Add a phase (new ID must be MAJOR.MINOR and unused; starts empty)
-taskerkeeper add-phase docs/todo-v7.json --phase 7.3 --title "Hardening"   --goal "..." --prereq 7.2 --after 7.2
+tidetable add-phase docs/todo-v7.json --phase 7.3 --title "Hardening"   --goal "..." --prereq 7.2 --after 7.2
 
 # Render for human review (one-way)
-taskerkeeper convert docs/todo-v7.json -o docs/todo-v7.md
+tidetable convert docs/todo-v7.json -o docs/todo-v7.md
 
 # Single-writer core API (VPS hub): same DAG logic over HTTP, never a second implementation
-taskerkeeper serve --port 8471 --registry deploy/registry.json
+tidetable serve --port 8471 --registry deploy/registry.json
 # GET /api/<slug>/ready|next|list|deps|history|validate|parallel, POST .../start|done|reset|status|add|heartbeat, GET /api/stream (SSE)
 
 # Harness sidebars: budgeted current/concurrent/upcoming/phase-tree/overall payload
-taskerkeeper sidebar docs/todo-v7.json --width 80 --height 40 --json
+tidetable sidebar docs/todo-v7.json --width 80 --height 40 --json
 # Adapters under integrations/ shell out to it: opencode (TUI sidebar_content),
 # pi (extension panel, also loads under oh-my-pi omp), openchamber (rail panel
 # over the serve API), paseo (sidebar item + workspace panel via server RPC)
 
 # TKRun: unattended loop on a throwaway worktree branch (overnight is an alias)
-taskerkeeper tkrun init docs/todo-v7.json             # .taskerkeeper/overnight.json
-taskerkeeper tkrun run  docs/todo-v7.json --dry-run   # preview, changes nothing
-taskerkeeper tkrun run  docs/todo-v7.json --hours 8   # go
-taskerkeeper tkrun stop docs/todo-v7.json             # cooperative, after current task
-taskerkeeper tkrun kill docs/todo-v7.json             # hard stop: sentinel + tree-kill
+tidetable tkrun init docs/todo-v7.json             # .tidetable/overnight.json
+tidetable tkrun run  docs/todo-v7.json --dry-run   # preview, changes nothing
+tidetable tkrun run  docs/todo-v7.json --hours 8   # go
+tidetable tkrun stop docs/todo-v7.json             # cooperative, after current task
+tidetable tkrun kill docs/todo-v7.json             # hard stop: sentinel + tree-kill
 
 # Which provider/model runs each tier, and where each setting came from
-taskerkeeper agents show --todo docs/todo-v7.json
-taskerkeeper agents providers                  # presets: anthropic, opencode-go
-taskerkeeper agents use opencode-go            # switch every tier at once
-taskerkeeper agents set pro_dev_agent --model claude-opus-5 --scope repo
+tidetable agents show --todo docs/todo-v7.json
+tidetable agents providers                  # presets: anthropic, opencode-go
+tidetable agents use opencode-go            # switch every tier at once
+tidetable agents set pro_dev_agent --model claude-opus-5 --scope repo
 ```
 
 ## Choosing the Model for a Task
 
 A task names an agent tier; the tier resolves to a provider and model through
 layered config — the built-in `anthropic` preset, then the user config
-(`~/.config/taskerkeeper/agents.json`), then the repo config
-(`<repo>/.taskerkeeper/agents.json`), then the todo file's `agent_config`, and
+(`~/.config/tidetable/agents.json`), then the repo config
+(`<repo>/.tidetable/agents.json`), then the todo file's `agent_config`, and
 finally a task's own `provider`/`model`. Last wins.
 
 Each of those config layers can name a provider preset (a whole tier table —
@@ -319,7 +319,7 @@ supervisor dispatches in one lookup:
 ```
 
 Prefer moving a whole tier over pinning individual tasks — a per-task `model`
-is for the genuine exception. TaskerKeeper only resolves the strings; it never
+is for the genuine exception. Tidetable only resolves the strings; it never
 calls a provider itself.
 
 Every read command accepts `--json`. Parse that, not the box-drawing output.
@@ -339,4 +339,4 @@ call a shell script keep working. No `jq` required.
 
 - `ralph-todo-format` skill — markdown todo format (legacy)
 - `development-workflows` skill — broader dev workflow context
-- Schema: `taskerkeeper/schema/todo-v1.schema.json` (ships with the package)
+- Schema: `tidetable/schema/todo-v1.schema.json` (ships with the package)

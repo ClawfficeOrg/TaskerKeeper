@@ -1,6 +1,6 @@
 # Overnight runner
 
-**TKRun.** `taskerkeeper tkrun run <todo.json>` (`overnight run` is a kept alias)
+**TKRun.** `tidetable tkrun run <todo.json>` (`overnight run` is a kept alias)
 works through a todo file unattended, one task at a time, inside a **git
 worktree** on a throwaway branch `overnight/<date>` cut from the base branch.
 Your own checkout is never edited (dirty, on another branch, open in an editor:
@@ -10,22 +10,22 @@ morning. It commits, but never pushes, tags, or touches the base branch.
 ## Any repo, three steps
 
 ```bash
-taskerkeeper tkrun init docs/todo.json            # writes .taskerkeeper/overnight.json
-taskerkeeper tkrun run  docs/todo.json --dry-run  # routing, gate, command, prompt; changes nothing
-taskerkeeper tkrun run  docs/todo.json --hours 8  # go (commit todo.json changes first)
+tidetable tkrun init docs/todo.json            # writes .tidetable/overnight.json
+tidetable tkrun run  docs/todo.json --dry-run  # routing, gate, command, prompt; changes nothing
+tidetable tkrun run  docs/todo.json --hours 8  # go (commit todo.json changes first)
 ```
 
 `init` infers a gate from `Cargo.toml`, `package.json`, `pyproject.toml` or
 `go.mod`. With no config file at all the same inference applies. Stop early
-with `taskerkeeper tkrun stop docs/todo.json` (after the current task), or
-`taskerkeeper tkrun kill docs/todo.json` to hard-stop now (sentinel plus a
+with `tidetable tkrun stop docs/todo.json` (after the current task), or
+`tidetable tkrun kill docs/todo.json` to hard-stop now (sentinel plus a
 process-tree signal; see below). Keep the PC awake; a sleeping machine ends the
 run.
 
 ## Per task
 
 1. Claim the first ready pending task (`start --owner overnight-<date> --lease`).
-2. Run the agent its tier resolves to (`taskerkeeper agents show`):
+2. Run the agent its tier resolves to (`tidetable agents show`):
    `anthropic` → `claude -p`, `opencode-go` → `opencode run`, anything else via
    `agent_commands`. No skip-permissions flag: the shell allow/deny lists below
    are passed to claude, and written to a temporary `opencode.json` for opencode.
@@ -53,7 +53,7 @@ Human-check rule: a criterion counts only if a test proves it or it is a
 mechanical fact. Criteria matching `human_check_pattern` (visual words by
 default) are flagged in the prompt; expect those tasks to end PARTIAL.
 
-## `.taskerkeeper/overnight.json`
+## `.tidetable/overnight.json`
 
 All keys optional; unknown keys are an error.
 
@@ -83,7 +83,7 @@ repo (`"."` or a sibling path) has any change; `append_changed` appends the matc
 changed files to `cmd` (e.g. `rustfmt --check` on touched `.rs`);
 `fail_output_regex` fails a zero-exit step whose output matches.
 
-Examples: this repo's `.taskerkeeper/overnight.json` equivalent for a Rust app
+Examples: this repo's `.tidetable/overnight.json` equivalent for a Rust app
 with a vendored sibling lives in Zoid's `examples/specttyr`.
 
 ## Files and safety
@@ -104,12 +104,12 @@ with a vendored sibling lives in Zoid's `examples/specttyr`.
   `KILL` *and* tree-kills the runner PID, so a mid-task agent subprocess dies
   too. Task claims are left to expire on their own.
 - After a hard kill the task stays `in_progress` with uncommitted changes in the
-  worktree; `taskerkeeper reset` it there and inspect `git status`.
+  worktree; `tidetable reset` it there and inspect `git status`.
 
 ## Morning
 
 Read `.overnight/log.md` (in your own checkout); `git log --stat <base>..overnight/<date>`; for each
-`wip(<id>)` check the listed criteria then `taskerkeeper done`; look at
+`wip(<id>)` check the listed criteria then `tidetable done`; look at
 `git stash list` for failed attempts; then merge or cherry-pick, and clean up
 with `git worktree remove <path>` and `git branch -d overnight/<date>`.
 
@@ -130,8 +130,8 @@ with `git worktree remove <path>` and `git branch -d overnight/<date>`.
 ## Leased lanes (`lanes`)
 
 A provider that only answers inside a reserved window (for example SingularityAPI lanes)
-goes under `lanes` in `.taskerkeeper/overnight.json`, and a tier points at it with
-`taskerkeeper agents set <tier> --provider singularity --model <id>`:
+goes under `lanes` in `.tidetable/overnight.json`, and a tier points at it with
+`tidetable agents set <tier> --provider singularity --model <id>`:
 
 ```json
 "lanes": {"singularity": {"margin_minutes": 20, "fallback": "opencode-go/muse-spark-1.3-contributor"}}

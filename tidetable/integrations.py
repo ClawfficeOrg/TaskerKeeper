@@ -1,5 +1,5 @@
 """
-`taskerkeeper integrations list|install|uninstall` — wire the harness
+`tidetable integrations list|install|uninstall` — wire the harness
 sidebars in `integrations/` into the tools that load them.
 
 Installs link to the checkout (symlink; copy only as a fallback or on request)
@@ -31,7 +31,7 @@ def find_source(explicit: str | None = None) -> Path:
         if all((c / n).is_dir() for n in NAMES):
             return c.resolve()
     raise ValueError("integrations/ not found beside the package (a plain `pip install .` does not "
-                     "ship it). Run from a TaskerKeeper checkout or pass --source <checkout>/integrations.")
+                     "ship it). Run from a Tidetable checkout or pass --source <checkout>/integrations.")
 
 
 def opencode_config_path(override: str | None = None) -> Path:
@@ -44,7 +44,7 @@ def opencode_config_path(override: str | None = None) -> Path:
 def _entry_matches(entry) -> bool:
     first = entry[0] if isinstance(entry, list) and entry else entry
     return isinstance(first, str) and (first.replace("\\", "/").endswith("/" + OPENCODE_ENTRY)
-                                       or first == "taskerkeeper-sidebar")
+                                       or first == "tidetable-sidebar")
 
 
 def _read_json_object(path: Path) -> dict:
@@ -104,7 +104,7 @@ def status(name: str, src: Path, args) -> dict:
     if name == "paseo":
         if not args.paseo_dir:
             return {"name": name, "target": "(pass --paseo-dir)", "state": "unknown"}
-        dst = Path(args.paseo_dir) / "paseo-taskerkeeper"
+        dst = Path(args.paseo_dir) / "paseo-tidetable"
         return {"name": name, "target": str(dst), "state": dir_state(src / "paseo", dst)}
     if name == "pi":
         return {"name": name, "target": "pi install " + str(src / "pi"),
@@ -130,7 +130,7 @@ def install_one(name: str, src: Path, args) -> str:
     if name == "paseo":
         if not args.paseo_dir:
             raise ValueError("paseo needs --paseo-dir <your Paseo plugins directory>")
-        dst = Path(args.paseo_dir) / "paseo-taskerkeeper"
+        dst = Path(args.paseo_dir) / "paseo-tidetable"
         if dst.exists() or dst.is_symlink():
             if dir_state(src / "paseo", dst) == "linked":
                 return f"already linked: {dst}"
@@ -138,8 +138,8 @@ def install_one(name: str, src: Path, args) -> str:
         if args.dry_run:
             return f"would {'copy' if args.copy else 'symlink'} {src / 'paseo'} -> {dst}"
         how = link_dir(src / "paseo", dst, args.copy)
-        return (f"{how}ed {dst}; enable the paseo-taskerkeeper plugin and restart Paseo. "
-                "Set its todo in the plugin settings or via TASKERKEEPER_TODO")
+        return (f"{how}ed {dst}; enable the paseo-tidetable plugin and restart Paseo. "
+                "Set its todo in the plugin settings or via TIDETABLE_TODO")
     if name == "pi":
         cmd = ["pi", "install", str(src / "pi")]
         if args.dry_run or not shutil.which("pi"):
@@ -149,7 +149,7 @@ def install_one(name: str, src: Path, args) -> str:
             raise ValueError(f"`{' '.join(cmd)}` failed: {r.stdout}{r.stderr}".strip())
         return "ran " + " ".join(cmd)
     return ("manual: OpenChamber installs from its UI. Settings -> Extensions -> Add -> folder, paste "
-            f"{src / 'openchamber'}, then run `taskerkeeper serve` and set the token/slug under "
+            f"{src / 'openchamber'}, then run `tidetable serve` and set the token/slug under "
             "Settings -> Integrations")
 
 
@@ -168,7 +168,7 @@ def uninstall_one(name: str, src: Path, args) -> str:
     if name == "paseo":
         if not args.paseo_dir:
             raise ValueError("paseo needs --paseo-dir <your Paseo plugins directory>")
-        dst = Path(args.paseo_dir) / "paseo-taskerkeeper"
+        dst = Path(args.paseo_dir) / "paseo-tidetable"
         state = dir_state(src / "paseo", dst)
         if state == "not installed":
             return "not installed"

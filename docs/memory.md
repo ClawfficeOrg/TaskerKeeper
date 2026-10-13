@@ -1,4 +1,4 @@
-# TaskerKeeper Memory
+# Tidetable Memory
 
 Project state and decisions for agents. Read before starting work. Rules for
 working on this repo live in `AGENTS.md`.
@@ -13,21 +13,21 @@ with any autonomous agent. See `docs/philosophy.md` for rationale.
 ## Layout
 
 ```
-taskerkeeper/cli.py                      CLI logic (the only implementation)
-taskerkeeper/agents.py                   Tier -> provider/model config layering
-taskerkeeper/jsonio.py                   Atomic writes, the file lock, the event log
-taskerkeeper/sidebar.py                  Budgeted sidebar payload for harness panels
-taskerkeeper/integrations.py             `integrations list|install|uninstall` adapters
-taskerkeeper/overnight.py                TKRun: unattended runner (`tkrun`, `overnight` alias)
-taskerkeeper/serve.py                    Single-writer HTTP API (`serve`)
-taskerkeeper/projector.py                Projection + presence for the hub
-taskerkeeper/sessions.py                 Session/token handling for the hub
-taskerkeeper/tokens.py                   Machine token hashing/validation
-taskerkeeper/__main__.py                 python -m taskerkeeper
-taskerkeeper/schema/todo-v1.schema.json  JSON Schema (draft 2020-12), package data
-scripts/taskerkeeper.py                  Thin shim -> taskerkeeper.cli.main
-ralph/ralph-json.sh                      Thin wrapper -> taskerkeeper CLI
-skills/taskerkeeper/SKILL.md             Hermes skill
+tidetable/cli.py                      CLI logic (the only implementation)
+tidetable/agents.py                   Tier -> provider/model config layering
+tidetable/jsonio.py                   Atomic writes, the file lock, the event log
+tidetable/sidebar.py                  Budgeted sidebar payload for harness panels
+tidetable/integrations.py             `integrations list|install|uninstall` adapters
+tidetable/overnight.py                TKRun: unattended runner (`tkrun`, `overnight` alias)
+tidetable/serve.py                    Single-writer HTTP API (`serve`)
+tidetable/projector.py                Projection + presence for the hub
+tidetable/sessions.py                 Session/token handling for the hub
+tidetable/tokens.py                   Machine token hashing/validation
+tidetable/__main__.py                 python -m tidetable
+tidetable/schema/todo-v1.schema.json  JSON Schema (draft 2020-12), package data
+scripts/tidetable.py                  Thin shim -> tidetable.cli.main
+ralph/ralph-json.sh                      Thin wrapper -> tidetable CLI
+skills/tidetable/SKILL.md             Hermes skill
 integrations/                            opencode, pi, paseo, openchamber adapters
 web/                                     SvelteKit read-only dashboard
 deploy/                                  compose.yml, migrations, registry.json
@@ -83,7 +83,7 @@ pyproject.toml                           setuptools packaging, console script
   append). Phase prerequisites gate the new phase through the existing
   `blockers_for` path — no scheduling change, and nothing half-writes on
   rejection.
-- Unreleased: `overnight` is renamed **TKRun** (`taskerkeeper tkrun run|init|stop|kill`,
+- Unreleased: `overnight` is renamed **TKRun** (`tidetable tkrun run|init|stop|kill`,
   `overnight` kept as an alias); `tkrun kill` hard-stops with a sentinel plus a
   process-tree signal; leased `lanes` route a reservation-window provider to a
   fallback. See `docs/overnight.md` and `docs/singularity.lanes.md`.
@@ -92,7 +92,7 @@ pyproject.toml                           setuptools packaging, console script
 
 ### Local test note (macOS)
 
-The suite shells out to `sys.executable -m taskerkeeper` for the TKRun tests, so
+The suite shells out to `sys.executable -m tidetable` for the TKRun tests, so
 the package must be importable by that interpreter: run `pip install -e .` first,
 or export `PYTHONPATH`. On macOS the `/var` → `/private/var` symlink also makes
 `Path.resolve().relative_to()` raise in a few temp-dir tests; that is an
@@ -104,14 +104,14 @@ environment artifact, not a code failure.
   any non-`in_progress` status clears them. `start` refuses a live claim held by
   someone else, `done` needs `--force` for one, and `find_next` returns an
   `in_progress` task only when `claimable_by` accepts it. Owner comes from
-  `--owner`, else `TASKERKEEPER_OWNER`, else `host:pid`; lease from `--lease`,
-  else `TASKERKEEPER_LEASE_MINUTES`, else 60 minutes.
+  `--owner`, else `TIDETABLE_OWNER`, else `host:pid`; lease from `--lease`,
+  else `TIDETABLE_LEASE_MINUTES`, else 60 minutes.
 - **Disjoint fan-out.** `ready --disjoint` / `next --disjoint` filter by
   `touches` overlap (`paths_conflict`: equal, or one a directory containing the
   other), counting in-progress tasks as holding their paths. Greedy in ID order
   so the result is stable. Plain `ready` reports the overlaps as a warning.
 - **Event log.** `<file>.events.jsonl`, one JSON line per transition, written
-  inside the lock, best-effort. `history` replays it. `TASKERKEEPER_EVENTS=0`
+  inside the lock, best-effort. `history` replays it. `TIDETABLE_EVENTS=0`
   disables.
 - **Complexity → tier.** A task with `complexity` and no `agent` gets a tier:
   Low→basic, Medium→mid, High→pro, Very High→flagship, overridable by a tier's
@@ -123,7 +123,7 @@ environment artifact, not a code failure.
 
 ## Agent Model Config (v0.3.0, presets in v0.4.0)
 
-- A task names a tier (`task.agent`); `taskerkeeper/agents.py` resolves that
+- A task names a tier (`task.agent`); `tidetable/agents.py` resolves that
   tier to a provider and model, and `next` / `ready` / `parallel --json` carry
   the resolved values so a supervisor dispatches in one lookup.
 - Layers, last wins: built-in `anthropic` preset -> user config -> repo config
@@ -136,7 +136,7 @@ environment artifact, not a code failure.
   provider is a dict entry plus a README row.
 - `agents show` reports which layer supplied each setting, and which preset is
   active. `agents providers` lists the presets.
-- `TASKERKEEPER_CONFIG_HOME` relocates the user config; the tests rely on it.
+- `TIDETABLE_CONFIG_HOME` relocates the user config; the tests rely on it.
 
 ## Decisions
 
@@ -179,16 +179,16 @@ environment artifact, not a code failure.
   a tier is a property of whoever runs the agents, so the user layer is its
   normal home. The repo and todo layers exist for projects that genuinely need
   to pin something, not as the default place to put it.
-- **TaskerKeeper never calls a provider.** It resolves strings and hands them
+- **Tidetable never calls a provider.** It resolves strings and hands them
   over: no SDK dependency, no API keys, no network. Unknown settings
   (`--option effort=xhigh`) pass through untouched so a supervisor can use them
-  without TaskerKeeper knowing what they mean.
+  without Tidetable knowing what they mean.
 - **The unattended runner is TKRun.** `tkrun` is the name; `overnight` stays a
   subparser alias so existing scripts and config paths keep working. `stop` is
   cooperative (a `STOP` sentinel checked between tasks); `kill` is a hard stop
   (writes `KILL` *and* tree-kills the runner PID so a mid-task agent dies too).
   Claims are left to expire rather than edited, because the supervisor, not the
-  agent, owns taskerkeeper state.
+  agent, owns tidetable state.
 - **Leased lanes never book.** `lanes` only reads `GET /reservations`; keys come
   from the environment (`infisical run`), and the generated `opencode.json` holds
   `{env:...}` references, never values. A task already running when the window
@@ -202,7 +202,7 @@ environment artifact, not a code failure.
 - A lease is not renewed while a task runs, so a task genuinely longer than the
   lease can be stolen mid-flight. Re-running `start` as the same owner refreshes
   it; a supervisor with long tasks should either do that periodically or raise
-  `TASKERKEEPER_LEASE_MINUTES`.
+  `TIDETABLE_LEASE_MINUTES`.
 - `touches` conflict detection is textual. It does not know that two tasks
   editing different functions in one file might be fine, and it cannot see a
   file a task forgot to declare.

@@ -9,6 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Remote client mode.** `tidetable --server https://hub next <slug>`
+  (or `$TIDETABLE_SERVER` / `$TIDETABLE_TOKEN`) runs the command against a
+  `tidetable serve` hub instead of a local file; `todo_file` is then the
+  project slug. Covers `validate next ready list parallel deps history start
+  done reset status add add-phase`. Always sends this machine's owner and
+  host, prints the hub's JSON, and mirrors the local exit codes. `--local`
+  opts out; `convert`, `sidebar` and `release` have no hub route and are
+  refused. Stdlib `urllib` only, new module `tidetable/remote.py`.
+
+### Changed
+
+- **TaskerKeeper is now Tidetable (0.9.0).** Package `taskerkeeper/` is
+  `tidetable/`; commands `tidetable` and the short `tt`; env vars
+  `TIDETABLE_*`; repo config `.tidetable/`; user config
+  `~/.config/tidetable/`; skill `skills/tidetable/`; distribution name
+  `tidetable`. Nothing in the todo format, the `--json` output, or the
+  scheduling semantics changed.
+- **Compatibility, so existing agents keep working.** The `taskerkeeper`
+  command, `python -m taskerkeeper` and `import taskerkeeper` (same module
+  objects as `tidetable`) still work. `TASKERKEEPER_*` env vars are read as a
+  fallback (the new name wins). A `.taskerkeeper/` repo dir and a
+  `~/.config/taskerkeeper/` user dir apply until the new one exists; new files
+  are written to the new names. `scripts/taskerkeeper.py` stays as a shim.
+  The `tkrun`/`overnight` subcommands and the `TK_*` serve env vars are
+  unchanged.
+
+### Added
+
 - **`taskerkeeper add-phase <file> --phase <id> --title <t>`.** Inserts a new
   (empty) phase: `--goal`, repeatable `--prereq` of existing phase IDs,
   `--after`/`--before` anchor (mutually exclusive, default append). IDs must

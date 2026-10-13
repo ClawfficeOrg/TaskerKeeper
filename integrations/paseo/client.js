@@ -1,17 +1,17 @@
-// Paseo client half: TaskerKeeper nav badge + workspace panel.
+// Paseo client half: Tidetable nav badge + workspace panel.
 //
 // Registers (via the @getpaseo/client SDK shape):
-//   - addSidebarItem: "TaskerKeeper" nav entry whose badge shows the
+//   - addSidebarItem: "Tidetable" nav entry whose badge shows the
 //     in-progress count.
-//   - addWorkspacePanel: "TaskerKeeper" tab rendering the five sidebar
+//   - addWorkspacePanel: "Tidetable" tab rendering the five sidebar
 //     sections (current with details, concurrent, upcoming with waits,
 //     current-phase tree, overall tree) fetched through the server RPC
-//     `taskerkeeper.sidebar`. Polls every 15s; every failure renders
+//     `tidetable.sidebar`. Polls every 15s; every failure renders
 //     fail-soft inside the panel (never throws into the host).
 "use strict";
 
 const POLL_MS = 15000;
-const RPC_METHOD = "taskerkeeper.sidebar";
+const RPC_METHOD = "tidetable.sidebar";
 
 function esc(value) {
   return String(value === undefined || value === null ? "" : value)
@@ -126,7 +126,7 @@ function activate(ctx) {
       if (!res || !res.ok) {
         const msg = (res && res.error) || "sidebar RPC failed";
         if (els.panel) {
-          els.panel.innerHTML = '<p class="tk-dim">TaskerKeeper: ' + esc(msg) + "</p>";
+          els.panel.innerHTML = '<p class="tk-dim">Tidetable: ' + esc(msg) + "</p>";
         }
         if (els.badge) {
           els.badge.textContent = "";
@@ -144,19 +144,19 @@ function activate(ctx) {
     } catch (err) {
       if (els.panel) {
         els.panel.innerHTML =
-          '<p class="tk-dim">TaskerKeeper: ' + esc((err && err.message) || err) + "</p>";
+          '<p class="tk-dim">Tidetable: ' + esc((err && err.message) || err) + "</p>";
       }
     }
   }
 
   if (ctx && typeof ctx.addSidebarItem === "function") {
     const item = ctx.addSidebarItem({
-      id: "taskerkeeper",
-      title: "TaskerKeeper",
+      id: "tidetable",
+      title: "Tidetable",
       badge: () => (els.badge ? els.badge.textContent : ""),
       onClick: () => {
         if (ctx && typeof ctx.openWorkspacePanel === "function") {
-          ctx.openWorkspacePanel("taskerkeeper");
+          ctx.openWorkspacePanel("tidetable");
         }
       },
     });
@@ -167,12 +167,12 @@ function activate(ctx) {
 
   if (ctx && typeof ctx.addWorkspacePanel === "function") {
     ctx.addWorkspacePanel({
-      id: "taskerkeeper",
-      title: "TaskerKeeper",
+      id: "tidetable",
+      title: "Tidetable",
       render: (root) => {
         const div = root.ownerDocument.createElement("div");
         div.className = "tk-panel";
-        div.innerHTML = '<p class="tk-dim">Loading TaskerKeeper…</p>';
+        div.innerHTML = '<p class="tk-dim">Loading Tidetable…</p>';
         root.appendChild(div);
         els.panel = div;
         refresh();

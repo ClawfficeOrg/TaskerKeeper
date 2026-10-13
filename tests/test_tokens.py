@@ -12,7 +12,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import mock
 
-from taskerkeeper import serve, tokens
+from tidetable import serve, tokens
 
 
 class MintVerifyTest(unittest.TestCase):

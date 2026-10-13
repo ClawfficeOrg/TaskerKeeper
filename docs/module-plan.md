@@ -1,10 +1,10 @@
-# Module Plan — TaskerKeeper as a dependency
+# Module Plan — Tidetable as a dependency
 
 **Status:** plan, not yet implemented (as of v0.5.0)
-**Goal:** a project can add TaskerKeeper as a dependency and drive it from
+**Goal:** a project can add Tidetable as a dependency and drive it from
 Python, instead of cloning the repo and shelling out to a CLI.
 
-TaskerKeeper works today, but only as a program. Everything a consumer needs —
+Tidetable works today, but only as a program. Everything a consumer needs —
 the DAG, the claim rules, the conflict detection — is fused into `cli.py`
 alongside argparse and box-drawing output, and the package is not published, so
 "reusable module" currently means "clone it and parse `--json`". This is the
@@ -17,19 +17,19 @@ in this plan.
 
 ## 1. Split `cli.py` into core, render, and CLI
 
-`taskerkeeper/cli.py` is ~1500 lines holding three unrelated jobs. A consumer
+`tidetable/cli.py` is ~1500 lines holding three unrelated jobs. A consumer
 importing it today gets argparse and a UTF-8 stdout reconfigure as side effects,
 and every function that decides something also prints something.
 
 Target layout:
 
 ```
-taskerkeeper/model.py    Pure logic. Load, validate, schedule, claim, conflict.
+tidetable/model.py    Pure logic. Load, validate, schedule, claim, conflict.
                          No printing, no argparse, no sys.exit, no subprocess.
-taskerkeeper/render.py   Human output: glyphs, tables, the markdown converter.
-taskerkeeper/cli.py      argparse, command handlers, exit codes. Calls the above.
-taskerkeeper/jsonio.py   Unchanged — already a clean seam.
-taskerkeeper/agents.py   Unchanged — already a clean seam.
+tidetable/render.py   Human output: glyphs, tables, the markdown converter.
+tidetable/cli.py      argparse, command handlers, exit codes. Calls the above.
+tidetable/jsonio.py   Unchanged — already a clean seam.
+tidetable/agents.py   Unchanged — already a clean seam.
 ```
 
 What moves to `model.py`, roughly in dependency order:
@@ -53,7 +53,7 @@ Constraints:
 - **`validate_todo` splits.** The decision half (`semantic_errors` plus schema
   check) goes to `model.py` and returns findings; the printing half stays in
   `cli.py`. Nothing in `model.py` prints.
-- **Re-export for compatibility.** `cli.py` keeps `from taskerkeeper.model
+- **Re-export for compatibility.** `cli.py` keeps `from tidetable.model
   import *`-style explicit re-exports for one minor release, because
   `tests/test_cli.py` and any existing consumer reference `cli.paths_conflict`,
   `cli.FileLock`, and friends. Deprecate in the release after.
@@ -86,7 +86,7 @@ it ships in its own release with a loud CHANGELOG entry, and
 
 ## 3. Publish to PyPI
 
-`pip install taskerkeeper` should work. Today `README.md` says `git clone`,
+`pip install tidetable` should work. Today `README.md` says `git clone`,
 which makes the tool un-dependable in the literal sense.
 
 - Reserve the name; confirm no collision (the `rtk` precedent in this ecosystem
@@ -95,21 +95,21 @@ which makes the tool un-dependable in the literal sense.
   `authors`, `urls` (Homepage/Changelog/Issues), classifiers,
   `requires-python = ">=3.10"`.
 - Verify the schema still ships as package data from the built wheel, not just
-  the sdist — `pip install dist/*.whl` in a clean venv, then `taskerkeeper
+  the sdist — `pip install dist/*.whl` in a clean venv, then `tidetable
   validate` from a directory outside the checkout. This is the failure mode
   v0.2 already hit once.
 - Add a `release` job to `.github/workflows/`: build with `python -m build`,
   publish with trusted publishing on a tag, after the test matrix passes.
-- Replace the `git clone` block in `README.md` with `pip install taskerkeeper`,
+- Replace the `git clone` block in `README.md` with `pip install tidetable`,
   keeping the checkout instructions under a "from source" heading.
 
 ## 4. Commit to a public Python API
 
 Once `model.py` exists, decide what is supported and say so in
-`taskerkeeper/__init__.py`, so consumers stop importing from `cli`:
+`tidetable/__init__.py`, so consumers stop importing from `cli`:
 
 ```python
-from taskerkeeper import (
+from tidetable import (
     load_todo, validate,            # read + check
     ready_tasks, find_next, disjoint_tasks, blockers_for,   # schedule
     start_task, finish_task, reset_task,                     # mutate (locked)
@@ -138,7 +138,7 @@ State that in `AGENTS.md`.
 Listed so they are not mistaken for oversights:
 
 - **Lease renewal.** A long task can currently be stolen mid-flight; re-running
-  `start` as the same owner refreshes it. A `taskerkeeper heartbeat <id>` would
+  `start` as the same owner refreshes it. A `tidetable heartbeat <id>` would
   be cleaner but adds a daemon-shaped concern to a file-based tool.
 - **Event log rotation.** Nothing compacts `<file>.events.jsonl`.
 - **Markdown → JSON conversion.** Still a deliberate omission

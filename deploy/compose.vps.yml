@@ -1,0 +1,37 @@
+# Core API only, on the shared Traefik host (proxy-public network).
+#
+#   /opt/compewtertutor/tidetable/
+#     compose.yml          this file
+#     .env                 TK_API_TOKEN=...   (chmod 600)
+#     projects/registry.json
+#     projects/<slug>/todo.json
+#
+# The API route deliberately has no forwardAuth: machine agents authenticate
+# with a bearer token at the app layer (same reasoning as compose.yml). The
+# hub refuses every request without one.
+services:
+  core:
+    build: ./src
+    image: tidetable-core:latest
+    container_name: tidetable-core
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./projects:/app/projects
+    expose:
+      - "8471"
+    networks:
+      - proxy-public
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=proxy-public"
+      - "traefik.http.routers.tidetable.rule=Host(`tidetable.compewtertutor.com`)"
+      - "traefik.http.routers.tidetable.entrypoints=websecure"
+      - "traefik.http.routers.tidetable.middlewares=security-headers@file"
+      - "traefik.http.routers.tidetable.tls=true"
+      - "traefik.http.routers.tidetable.tls.certresolver=cloudflare-ct"
+      - "traefik.http.services.tidetable.loadbalancer.server.port=8471"
+
+networks:
+  proxy-public:
+    external: true

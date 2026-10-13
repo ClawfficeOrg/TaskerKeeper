@@ -1,4 +1,4 @@
-"""Tests for the TaskerKeeper CLI.
+"""Tests for the Tidetable CLI.
 
 Stdlib unittest on purpose: `python -m unittest` works in a bare checkout with
 no dev dependencies. pytest runs these too.
@@ -17,7 +17,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import mock
 
-from taskerkeeper import agents, cli, jsonio, serve, sessions
+from tidetable import agents, cli, jsonio, serve, sessions
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXAMPLES = REPO_ROOT / "examples"
@@ -84,7 +84,7 @@ class SchemaPackagingTest(unittest.TestCase):
         # The bug this guards: SCHEMA_PATH pointed outside the package, so any
         # non-editable install could not validate anything.
         self.assertTrue(cli.SCHEMA_PATH.is_file(), cli.SCHEMA_PATH)
-        self.assertEqual(cli.SCHEMA_PATH.parent.parent.name, "taskerkeeper")
+        self.assertEqual(cli.SCHEMA_PATH.parent.parent.name, "tidetable")
 
     def test_examples_validate(self):
         for example in sorted(EXAMPLES.glob("*.json")):
@@ -406,7 +406,7 @@ class AgentConfigTest(unittest.TestCase):
         self.repo_dir = self.root / "repo"
         (self.repo_dir / ".git").mkdir(parents=True)
         # Keep the real home directory and any real repo config out of the test.
-        patch = mock.patch.dict(os.environ, {"TASKERKEEPER_CONFIG_HOME": str(self.user_dir)})
+        patch = mock.patch.dict(os.environ, {"TIDETABLE_CONFIG_HOME": str(self.user_dir)})
         patch.start()
         self.addCleanup(patch.stop)
 
@@ -532,7 +532,7 @@ class AgentConfigTest(unittest.TestCase):
         nested = self.repo_dir / "docs" / "sub"
         nested.mkdir(parents=True)
         found = agents.repo_config_path(nested / "todo.json")
-        self.assertEqual(found, self.repo_dir / ".taskerkeeper" / "agents.json")
+        self.assertEqual(found, self.repo_dir / ".tidetable" / "agents.json")
 
     def test_every_preset_covers_every_tier(self):
         schema = json.loads(cli.SCHEMA_PATH.read_text(encoding="utf-8"))
@@ -665,13 +665,13 @@ class ClaimTest(unittest.TestCase):
     """`start` records who holds a task, so two agents cannot work one task."""
 
     def setUp(self):
-        self._env = mock.patch.dict(os.environ, {"TASKERKEEPER_OWNER": "agent-a"})
+        self._env = mock.patch.dict(os.environ, {"TIDETABLE_OWNER": "agent-a"})
         self._env.start()
         self.addCleanup(self._env.stop)
 
     @staticmethod
     def as_owner(name: str):
-        return mock.patch.dict(os.environ, {"TASKERKEEPER_OWNER": name})
+        return mock.patch.dict(os.environ, {"TIDETABLE_OWNER": name})
 
     def test_start_records_owner_and_lease(self):
         with TempTodo(todo(phase("1.0", task("1.0.1")))) as path:
@@ -829,7 +829,7 @@ class DisjointTest(unittest.TestCase):
             task("1.0.2", touches=["src/auth.rs"]),
             task("1.0.3", touches=["docs/readme.md"]),
         ))) as path:
-            with mock.patch.dict(os.environ, {"TASKERKEEPER_OWNER": "agent-b"}):
+            with mock.patch.dict(os.environ, {"TIDETABLE_OWNER": "agent-b"}):
                 payload = json.loads(
                     run("next", path, "--disjoint", "--no-resume", "--json")[1])
             self.assertEqual(payload["task"]["id"], "1.0.3")
@@ -894,7 +894,7 @@ class ComplexityTierTest(unittest.TestCase):
 
 class EventLogTest(unittest.TestCase):
     def setUp(self):
-        self._env = mock.patch.dict(os.environ, {"TASKERKEEPER_OWNER": "agent-a"})
+        self._env = mock.patch.dict(os.environ, {"TIDETABLE_OWNER": "agent-a"})
         self._env.start()
         self.addCleanup(self._env.stop)
 
@@ -924,7 +924,7 @@ class EventLogTest(unittest.TestCase):
             self.assertIn("No events", out)
 
     def test_the_log_can_be_switched_off(self):
-        with mock.patch.dict(os.environ, {"TASKERKEEPER_EVENTS": "0"}):
+        with mock.patch.dict(os.environ, {"TIDETABLE_EVENTS": "0"}):
             with TempTodo(todo(phase("1.0", task("1.0.1")))) as path:
                 run("start", path, "1.0.1")
                 self.assertFalse(jsonio.events_path(path).exists())
@@ -954,7 +954,7 @@ class ReleaseTest(unittest.TestCase):
 
     def test_done_never_creates_a_tag_by_itself(self):
         with TempTodo(todo(releasing(task("1.0.1")))) as path:
-            with mock.patch("taskerkeeper.cli.subprocess.run") as spawned:
+            with mock.patch("tidetable.cli.subprocess.run") as spawned:
                 run("done", path, "1.0.1")
             spawned.assert_not_called()
 
@@ -989,7 +989,7 @@ class ReleaseTest(unittest.TestCase):
                 code = 1 if "rev-parse" in argv else 0
                 return subprocess.CompletedProcess(argv, code, "", "")
 
-            with mock.patch("taskerkeeper.cli.subprocess.run", fake_run):
+            with mock.patch("tidetable.cli.subprocess.run", fake_run):
                 code, out = run("release", path, "--tag")
             self.assertEqual(code, 0)
             self.assertIn("Tagged v0.1.0", out)
@@ -999,7 +999,7 @@ class ReleaseTest(unittest.TestCase):
     def test_tag_refuses_to_clobber_an_existing_tag(self):
         with TempTodo(todo(releasing(task("1.0.1")))) as path:
             run("done", path, "1.0.1")
-            with mock.patch("taskerkeeper.cli.subprocess.run",
+            with mock.patch("tidetable.cli.subprocess.run",
                             return_value=subprocess.CompletedProcess([], 0, "abc123", "")):
                 code, out = run("release", path, "--tag")
             self.assertEqual(code, 1)
@@ -1048,7 +1048,7 @@ class StaleLockTest(unittest.TestCase):
 
     def test_pid_probing_never_signals_the_process(self):
         # os.kill(pid, 0) terminates the process on Windows; this must not use it.
-        with mock.patch("taskerkeeper.jsonio.os.kill") as killed:
+        with mock.patch("tidetable.jsonio.os.kill") as killed:
             jsonio._pid_alive(os.getpid())
         if os.name == "nt":
             killed.assert_not_called()
@@ -1238,3 +1238,205 @@ class TestServeStream(unittest.TestCase):
         _, since_q = serve.parse_stream_params(
             {"since": "2"}, {"Last-Event-ID": "9"})
         self.assertEqual(since_q, 2)
+
+
+class TestTaskerKeeperCompat(unittest.TestCase):
+    """The pre-0.9 names keep working: TASKERKEEPER_*, .taskerkeeper/, import taskerkeeper."""
+
+    def test_env_get_prefers_new_name_then_falls_back(self):
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(jsonio.env_get("OWNER"), "")
+            os.environ["TASKERKEEPER_OWNER"] = "old"
+            self.assertEqual(jsonio.env_get("OWNER"), "old")
+            os.environ["TIDETABLE_OWNER"] = "new"
+            self.assertEqual(jsonio.env_get("OWNER"), "new")
+
+    def test_legacy_owner_env_names_the_agent(self):
+        with mock.patch.dict(os.environ, {"TASKERKEEPER_OWNER": "legacy-agent"}, clear=True):
+            self.assertEqual(cli.default_owner(), "legacy-agent")
+
+    def test_legacy_config_home_override_is_honoured(self):
+        with TemporaryDirectory() as tmp, \
+                mock.patch.dict(os.environ, {"TASKERKEEPER_CONFIG_HOME": tmp}, clear=True):
+            self.assertEqual(agents.user_config_path(), Path(tmp) / "agents.json")
+
+    def test_legacy_user_config_dir_applies_until_new_one_exists(self):
+        with TemporaryDirectory() as tmp:
+            env = {"XDG_CONFIG_HOME": tmp, "APPDATA": tmp}
+            legacy = Path(tmp) / "taskerkeeper" / "agents.json"
+            current = Path(tmp) / "tidetable" / "agents.json"
+            with mock.patch.dict(os.environ, env, clear=True):
+                self.assertEqual(agents.user_config_path(), current)
+                legacy.parent.mkdir()
+                legacy.write_text("{}", encoding="utf-8")
+                self.assertEqual(agents.user_config_path(), legacy)
+                current.parent.mkdir()
+                current.write_text("{}", encoding="utf-8")
+                self.assertEqual(agents.user_config_path(), current)
+
+    def test_legacy_repo_config_dir_is_found_and_new_one_wins(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            legacy = root / ".taskerkeeper" / "agents.json"
+            legacy.parent.mkdir()
+            legacy.write_text("{}", encoding="utf-8")
+            self.assertEqual(agents.find_repo_config(root), legacy)
+            current = root / ".tidetable" / "agents.json"
+            current.parent.mkdir()
+            current.write_text("{}", encoding="utf-8")
+            self.assertEqual(agents.find_repo_config(root), current)
+
+    def test_import_taskerkeeper_aliases_the_same_modules(self):
+        import taskerkeeper
+        import taskerkeeper.cli
+        import taskerkeeper.jsonio
+        self.assertIs(taskerkeeper.cli, cli)
+        self.assertIs(taskerkeeper.jsonio, jsonio)
+        self.assertEqual(taskerkeeper.__version__, __import__("tidetable").__version__)
+
+    def test_legacy_module_entry_point_runs(self):
+        r = subprocess.run(
+            [os.sys.executable, "-m", "taskerkeeper", "validate",
+             str(EXAMPLES / "simple-project.json")],
+            capture_output=True, text=True, cwd=REPO_ROOT)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+
+class TestRemoteClient(unittest.TestCase):
+    """`--server` runs a command against a `tidetable serve` hub."""
+
+    TOKEN = "test-shared-token"
+
+    def setUp(self):
+        import threading
+        from http.server import ThreadingHTTPServer
+
+        self.tmp = TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        root = Path(self.tmp.name)
+        self.todo_path = str(root / "todo.json")
+        Path(self.todo_path).write_text(json.dumps(todo(
+            phase("1.0", task("1.0.1"), task("1.0.2", prerequisites=["1.0.1"])))),
+            encoding="utf-8")
+        registry = str(root / "registry.json")
+        Path(registry).write_text(json.dumps({"projects": [
+            {"slug": "demo", "name": "Demo", "repo_url": "",
+             "todo_path": self.todo_path, "default_branch": "main"}]}), encoding="utf-8")
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), serve._Handler)
+        server.daemon_threads = True
+        server.registry = registry
+        server.sessions_db = str(root / "sessions.db")
+        server.tokens_db = str(root / "tokens.db")
+        self.thread = threading.Thread(target=server.serve_forever, daemon=True)
+        self.thread.start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        self.url = f"http://127.0.0.1:{server.server_address[1]}"
+
+        patcher = mock.patch.dict(os.environ, {"TK_API_TOKEN": self.TOKEN})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def run_cli(self, *argv: str, token: str | None = None, server: str | None = None):
+        head = ["--server", server or self.url]
+        if token is None:
+            token = self.TOKEN
+        if token:
+            head += ["--token", token]
+        out, err = io.StringIO(), io.StringIO()
+        from contextlib import redirect_stderr
+        with redirect_stdout(out), redirect_stderr(err):
+            code = cli.main(head + list(argv))
+        return code, out.getvalue(), err.getvalue()
+
+    def test_ready_matches_local_json(self):
+        code, out, _ = self.run_cli("ready", "demo", "--json")
+        self.assertEqual(code, 0)
+        local = io.StringIO()
+        with redirect_stdout(local):
+            cli.main(["ready", self.todo_path, "--json"])
+        self.assertEqual(json.loads(out), json.loads(local.getvalue()))
+
+    def test_start_then_done_writes_the_hub_file(self):
+        code, out, _ = self.run_cli("start", "demo", "1.0.1", "--owner", "laptop")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(json.loads(out)["owner"], "laptop")
+        code, out, _ = self.run_cli("done", "demo", "1.0.1", "--owner", "laptop")
+        self.assertEqual(code, 0, out)
+        status = {t["id"]: t["status"] for t in
+                  json.loads(Path(self.todo_path).read_text(encoding="utf-8"))["phases"][0]["tasks"]}
+        self.assertEqual(status["1.0.1"], "done")
+
+    def test_second_machine_cannot_take_a_live_claim(self):
+        self.assertEqual(self.run_cli("start", "demo", "1.0.1", "--owner", "a")[0], 0)
+        code, out, err = self.run_cli("start", "demo", "1.0.1", "--owner", "b")
+        self.assertEqual(code, 1)
+        self.assertEqual(out, "")
+        self.assertIn("held by a", err)
+
+    def test_next_with_nothing_runnable_exits_1_with_payload(self):
+        self.run_cli("start", "demo", "1.0.1", "--owner", "a")
+        code, out, _ = self.run_cli("next", "demo", "--owner", "b")
+        self.assertEqual(code, 1)
+        self.assertIsNone(json.loads(out)["task"])
+
+    def test_owner_defaults_to_this_machine_not_the_server(self):
+        with mock.patch.dict(os.environ, {"TIDETABLE_OWNER": "my-agent"}):
+            code, out, _ = self.run_cli("start", "demo", "1.0.1")
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out)["owner"], "my-agent")
+
+    def test_missing_or_wrong_token_is_a_clean_failure(self):
+        code, out, err = self.run_cli("list", "demo", token="")
+        self.assertEqual((code, out), (1, ""))
+        self.assertIn("Error:", err)
+        self.assertIn("TIDETABLE_TOKEN", err)
+        self.assertEqual(self.run_cli("list", "demo", token="nope")[0], 1)
+
+    def test_unknown_slug_and_unreachable_server(self):
+        code, _, err = self.run_cli("list", "ghost")
+        self.assertEqual(code, 1)
+        self.assertIn("unknown slug", err)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code, _, _ = self.run_cli("list", "demo", server="http://127.0.0.1:1")
+        self.assertEqual(code, 1)
+
+    def test_add_phase_over_the_wire(self):
+        code, out, _ = self.run_cli("add-phase", "demo", "--phase", "2.0",
+                                    "--title", "Next", "--prereq", "1.0", "--after", "1.0")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(json.loads(out)["id"], "2.0")
+
+    def test_env_server_is_used_and_local_flag_opts_out(self):
+        env = {"TIDETABLE_SERVER": self.url, "TIDETABLE_TOKEN": self.TOKEN}
+        with mock.patch.dict(os.environ, env):
+            out = io.StringIO()
+            with redirect_stdout(out):
+                self.assertEqual(cli.main(["list", "demo", "--json"]), 0)
+            self.assertIn("phases", out.getvalue())
+            out = io.StringIO()
+            with redirect_stdout(out):
+                code = cli.main(["--local", "list", self.todo_path, "--json"])
+            self.assertEqual(code, 0)
+
+    def test_commands_without_a_hub_route_are_refused(self):
+        code, out, _ = self.run_cli("convert", "demo")
+        self.assertEqual(code, 1)
+        self.assertIn("no remote mode", out)
+
+    def test_build_request_maps_flags_to_query_and_body(self):
+        from tidetable import remote
+
+        args = cli.build_parser().parse_args(
+            ["next", "demo", "--owner", "w", "--no-resume", "--disjoint"])
+        method, path, body = remote.build_request(args)
+        self.assertEqual(method, "GET")
+        self.assertTrue(path.startswith("/api/demo/next?"))
+        for part in ("owner=w", "resume=0", "disjoint=1"):
+            self.assertIn(part, path)
+        args = cli.build_parser().parse_args(
+            ["add", "demo", "--phase", "1.0", "--title", "T", "--prereq", "a", "--prereq", "b"])
+        _, _, body = remote.build_request(args)
+        self.assertEqual(body["prerequisites"], ["a", "b"])

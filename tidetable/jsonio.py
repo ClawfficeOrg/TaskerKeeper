@@ -213,14 +213,31 @@ def write_json(data: dict, path: str | Path) -> None:
 # ---------------------------------------------------------------------------
 
 
+LEGACY_ENV_PREFIX = "TASKERKEEPER_"
+ENV_PREFIX = "TIDETABLE_"
+
+
+def env_get(suffix: str, default: str = "") -> str:
+    """`TIDETABLE_<suffix>`, falling back to the pre-rename `TASKERKEEPER_<suffix>`.
+
+    The new name wins when both are set. The fallback keeps existing
+    supervisors and shell profiles working through the rename.
+    """
+    for prefix in (ENV_PREFIX, LEGACY_ENV_PREFIX):
+        value = os.environ.get(prefix + suffix)
+        if value is not None:
+            return value
+    return default
+
+
 def events_path(todo_path: str | Path) -> Path:
     """The event log beside a todo file."""
     return Path(str(todo_path) + ".events.jsonl")
 
 
 def events_enabled() -> bool:
-    """`TASKERKEEPER_EVENTS=0` turns the log off."""
-    return os.environ.get("TASKERKEEPER_EVENTS", "1").strip().lower() not in ("0", "false", "no")
+    """`TIDETABLE_EVENTS=0` turns the log off."""
+    return env_get("EVENTS", "1").strip().lower() not in ("0", "false", "no")
 
 
 def append_event(todo_path: str | Path, event: dict) -> None:

@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0.0",
   "project": {
-    "name": "TaskerKeeper VPS Hub",
+    "name": "Tidetable VPS Hub",
     "version": {
       "milestone": "vps-hub",
       "release_version": "0.6.0"
@@ -57,12 +57,12 @@
           "id": "1.0.3",
           "title": "Serve scaffold with route table",
           "status": "done",
-          "goal": "Create taskerkeeper/serve.py with stdlib http.server, route table for GET reads and POST writes delegating to cli.py functions, bearer-token check stub reading TK_API_TOKEN.",
+          "goal": "Create tidetable/serve.py with stdlib http.server, route table for GET reads and POST writes delegating to cli.py functions, bearer-token check stub reading TK_API_TOKEN.",
           "touches": [
-            "taskerkeeper/serve.py"
+            "tidetable/serve.py"
           ],
           "success": [
-            "python -m taskerkeeper serve --help works",
+            "python -m tidetable serve --help works",
             "no DAG logic duplicated, imports from cli"
           ],
           "tests": "python -m unittest discover -s tests",
@@ -88,7 +88,7 @@
           "status": "done",
           "goal": "Serve projects, ready, next, list, deps, history, validate, parallel by calling existing cli functions and returning current --json shapes.",
           "touches": [
-            "taskerkeeper/serve.py"
+            "tidetable/serve.py"
           ],
           "success": [
             "GET /api/<slug>/ready matches local ready --json"
@@ -109,7 +109,7 @@
           "status": "done",
           "goal": "Serve start, done, reset, status, add via FileLock reload-mutate-write_json-append_event with threading.Lock. Enforce claimable_by server-side.",
           "touches": [
-            "taskerkeeper/serve.py"
+            "tidetable/serve.py"
           ],
           "success": [
             "concurrent starts on same task refuse second claim",
@@ -131,7 +131,7 @@
           "status": "done",
           "goal": "POST heartbeat upserts sessions table; start auto-heartbeats; done/reset clears task_id. Stale after 180s.",
           "touches": [
-            "taskerkeeper/sessions.py"
+            "tidetable/sessions.py"
           ],
           "success": [
             "agent appears in sessions within one heartbeat",
@@ -163,7 +163,7 @@
           "status": "done",
           "goal": "Tail *.events.jsonl plus full load_todo resnap into tasks_snap and events tables. Best-effort, never blocks writes.",
           "touches": [
-            "taskerkeeper/projector.py"
+            "tidetable/projector.py"
           ],
           "success": [
             "local done triggers row update within seconds"
@@ -185,7 +185,7 @@
           "status": "done",
           "goal": "GET /api/stream using Postgres LISTEN/NOTIFY with --since replay. Traefik buffering off.",
           "touches": [
-            "taskerkeeper/serve.py"
+            "tidetable/serve.py"
           ],
           "success": [
             "browser EventSource receives task update live"
@@ -272,7 +272,7 @@
           "status": "done",
           "goal": "Add tk mint command writing hashed machine_tokens rows with slugs, scopes, expiry. Middleware swaps constant compare for prefix-hash check. Revoke flag.",
           "touches": [
-            "taskerkeeper/tokens.py"
+            "tidetable/tokens.py"
           ],
           "success": [
             "minted token starts/dones only its slug and scope",

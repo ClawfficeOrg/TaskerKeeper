@@ -1,6 +1,6 @@
-"""taskerkeeper.serve — single-writer core API over taskerkeeper.cli.
+"""tidetable.serve — single-writer core API over tidetable.cli.
 
-Single-writer rule: all DAG reads and writes delegate to taskerkeeper.cli
+Single-writer rule: all DAG reads and writes delegate to tidetable.cli
 functions (ready_tasks, find_next, set_status, FileLock + write_json, ...).
 This module implements no scheduling, claim, or lock logic of its own —
 it only maps HTTP routes to cli entry points and enforces the bearer check.
@@ -19,20 +19,20 @@ from http.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit, parse_qsl
 
-from taskerkeeper import cli
-from taskerkeeper import sessions as sessions_store
-from taskerkeeper import tokens as tokens_store
-from taskerkeeper.jsonio import FileLock
+from tidetable import cli
+from tidetable import sessions as sessions_store
+from tidetable import tokens as tokens_store
+from tidetable.jsonio import FileLock
 
 #: Serializes write handlers in-process; the FileLock serializes across processes.
 #: Both are held for the whole reload-mutate-write cycle.
 _WRITE_LOCK = threading.Lock()
 
-#: (method, path template) -> taskerkeeper.cli handler name.
+#: (method, path template) -> tidetable.cli handler name.
 #: GET reads return current --json shapes; POST writes go through the same
 #: locked reload-mutate-write path as the CLI. Presence lives in
-#: taskerkeeper.sessions (1.1.3); per-project machine tokens in
-#: taskerkeeper.tokens (1.4.1).
+#: tidetable.sessions (1.1.3); per-project machine tokens in
+#: tidetable.tokens (1.4.1).
 ROUTES: dict[tuple[str, str], str] = {
     ("GET", "/api/projects"): "cmd_list",
     ("GET", "/api/{slug}/ready"): "cmd_ready",
@@ -73,7 +73,7 @@ def check_bearer(headers: Mapping[str, str],
 
     Machine tokens (machine_tokens table, 1.4.1) are tried first: the
     presented ``tk_<prefix>.<secret>`` is prefix-looked-up, hash-compared,
-    and expiry/revoked-checked via taskerkeeper.tokens. Anything else falls
+    and expiry/revoked-checked via tidetable.tokens. Anything else falls
     back to the single shared TK_API_TOKEN constant-time compare.
     """
     presented = _extract_presented(headers)
@@ -136,9 +136,9 @@ def bearer_auth(headers: Mapping[str, str], slug: str | None = None,
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Argument parser for `taskerkeeper serve`."""
+    """Argument parser for `tidetable serve`."""
     parser = argparse.ArgumentParser(
-        prog="taskerkeeper serve",
+        prog="tidetable serve",
         description="Serve the single-writer core API (scaffold delegating to cli)",
     )
     parser.add_argument("--port", type=int, default=DEFAULT_PORT,
@@ -369,7 +369,7 @@ def format_sse(payload: dict, seq: int | None = None,
 def handle_get(route: str, slug: str | None, query: Mapping[str, str],
                registry: str = DEFAULT_REGISTRY,
                sessions_db: str | None = None) -> tuple[int, dict]:
-    """Serve one GET read by delegating to taskerkeeper.cli — no DAG logic here.
+    """Serve one GET read by delegating to tidetable.cli — no DAG logic here.
 
     Returns (status, payload) where payload matches the CLI --json shape for
     the same read. Raises FileNotFoundError for a missing registry/todo file.
@@ -860,7 +860,7 @@ def handle_post(route: str, slug: str | None, body: Mapping[str, object] | None,
 class _Handler(BaseHTTPRequestHandler):
     """Bearer gate + route table lookup; GET reads delegate to cli via handle_get."""
 
-    server_version = "TaskerKeeperServe/0.1"
+    server_version = "TidetableServe/0.1"
 
     def _send_json(self, status: int, payload: dict) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -1013,7 +1013,7 @@ def main(argv: list[str] | None = None) -> int:
         args.registry, args.sessions_db)
     server.tokens_db = tokens_db_for_registry(  # type: ignore[attr-defined]
         args.registry, args.tokens_db)
-    print(f"✓ Serving TaskerKeeper core API on {args.bind}:{args.port}")
+    print(f"✓ Serving Tidetable core API on {args.bind}:{args.port}")
     print(f"  registry: {args.registry}")
     print(f"  sessions: {server.sessions_db}")
     print(f"  tokens: {server.tokens_db}")

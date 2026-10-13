@@ -1,0 +1,11 @@
+.git
+.venv
+venv
+build
+*.egg-info
+tests
+web
+deploy/migrations
+**/__pycache__
+*.env
+*.events.jsonl

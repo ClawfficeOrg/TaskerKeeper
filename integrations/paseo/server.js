@@ -1,14 +1,14 @@
-// Paseo server half: read-only RPC over the TaskerKeeper sidebar CLI.
+// Paseo server half: read-only RPC over the Tidetable sidebar CLI.
 //
 // Exposes one RPC method:
 //
-//   taskerkeeper.sidebar { todo?, width?, height? } -> { ok, payload? | error? }
+//   tidetable.sidebar { todo?, width?, height? } -> { ok, payload? | error? }
 //
 // The todo path resolves from (in order): RPC params, plugin settings,
-// TASKERKEEPER_TODO env. The server never writes to the todo file — it
-// spawns `taskerkeeper sidebar <todo> --json --width --height` and returns
+// TIDETABLE_TODO env. The server never writes to the todo file — it
+// spawns `tidetable sidebar <todo> --json --width --height` and returns
 // the parsed payload. Any failure is fail-soft: { ok: false, error }.
-// No DAG logic lives here; taskerkeeper/cli.py owns all scheduling.
+// No DAG logic lives here; tidetable/cli.py owns all scheduling.
 "use strict";
 
 const { execFile } = require("node:child_process");
@@ -17,7 +17,7 @@ function resolveTodo(params, settings) {
   params = params || {};
   settings = settings || {};
   return (
-    params.todo || settings.todo || process.env.TASKERKEEPER_TODO || ""
+    params.todo || settings.todo || process.env.TIDETABLE_TODO || ""
   );
 }
 
@@ -30,7 +30,7 @@ function toInt(value, fallback) {
 // plugin settings when the host provides them; params win per call.
 async function handle(request, ctx) {
   const method = request && request.method;
-  if (method !== "taskerkeeper.sidebar") {
+  if (method !== "tidetable.sidebar") {
     return { ok: false, error: "unknown method: " + method };
   }
   const params = (request && request.params) || {};
@@ -47,14 +47,14 @@ async function handle(request, ctx) {
   if (!todo) {
     return {
       ok: false,
-      error: "no todo file configured (settings.todo or TASKERKEEPER_TODO)",
+      error: "no todo file configured (settings.todo or TIDETABLE_TODO)",
     };
   }
   return new Promise((resolve) => {
     const args = ["sidebar", todo, "--json", "--width", String(width), "--height", String(height)];
     const opts = { timeout: 30000, maxBuffer: 4 * 1024 * 1024 };
     const runFallback = () =>
-      execFile("python", ["-m", "taskerkeeper", ...args], opts, (err2, stdout2, stderr2) => {
+      execFile("python", ["-m", "tidetable", ...args], opts, (err2, stdout2, stderr2) => {
         if (err2) {
           const detail = String(((stderr2 || stdout2 || err2.message || err2)).trim());
           resolve({ ok: false, error: detail.slice(-500) });
@@ -72,7 +72,7 @@ async function handle(request, ctx) {
         });
       }
     };
-    execFile("taskerkeeper", args, opts, (err, stdout, stderr) => {
+    execFile("tidetable", args, opts, (err, stdout, stderr) => {
       if (err) {
         // Stale/global installs may lack the sidebar subcommand; fall back
         // to the module invocation of the same CLI before giving up.
