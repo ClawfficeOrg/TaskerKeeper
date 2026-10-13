@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Remote client mode.** `tidetable --server https://hub next <slug>`
+  (or `$TIDETABLE_SERVER` / `$TIDETABLE_TOKEN`) runs the command against a
+  `tidetable serve` hub instead of a local file; `todo_file` is then the
+  project slug. Covers `validate next ready list parallel deps history start
+  done reset status add add-phase`. Always sends this machine's owner and
+  host, prints the hub's JSON, and mirrors the local exit codes. `--local`
+  opts out; `convert`, `sidebar` and `release` have no hub route and are
+  refused. Stdlib `urllib` only, new module `tidetable/remote.py`.
+
 ### Changed
 
 - **TaskerKeeper is now Tidetable (0.9.0).** Package `taskerkeeper/` is

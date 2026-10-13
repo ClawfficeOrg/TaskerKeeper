@@ -20,6 +20,7 @@ tidetable/cli.py                    All CLI logic. One file on purpose.
 tidetable/agents.py                 Tier -> provider/model resolution
 tidetable/integrations.py           `integrations list|install|uninstall` for the sidebar adapters
 tidetable/overnight.py              Unattended runner TKRun (`tkrun run|init|stop|kill`, `overnight` alias), the one supervisor
+tidetable/remote.py                 `--server` client: argv -> hub HTTP route, no logic
 tidetable/jsonio.py                 Atomic writes, the file lock, the event log
 tidetable/__main__.py               python -m tidetable
 taskerkeeper/                          Pre-0.9 name: aliases every tidetable module, no logic
@@ -46,6 +47,15 @@ schema is package data; a change that moves it out of `tidetable/` bricks
 every non-editable install.
 
 ## Rules
+
+**`remote.py` is a client, not a second implementation.** With `--server` the
+CLI maps argv to one `serve` route and prints the JSON it gets back. It holds
+no scheduling, claim, or lock logic and must stay that way: the hub's
+`handle_get`/`handle_post` over `cli.py` is the only writer. It always sends
+`owner` and `host` from the *calling* machine, because the server's defaults
+name the server. Remote output is JSON only; a new `serve` route that should be
+reachable from the CLI gets a row in `remote.ROUTES` and a test in
+`TestRemoteClient`.
 
 **The old name keeps working.** The project was TaskerKeeper before 0.9.0.
 `TASKERKEEPER_*` env vars are read through `jsonio.env_get` (new name wins),

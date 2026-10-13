@@ -1607,6 +1607,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(prog="tidetable", description="Tidetable CLI")
     parser.add_argument("--version", action="version", version=f"tidetable {__version__}")
+    parser.add_argument("--server", metavar="URL",
+                        help="Run against a `tidetable serve` hub (default: $TIDETABLE_SERVER). "
+                             "The todo_file argument is then a project slug")
+    parser.add_argument("--token", metavar="TOKEN",
+                        help="Bearer token for --server (default: $TIDETABLE_TOKEN)")
+    parser.add_argument("--local", action="store_true",
+                        help="Ignore $TIDETABLE_SERVER and use local files")
     sub = parser.add_subparsers(dest="command", required=True)
 
     def add_command(name, help_text, *, task_id=False, json_out=False):
@@ -1785,7 +1792,15 @@ def build_agents_parser(sub) -> None:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        code = args.func(args)
+        from tidetable import remote
+        refusal = remote.reject_if_local_only(args)
+        if refusal:
+            print(f"Error: {refusal}")
+            return 1
+        code = remote.run(args) if remote.active(args) else args.func(args)
+    except remote.RemoteError as e:
+        print(f"Error: {e}")
+        return 1
     except FileNotFoundError as e:
         print(f"Error: {e.filename} not found")
         return 1

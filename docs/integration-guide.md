@@ -1,5 +1,24 @@
 # Tidetable Integration Guide
 
+## Remote machines (hub client)
+
+Point any machine at a `tidetable serve` hub; the todo file stays on the hub and
+the `todo_file` argument becomes the project slug:
+
+```bash
+export TIDETABLE_SERVER=https://tk.example.com
+export TIDETABLE_TOKEN=tk_xxxxxxxx.…      # a machine token, or the hub's TK_API_TOKEN
+export TIDETABLE_OWNER=laptop-claude-1     # stable agent name; claims are enforced hub-side
+
+tidetable ready tidetable --disjoint
+tidetable start tidetable 1.1.2 --lease 60
+tidetable done  tidetable 1.1.2 --changelog "..."
+```
+
+Output is the hub's JSON; exit codes match the local commands. Use `--local`
+to ignore `$TIDETABLE_SERVER` for one call. The hub must be reachable over
+HTTPS with the bearer token — the API is never exposed unauthenticated.
+
 ## Standalone Usage
 
 Tidetable works as a standalone tool. No frameworks or platforms required.

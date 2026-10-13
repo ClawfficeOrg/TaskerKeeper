@@ -1300,3 +1300,143 @@ class TestTaskerKeeperCompat(unittest.TestCase):
              str(EXAMPLES / "simple-project.json")],
             capture_output=True, text=True, cwd=REPO_ROOT)
         self.assertEqual(r.returncode, 0, r.stderr)
+
+
+class TestRemoteClient(unittest.TestCase):
+    """`--server` runs a command against a `tidetable serve` hub."""
+
+    TOKEN = "test-shared-token"
+
+    def setUp(self):
+        import threading
+        from http.server import ThreadingHTTPServer
+
+        self.tmp = TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        root = Path(self.tmp.name)
+        self.todo_path = str(root / "todo.json")
+        Path(self.todo_path).write_text(json.dumps(todo(
+            phase("1.0", task("1.0.1"), task("1.0.2", prerequisites=["1.0.1"])))),
+            encoding="utf-8")
+        registry = str(root / "registry.json")
+        Path(registry).write_text(json.dumps({"projects": [
+            {"slug": "demo", "name": "Demo", "repo_url": "",
+             "todo_path": self.todo_path, "default_branch": "main"}]}), encoding="utf-8")
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), serve._Handler)
+        server.daemon_threads = True
+        server.registry = registry
+        server.sessions_db = str(root / "sessions.db")
+        server.tokens_db = str(root / "tokens.db")
+        self.thread = threading.Thread(target=server.serve_forever, daemon=True)
+        self.thread.start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        self.url = f"http://127.0.0.1:{server.server_address[1]}"
+
+        patcher = mock.patch.dict(os.environ, {"TK_API_TOKEN": self.TOKEN})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def run_cli(self, *argv: str, token: str | None = None, server: str | None = None):
+        head = ["--server", server or self.url]
+        if token is None:
+            token = self.TOKEN
+        if token:
+            head += ["--token", token]
+        out, err = io.StringIO(), io.StringIO()
+        from contextlib import redirect_stderr
+        with redirect_stdout(out), redirect_stderr(err):
+            code = cli.main(head + list(argv))
+        return code, out.getvalue(), err.getvalue()
+
+    def test_ready_matches_local_json(self):
+        code, out, _ = self.run_cli("ready", "demo", "--json")
+        self.assertEqual(code, 0)
+        local = io.StringIO()
+        with redirect_stdout(local):
+            cli.main(["ready", self.todo_path, "--json"])
+        self.assertEqual(json.loads(out), json.loads(local.getvalue()))
+
+    def test_start_then_done_writes_the_hub_file(self):
+        code, out, _ = self.run_cli("start", "demo", "1.0.1", "--owner", "laptop")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(json.loads(out)["owner"], "laptop")
+        code, out, _ = self.run_cli("done", "demo", "1.0.1", "--owner", "laptop")
+        self.assertEqual(code, 0, out)
+        status = {t["id"]: t["status"] for t in
+                  json.loads(Path(self.todo_path).read_text(encoding="utf-8"))["phases"][0]["tasks"]}
+        self.assertEqual(status["1.0.1"], "done")
+
+    def test_second_machine_cannot_take_a_live_claim(self):
+        self.assertEqual(self.run_cli("start", "demo", "1.0.1", "--owner", "a")[0], 0)
+        code, out, err = self.run_cli("start", "demo", "1.0.1", "--owner", "b")
+        self.assertEqual(code, 1)
+        self.assertEqual(out, "")
+        self.assertIn("held by a", err)
+
+    def test_next_with_nothing_runnable_exits_1_with_payload(self):
+        self.run_cli("start", "demo", "1.0.1", "--owner", "a")
+        code, out, _ = self.run_cli("next", "demo", "--owner", "b")
+        self.assertEqual(code, 1)
+        self.assertIsNone(json.loads(out)["task"])
+
+    def test_owner_defaults_to_this_machine_not_the_server(self):
+        with mock.patch.dict(os.environ, {"TIDETABLE_OWNER": "my-agent"}):
+            code, out, _ = self.run_cli("start", "demo", "1.0.1")
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out)["owner"], "my-agent")
+
+    def test_missing_or_wrong_token_is_a_clean_failure(self):
+        code, out, err = self.run_cli("list", "demo", token="")
+        self.assertEqual((code, out), (1, ""))
+        self.assertIn("Error:", err)
+        self.assertIn("TIDETABLE_TOKEN", err)
+        self.assertEqual(self.run_cli("list", "demo", token="nope")[0], 1)
+
+    def test_unknown_slug_and_unreachable_server(self):
+        code, _, err = self.run_cli("list", "ghost")
+        self.assertEqual(code, 1)
+        self.assertIn("unknown slug", err)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code, _, _ = self.run_cli("list", "demo", server="http://127.0.0.1:1")
+        self.assertEqual(code, 1)
+
+    def test_add_phase_over_the_wire(self):
+        code, out, _ = self.run_cli("add-phase", "demo", "--phase", "2.0",
+                                    "--title", "Next", "--prereq", "1.0", "--after", "1.0")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(json.loads(out)["id"], "2.0")
+
+    def test_env_server_is_used_and_local_flag_opts_out(self):
+        env = {"TIDETABLE_SERVER": self.url, "TIDETABLE_TOKEN": self.TOKEN}
+        with mock.patch.dict(os.environ, env):
+            out = io.StringIO()
+            with redirect_stdout(out):
+                self.assertEqual(cli.main(["list", "demo", "--json"]), 0)
+            self.assertIn("phases", out.getvalue())
+            out = io.StringIO()
+            with redirect_stdout(out):
+                code = cli.main(["--local", "list", self.todo_path, "--json"])
+            self.assertEqual(code, 0)
+
+    def test_commands_without_a_hub_route_are_refused(self):
+        code, out, _ = self.run_cli("convert", "demo")
+        self.assertEqual(code, 1)
+        self.assertIn("no remote mode", out)
+
+    def test_build_request_maps_flags_to_query_and_body(self):
+        from tidetable import remote
+
+        args = cli.build_parser().parse_args(
+            ["next", "demo", "--owner", "w", "--no-resume", "--disjoint"])
+        method, path, body = remote.build_request(args)
+        self.assertEqual(method, "GET")
+        self.assertTrue(path.startswith("/api/demo/next?"))
+        for part in ("owner=w", "resume=0", "disjoint=1"):
+            self.assertIn(part, path)
+        args = cli.build_parser().parse_args(
+            ["add", "demo", "--phase", "1.0", "--title", "T", "--prereq", "a", "--prereq", "b"])
+        _, _, body = remote.build_request(args)
+        self.assertEqual(body["prerequisites"], ["a", "b"])
