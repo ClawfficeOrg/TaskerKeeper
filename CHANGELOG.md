@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Hub-aware sidebar.** `GET /api/<slug>/sidebar?width=&height=` on
+  `tidetable serve` returns the same payload as `tidetable sidebar --json`,
+  and `sidebar` now works in remote mode (JSON, or the rendered text when
+  `--json` is absent). The Paseo plugin gains `server` / `token` settings
+  (env `TIDETABLE_SERVER` / `TIDETABLE_TOKEN`); with a server set, `todo` is a
+  project slug. The token reaches the CLI through its environment, not argv.
+  The OpenCode and pi sidebars already shell out to the CLI, so exporting
+  `TIDETABLE_SERVER`, `TIDETABLE_TOKEN` and `TIDETABLE_TODO=<slug>` works for
+  them too.
+- **TKRun against a hub.** `tidetable --server URL tkrun run <slug> --repo .`
+  works a hub project from a local checkout: claims, `done` and `reset` go to
+  the hub; code, gates, review and commits stay on a local throwaway branch.
+  Nothing of the todo file is committed or diffed locally, and the owner is
+  `overnight-<date>@<host>` so two machines never share an identity.
+  `tkrun init|stop|kill` take `--repo` the same way. Without a server, the
+  runner now passes `--local` to its CLI calls so a stray `$TIDETABLE_SERVER`
+  cannot hijack a file path.
+
 - **Remote client mode.** `tidetable --server https://hub next <slug>`
   (or `$TIDETABLE_SERVER` / `$TIDETABLE_TOKEN`) runs the command against a
   `tidetable serve` hub instead of a local file; `todo_file` is then the

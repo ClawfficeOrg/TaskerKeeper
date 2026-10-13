@@ -57,6 +57,12 @@ name the server. Remote output is JSON only; a new `serve` route that should be
 reachable from the CLI gets a row in `remote.ROUTES` and a test in
 `TestRemoteClient`.
 
+**TKRun on a hub keeps the todo off the branch.** With `--server`, `Runner.hub`
+is set: `todo_arg` is the slug, `todo_paths` is empty, and `todo_changes()`
+returns `[]` — never call `changed_paths(root, [])` for todo files, an empty
+pathspec means "everything". The owner includes the hostname. Local mode passes
+`--local` to every CLI call; keep it.
+
 **The old name keeps working.** The project was TaskerKeeper before 0.9.0.
 `TASKERKEEPER_*` env vars are read through `jsonio.env_get` (new name wins),
 `.taskerkeeper/` and `~/.config/taskerkeeper/` apply until the new directory

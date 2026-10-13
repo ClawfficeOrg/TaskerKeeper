@@ -25,6 +25,7 @@ import os
 import re
 import shlex
 import shutil
+import socket
 import subprocess
 import sys
 import time
@@ -298,6 +299,7 @@ class Runner:
     review_model: str = ""
     dry_run: bool = False
     base_override: str = ""
+    hub: dict | None = None          # {"server", "token", "project"}: todo lives on a hub
     exhausted: set = field(default_factory=set)
     lane_cache: dict = field(default_factory=dict)
     lane_last: dict = field(default_factory=dict)
@@ -309,7 +311,10 @@ class Runner:
     # derived paths / names
     def __post_init__(self):
         self.branch = f"{self.cfg['branch_prefix']}/{self.date}"
-        self.owner = f"overnight-{self.date}"
+        # On a hub several machines may run the same date; the owner names the machine
+        # too, or one runner would count as "the same agent" and refresh another's claim.
+        self.owner = f"overnight-{self.date}@{socket.gethostname()}" if self.hub \
+            else f"overnight-{self.date}"
         self.home = self.root.resolve()            # the checkout you started from; never edited
         self.base = self.base_override or self.cfg["base_branch"]
         wt = self.cfg["worktree_dir"]
@@ -320,8 +325,13 @@ class Runner:
         self.stop_file = self.home / RUN_DIR_NAME / "STOP"
         self.kill_file = self.home / RUN_DIR_NAME / "KILL"
         self.pid_file = self.home / RUN_DIR_NAME / "pid"
-        self.todo_rel = self.todo.resolve().relative_to(self.home).as_posix()
-        self.todo_paths = [self.todo_rel, self.todo_rel + ".events.jsonl"]
+        if self.hub:
+            # The todo file is not in this repo: nothing of it is committed or diffed here.
+            self.todo_rel = ""
+            self.todo_paths = []
+        else:
+            self.todo_rel = self.todo.resolve().relative_to(self.home).as_posix()
+            self.todo_paths = [self.todo_rel, self.todo_rel + ".events.jsonl"]
         lim = self.cfg["limits"]
         self.task_sec = int(lim["task_minutes"]) * 60
         self.gate_sec = int(lim["gate_minutes"]) * 60
@@ -421,11 +431,29 @@ class Runner:
 
     # ── tidetable
     def tk(self, *args: str) -> Proc:
-        return run_proc([sys.executable, "-m", "tidetable", *args], self.root,
-                        env={"TIDETABLE_OWNER": self.owner, "TASKERKEEPER_OWNER": self.owner})
+        env = {"TIDETABLE_OWNER": self.owner, "TASKERKEEPER_OWNER": self.owner}
+        head: list[str] = []
+        if self.hub:
+            env["TIDETABLE_SERVER"] = self.hub["server"]
+            env["TIDETABLE_TOKEN"] = self.hub.get("token", "")
+        else:
+            head = ["--local"]    # a $TIDETABLE_SERVER in the environment must not hijack a path
+        return run_proc([sys.executable, "-m", "tidetable", *head, *args], self.root, env=env)
+
+    @property
+    def todo_arg(self) -> str:
+        """What the CLI is told to operate on: the hub project slug, or the todo file."""
+        return self.hub["project"] if self.hub else str(self.todo)
+
+    def todo_changes(self) -> list[str]:
+        """Changed todo/event-log paths in the worktree; always empty on a hub.
+
+        (An empty pathspec would mean "everything" to `changed_paths`.)
+        """
+        return changed_paths(self.root, self.todo_paths) if self.todo_paths else []
 
     def next_task(self, skip: list[str]) -> dict | None:
-        r = self.tk("ready", str(self.todo), "--json")
+        r = self.tk("ready", self.todo_arg, "--json")
         try:
             ready = json.loads(r.out).get("ready", [])
         except json.JSONDecodeError:
@@ -754,10 +782,10 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
                 r = git(s["root"], "stash", "push", "-u", "-m", tag, "--", *z)
                 if r.code:
                     raise RuntimeError(f"could not stash {s['path']} work for {tid}: {r.out}{r.err}")
-        r = self.tk("reset", str(self.todo), tid, "--owner", self.owner)
+        r = self.tk("reset", self.todo_arg, tid, "--owner", self.owner)
         if r.code:
             self.log(f"WARN tidetable reset {tid} failed: {r.out}{r.err}")
-        todo = changed_paths(self.root, self.todo_paths)
+        todo = self.todo_changes()
         if todo:
             self.commit_paths(self.root, todo, f"chore(overnight): {tid} attempt failed, back to pending\n\n{reason}")
         self.log(f"FAILED {tid} - {reason} (work stashed as '{tag}' if any)")
@@ -832,7 +860,7 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
         if provider in self.exhausted:
             self.log(f"SKIP {tid} - {provider} is out of quota until after the deadline; not claimed")
             return "skipped"
-        r = self.tk("start", str(self.todo), tid, "--owner", self.owner, "--lease", str(self.lease))
+        r = self.tk("start", self.todo_arg, tid, "--owner", self.owner, "--lease", str(self.lease))
         if r.code:
             self.log(f"SKIP {tid} - claim failed: {r.out}{r.err}")
             return "skipped"
@@ -863,8 +891,8 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
         sib_changed = self.sibling_changes()
         if not changed and not any(sib_changed.values()):
             if parsed["status"] == "PARTIAL":
-                self.tk("reset", str(self.todo), tid, "--owner", self.owner)
-                todo = changed_paths(self.root, self.todo_paths)
+                self.tk("reset", self.todo_arg, tid, "--owner", self.owner)
+                todo = self.todo_changes()
                 if todo:
                     self.commit_paths(self.root, todo, f"chore(overnight): {tid} needs a human, nothing done")
                 self.log(f"SKIPPED {tid} - needs human, no changes: {parsed['detail']}")
@@ -902,7 +930,7 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
 
         if parsed["status"] == "DONE":
             cl = task.get("changelog") or task.get("title", tid)
-            r = self.tk("done", str(self.todo), tid, "--owner", self.owner, "--changelog", cl)
+            r = self.tk("done", self.todo_arg, tid, "--owner", self.owner, "--changelog", cl)
             if r.code:
                 parsed.update(status="PARTIAL", detail=f"tidetable done refused: {r.out}{r.err}")
         if parsed["status"] == "DONE":
@@ -918,7 +946,12 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
         """Check the repo is safe to run in; returns the current branch."""
         if not shutil.which("git"):
             raise RuntimeError("git not in PATH")
-        if not self.todo.is_file():
+        if self.hub:
+            r = self.tk("list", self.todo_arg, "--json")
+            if r.code:
+                raise RuntimeError(f"hub {self.hub['server']} project '{self.todo_arg}' "
+                                   f"not reachable: {(r.err or r.out).strip()[-300:]}")
+        elif not self.todo.is_file():
             raise RuntimeError(f"todo file missing: {self.todo}")
         base = self.base
         r = git(self.root, "rev-parse", base)
@@ -940,7 +973,7 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
         for s in gates:
             self.say(f"gate: {s.get('name')}: {' '.join(s['cmd'])}"
                      + (f" (repo {s['repo']})" if s.get("repo") else ""))
-        r = self.tk("ready", str(self.todo), "--json")
+        r = self.tk("ready", self.todo_arg, "--json")
         ready = json.loads(r.out).get("ready", []) if r.out.strip().startswith("{") else []
         self.say("Routing for ready tasks (in order):")
         for q in ready:
@@ -998,8 +1031,9 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
             if r.code:
                 raise RuntimeError(f"could not create worktree {self.wt_path}: {r.out}{r.err}")
         self.root = self.wt_path
-        self.todo = self.wt_path / self.todo_rel
-        self.todo_paths = [self.todo_rel, self.todo_rel + ".events.jsonl"]
+        if not self.hub:
+            self.todo = self.wt_path / self.todo_rel
+            self.todo_paths = [self.todo_rel, self.todo_rel + ".events.jsonl"]
 
     def halt_request(self) -> str | None:
         """Consume a STOP/KILL sentinel if present; None otherwise.
@@ -1027,7 +1061,7 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
                 raise RuntimeError(f"already running (pid {old}, {self.pid_file})")
         self.exclude_runtime_files()
         base = self.base
-        if git(self.home, "diff", "--quiet", "HEAD", "--", self.todo_rel).code != 0:
+        if not self.hub and git(self.home, "diff", "--quiet", "HEAD", "--", self.todo_rel).code != 0:
             raise RuntimeError(f"{self.todo_rel} has uncommitted changes; commit them first "
                                "(the run works from the committed copy in its worktree).")
         for sib in self.siblings:
@@ -1046,7 +1080,8 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
         with open(self.log_file, "a", encoding="utf-8") as f:
             f.write(f"\n## {self.date} run (pid {os.getpid()})\n\n")
         self.log(f"worktree {self.wt_path} on {self.branch}; deadline {self.deadline:%H:%M}; "
-                 f"stop: tidetable overnight stop {self.home / self.todo_rel}")
+                 f"stop: tidetable overnight stop "
+                 + (f"--repo {self.home} {self.todo_arg}" if self.hub else str(self.home / self.todo_rel)))
 
         counts = dict.fromkeys(("done", "partial", "skipped", "failed", "limited"), 0)
         tried: list[str] = []
@@ -1093,9 +1128,35 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
 
 # ── CLI ──────────────────────────────────────────────────────────────────────
 
+def hub_for(args) -> dict | None:
+    """The hub to run against, or None for a local todo file.
+
+    Hub mode = a server is configured (`--server` / `$TIDETABLE_SERVER`) and
+    `--local` is absent; `todo_file` is then the project slug.
+    """
+    from tidetable import remote
+
+    if getattr(args, "local", False):
+        return None
+    server = remote.server_url(args)
+    if not server:
+        return None
+    return {"server": server, "token": remote.token(args), "project": args.todo_file}
+
+
+def resolve_target(args) -> tuple[Path, Path, dict | None]:
+    """(todo path, repo root, hub) for run/init/stop/kill."""
+    hub = hub_for(args)
+    if hub is None:
+        todo = Path(args.todo_file).resolve()
+        return todo, repo_root_for(todo), None
+    repo = Path(getattr(args, "repo", None) or ".").resolve()
+    # repo_root_for walks up from a file's parent; a placeholder child gives it one.
+    return Path(args.todo_file), repo_root_for(repo / "_"), hub
+
+
 def cmd_run(args) -> int:
-    todo = Path(args.todo_file).resolve()
-    root = repo_root_for(todo)
+    todo, root, hub = resolve_target(args)
     cfg, path = load_config(root)
     hours, minutes = args.hours, args.minutes
     if minutes and args.hours is None:
@@ -1106,7 +1167,7 @@ def cmd_run(args) -> int:
                     deadline=datetime.now() + timedelta(hours=hours, minutes=minutes),
                     model_override=args.model or "", no_review=args.no_review,
                     review_model=args.review_model or "", dry_run=args.dry_run,
-                    base_override=args.base or "")
+                    base_override=args.base or "", hub=hub)
     if path is None:
         runner.say("no .tidetable/overnight.json; using detected stack defaults "
                    "(`tidetable overnight init` writes one)")
@@ -1118,8 +1179,7 @@ def cmd_run(args) -> int:
 
 
 def cmd_init(args) -> int:
-    todo = Path(args.todo_file).resolve()
-    root = repo_root_for(todo)
+    _, root, _ = resolve_target(args)
     path = config_path(root)
     if path.exists() and not args.force:
         print(f"Error: {path} exists (use --force to overwrite)")
@@ -1132,7 +1192,7 @@ def cmd_init(args) -> int:
 
 
 def cmd_stop(args) -> int:
-    root = repo_root_for(Path(args.todo_file).resolve())
+    _, root, _ = resolve_target(args)
     stop = root / RUN_DIR_NAME / "STOP"
     stop.parent.mkdir(parents=True, exist_ok=True)
     stop.write_text("stop\n", encoding="utf-8")
@@ -1169,7 +1229,7 @@ def cmd_kill(args) -> int:
     """
     from tidetable.jsonio import _pid_alive  # local import: supervisor-side only
 
-    root = repo_root_for(Path(args.todo_file).resolve())
+    _, root, _ = resolve_target(args)
     rundir = root / RUN_DIR_NAME
     rundir.mkdir(parents=True, exist_ok=True)
     (rundir / "KILL").write_text("kill\n", encoding="utf-8")
@@ -1201,7 +1261,7 @@ def add_parser(sub) -> None:
     inner = p.add_subparsers(dest="overnight_command", required=True)
 
     run = inner.add_parser("run", help="Work through ready tasks until done, stopped or out of time")
-    run.add_argument("todo_file", help="Path to todo JSON file")
+    run.add_argument("todo_file", help="Path to todo JSON file (project slug with --server)")
     run.add_argument("--hours", type=float, default=None, help="Time budget (default 8; 0 with --minutes)")
     run.add_argument("--minutes", type=float, default=0, help="Added to --hours (alone = minutes only)")
     run.add_argument("--dry-run", action="store_true", help="Show routing, command and prompt; change nothing")
@@ -1209,17 +1269,25 @@ def add_parser(sub) -> None:
     run.add_argument("--review-model", help="Override the reviewer (provider/model)")
     run.add_argument("--base", help="Branch the worktree is cut from (default: base_branch, main)")
     run.add_argument("--no-review", action="store_true", help="Close on the gate alone")
+    run.add_argument("--repo", metavar="PATH",
+                     help="With a hub (--server): the git checkout to work in (default: cwd)")
     run.set_defaults(func=cmd_run)
 
     init = inner.add_parser("init", help="Write a starter .tidetable/overnight.json for this repo")
     init.add_argument("todo_file", help="Path to todo JSON file (locates the repo)")
     init.add_argument("--force", action="store_true", help="Overwrite an existing config")
+    init.add_argument("--repo", metavar="PATH",
+                      help="With a hub (--server): the git checkout to work in (default: cwd)")
     init.set_defaults(func=cmd_init)
 
     stop = inner.add_parser("stop", help="Ask a running TKRun to stop after the current task")
     stop.add_argument("todo_file", help="Path to todo JSON file (locates the repo)")
+    stop.add_argument("--repo", metavar="PATH",
+                      help="With a hub (--server): the git checkout to work in (default: cwd)")
     stop.set_defaults(func=cmd_stop)
 
     kill = inner.add_parser("kill", help="Hard-stop a running TKRun: signal its process tree now")
     kill.add_argument("todo_file", help="Path to todo JSON file (locates the repo)")
+    kill.add_argument("--repo", metavar="PATH",
+                      help="With a hub (--server): the git checkout to work in (default: cwd)")
     kill.set_defaults(func=cmd_kill)

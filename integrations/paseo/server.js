@@ -9,6 +9,12 @@
 // spawns `tidetable sidebar <todo> --json --width --height` and returns
 // the parsed payload. Any failure is fail-soft: { ok: false, error }.
 // No DAG logic lives here; tidetable/cli.py owns all scheduling.
+//
+// Hub mode: with `server` set (RPC params, plugin settings, or
+// TIDETABLE_SERVER env) the "todo" value is a project slug on a
+// `tidetable serve` hub and the CLI reads it over HTTP. The bearer token
+// (`token` setting or TIDETABLE_TOKEN) goes to the child through its
+// environment, never argv, so it does not show up in `ps`.
 "use strict";
 
 const { execFile } = require("node:child_process");
@@ -19,6 +25,18 @@ function resolveTodo(params, settings) {
   return (
     params.todo || settings.todo || process.env.TIDETABLE_TODO || ""
   );
+}
+
+function resolveHub(params, settings) {
+  params = params || {};
+  settings = settings || {};
+  const server = String(
+    params.server || settings.server || process.env.TIDETABLE_SERVER || ""
+  ).trim();
+  const token = String(
+    params.token || settings.token || process.env.TIDETABLE_TOKEN || ""
+  ).trim();
+  return { server, token };
 }
 
 function toInt(value, fallback) {
@@ -44,15 +62,25 @@ async function handle(request, ctx) {
     params.height !== undefined ? params.height : settings.height,
     40
   );
+  const hub = resolveHub(params, settings);
   if (!todo) {
     return {
       ok: false,
-      error: "no todo file configured (settings.todo or TIDETABLE_TODO)",
+      error: hub.server
+        ? "no project configured (settings.todo = the hub project slug)"
+        : "no todo file configured (settings.todo or TIDETABLE_TODO)",
     };
   }
   return new Promise((resolve) => {
     const args = ["sidebar", todo, "--json", "--width", String(width), "--height", String(height)];
     const opts = { timeout: 30000, maxBuffer: 4 * 1024 * 1024 };
+    if (hub.server) {
+      // Always set both: an empty token surfaces as the CLI's own 401 hint.
+      opts.env = Object.assign({}, process.env, {
+        TIDETABLE_SERVER: hub.server,
+        TIDETABLE_TOKEN: hub.token,
+      });
+    }
     const runFallback = () =>
       execFile("python", ["-m", "tidetable", ...args], opts, (err2, stdout2, stderr2) => {
         if (err2) {
@@ -89,4 +117,4 @@ async function handle(request, ctx) {
   });
 }
 
-module.exports = { handle, resolveTodo };
+module.exports = { handle, resolveTodo, resolveHub };

@@ -15,6 +15,18 @@ tidetable start tidetable 1.1.2 --lease 60
 tidetable done  tidetable 1.1.2 --changelog "..."
 ```
 
+To run the unattended runner against a hub project from a local checkout:
+
+```bash
+tidetable tkrun run tidetable --repo ~/code/myrepo --hours 4   # slug, not a path
+tidetable tkrun stop tidetable --repo ~/code/myrepo
+```
+
+Claims and `done` go to the hub; code, gates and commits stay in a local
+worktree. Harness sidebars (Paseo `server`/`token` settings, or exported
+`TIDETABLE_SERVER` / `TIDETABLE_TOKEN` / `TIDETABLE_TODO=<slug>` for OpenCode and
+pi) read the hub's `/api/<slug>/sidebar`.
+
 Output is the hub's JSON; exit codes match the local commands. Use `--local`
 to ignore `$TIDETABLE_SERVER` for one call. The hub must be reachable over
 HTTPS with the bearer token — the API is never exposed unauthenticated.
