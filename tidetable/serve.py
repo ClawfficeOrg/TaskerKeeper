@@ -43,6 +43,7 @@ ROUTES: dict[tuple[str, str], str] = {
     ("GET", "/api/{slug}/validate"): "cmd_validate",
     ("GET", "/api/{slug}/parallel"): "cmd_parallel",
     ("GET", "/api/{slug}/sessions"): "sessions",
+    ("GET", "/api/{slug}/sidebar"): "sidebar",
     ("GET", "/api/stream"): "stream",
     ("POST", "/api/{slug}/start"): "cmd_start",
     ("POST", "/api/{slug}/done"): "cmd_done",
@@ -481,6 +482,18 @@ def handle_get(route: str, slug: str | None, query: Mapping[str, str],
                    for t in tasks]
             for name, tasks in cli.parallel_groups(data).items()
         }
+
+    if route == "/api/{slug}/sidebar":
+        from tidetable import sidebar as sidebar_mod
+
+        def _dim(name: str, default: int) -> int:
+            try:
+                value = int(query.get(name, ""))
+            except ValueError:
+                return default
+            return value if value > 0 else default
+
+        return 200, sidebar_mod.sidebar_payload(data, _dim("width", 80), _dim("height", 40))
 
     if route == "/api/{slug}/sessions":
         db = _resolve_sessions_db(registry, sessions_db)

@@ -1358,6 +1358,18 @@ class TestRemoteClient(unittest.TestCase):
             cli.main(["ready", self.todo_path, "--json"])
         self.assertEqual(json.loads(out), json.loads(local.getvalue()))
 
+    def test_sidebar_matches_local_json_and_renders_text_without_it(self):
+        code, out, _ = self.run_cli("sidebar", "demo", "--json", "--width", "60", "--height", "20")
+        self.assertEqual(code, 0)
+        local = io.StringIO()
+        with redirect_stdout(local):
+            cli.main(["sidebar", self.todo_path, "--json", "--width", "60", "--height", "20"])
+        self.assertEqual(json.loads(out), json.loads(local.getvalue()))
+        code, text, _ = self.run_cli("sidebar", "demo")
+        self.assertEqual(code, 0)
+        self.assertFalse(text.lstrip().startswith("{"))
+        self.assertIn("1.0.1", text)
+
     def test_start_then_done_writes_the_hub_file(self):
         code, out, _ = self.run_cli("start", "demo", "1.0.1", "--owner", "laptop")
         self.assertEqual(code, 0, out)

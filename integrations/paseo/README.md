@@ -38,6 +38,21 @@ Requires the `tidetable` CLI on the server's `PATH`.
 - `height` (default 40) — passed as `--height`, caps section row counts
   (overflow shows as "…N more").
 
+## Hub mode (todo lives on a `tidetable serve` hub)
+
+Set `server` (and `token`), and put the **project slug** in `todo`:
+
+- `server` — hub base URL, e.g. `https://tidetable.compewtertutor.com`.
+  Falls back to `TIDETABLE_SERVER`.
+- `token` — bearer token. Falls back to `TIDETABLE_TOKEN`; prefer the env var
+  where the machine is shared. It reaches the CLI through its environment,
+  not argv.
+- `todo` — the project slug (`tidetable`), not a path.
+
+The panel is identical: the hub's `GET /api/<slug>/sidebar` returns the same
+payload `tidetable sidebar --json` prints locally. Needs a `tidetable` CLI
+>= 0.10 on the Paseo server's `PATH`.
+
 ## Screenshots (description)
 
 - Nav: "TideTable" entry with a numeric badge equal to the

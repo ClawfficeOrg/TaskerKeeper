@@ -6,8 +6,8 @@ to the single-writer core API. This module maps argv to routes and prints what
 the server returned; it holds no DAG, claim, or lock logic (see AGENTS.md —
 `serve.py` owns that, over `cli.py`).
 
-Output is always the server's JSON payload, indented, whether or not `--json`
-was given: remote mode is for agents. Exit codes follow the local commands.
+Output is the server's JSON payload, indented, whether or not `--json` was
+given (only `sidebar` without `--json` renders text): remote mode is for agents. Exit codes follow the local commands.
 Stdlib only (`urllib`); the token is `--token` / `$TIDETABLE_TOKEN`.
 """
 
@@ -33,6 +33,7 @@ ROUTES = {
     "parallel": ("GET", "parallel"),
     "deps": ("GET", "deps"),
     "history": ("GET", "history"),
+    "sidebar": ("GET", "sidebar"),
     "start": ("POST", "start"),
     "done": ("POST", "done"),
     "reset": ("POST", "reset"),
@@ -42,7 +43,7 @@ ROUTES = {
 }
 
 #: commands that take a todo file but have no hub route.
-LOCAL_ONLY = {"convert", "sidebar", "release"}
+LOCAL_ONLY = {"convert", "release"}
 
 
 class RemoteError(Exception):
@@ -82,6 +83,9 @@ def build_request(args) -> tuple[str, str, dict]:
     elif cmd == "ready":
         if args.disjoint:
             query["disjoint"] = "1"
+    elif cmd == "sidebar":
+        query["width"] = str(args.width)
+        query["height"] = str(args.height)
     elif cmd == "deps":
         query["task"] = args.task_id
     elif cmd == "history":
@@ -178,7 +182,13 @@ def run(args) -> int:
         if status in (401, 403) and not token(args):
             print("Hint: set --token or $TIDETABLE_TOKEN.", file=sys.stderr)
         return 1
-    print(json.dumps(payload, indent=2, ensure_ascii=False))
+    if args.command == "sidebar" and not args.json:
+        # The harness panels ask for --json; a human gets the same text a local run prints.
+        from tidetable import sidebar
+
+        print(sidebar.render_sidebar(payload, args.width), end="")
+    else:
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
     return exit_code(args.command, status, payload)
 
 

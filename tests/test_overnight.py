@@ -445,3 +445,102 @@ class LaneTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HubModeTests(unittest.TestCase):
+    """`--server`: the todo lives on a hub, the repo and worktree stay local."""
+
+    TOKEN = "hub-test-token"
+
+    def setUp(self):
+        import threading
+        from http.server import ThreadingHTTPServer
+
+        from tidetable import serve
+
+        self.s = Scratch()
+        self.addCleanup(self.s.close)
+        hub_dir = Path(self.s._tmp.name) / "hub"
+        hub_dir.mkdir()
+        self.hub_todo = hub_dir / "todo.json"
+        self.hub_todo.write_text(self.s.todo.read_text(encoding="utf-8"), encoding="utf-8")
+        registry = hub_dir / "registry.json"
+        registry.write_text(json.dumps({"projects": [
+            {"slug": "hub", "name": "Hub", "repo_url": "", "todo_path": str(self.hub_todo),
+             "default_branch": "main"}]}), encoding="utf-8")
+        server = ThreadingHTTPServer(("127.0.0.1", 0), serve._Handler)
+        server.daemon_threads = True
+        server.registry = str(registry)
+        server.sessions_db = str(hub_dir / "sessions.db")
+        server.tokens_db = str(hub_dir / "tokens.db")
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        self.url = f"http://127.0.0.1:{server.server_address[1]}"
+
+    def run_hub(self, mode: str = "done", *extra: str, token: str | None = None) -> tuple[int, str]:
+        env = {**self.s.env, "STUB_MODE": mode, "STUB_REVIEW": "PASS", "TK_API_TOKEN": self.TOKEN}
+        argv = ["--server", self.url, "--token", self.TOKEN if token is None else token,
+                "overnight", "run", "hub", "--repo", str(self.s.root),
+                "--model", "anthropic/stub", *(extra or ("--hours", "1"))]
+        buf = io.StringIO()
+        with mock.patch.dict(os.environ, env), redirect_stdout(buf):
+            code = cli.main(argv)
+        return code, buf.getvalue()
+
+    def hub_status(self, tid: str = "1.1") -> str:
+        data = json.loads(self.hub_todo.read_text(encoding="utf-8"))
+        return next(t["status"] for p in data["phases"] for t in p["tasks"] if t["id"] == tid)
+
+    def test_done_closes_the_task_on_the_hub_and_commits_code_locally(self):
+        code, out = self.run_hub("done")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.hub_status(), "done")
+        # the repo's own todo.json is not the todo; nothing of it was committed or changed
+        self.assertEqual(json.loads(self.s.todo.read_text(encoding="utf-8"))
+                         ["phases"][0]["tasks"][0]["status"], "pending")
+        self.assertIn("1.1: add work file", _git(self.s.root, "log", self.s.branch, "--format=%s"))
+        self.assertTrue((self.s.work / "work.txt").exists())
+        self.assertEqual(_git(self.s.work, "status", "--porcelain").strip(), "")
+        self.assertNotIn("todo.json", _git(self.s.root, "log", f"main..{self.s.branch}",
+                                           "--name-only", "--format="))
+
+    def test_owner_names_the_machine_so_two_runners_never_share_an_identity(self):
+        import socket
+
+        self.run_hub("done")
+        events = (Path(str(self.hub_todo) + ".events.jsonl")).read_text(encoding="utf-8")
+        owners = {json.loads(l).get("owner") for l in events.splitlines() if l.strip()}
+        self.assertIn(f"overnight-{datetime.now():%Y-%m-%d}@{socket.gethostname()}", owners)
+
+    def test_gate_failure_returns_the_hub_task_to_pending(self):
+        s = Scratch(gate_exit=1)
+        self.addCleanup(s.close)
+        self.s = s
+        self.setUp_hub_for(s)
+        code, out = self.run_hub("done")
+        self.assertEqual(self.hub_status(), "pending")
+        self.assertIn("gate", out)
+        # a failed attempt on a hub must not commit "everything" as todo changes
+        self.assertNotIn("chore(overnight)", _git(s.root, "log", s.branch, "--format=%s"))
+
+    def setUp_hub_for(self, scratch: "Scratch") -> None:
+        self.hub_todo.write_text(scratch.todo.read_text(encoding="utf-8"), encoding="utf-8")
+
+    def test_unreachable_hub_or_bad_token_aborts_before_any_work(self):
+        code, out = self.run_hub("done", token="wrong")
+        self.assertEqual(code, 1)
+        self.assertIn("not reachable", out)
+        self.assertFalse((self.s.work / "work.txt").exists())
+        self.assertEqual(self.hub_status(), "pending")
+
+    def test_local_flag_keeps_the_runner_off_a_server_in_the_environment(self):
+        """--local wins over $TIDETABLE_SERVER, and the runner's CLI calls inherit that."""
+        env = {**self.s.env, "STUB_MODE": "done", "STUB_REVIEW": "PASS",
+               "TIDETABLE_SERVER": "http://127.0.0.1:1", "TIDETABLE_TOKEN": "x"}
+        buf = io.StringIO()
+        with mock.patch.dict(os.environ, env), redirect_stdout(buf):
+            code = cli.main(["--local", "overnight", "run", str(self.s.todo),
+                             "--model", "anthropic/stub", "--hours", "1"])
+        self.assertEqual(code, 0, buf.getvalue())
+        self.assertEqual(self.s.status(), "done")
