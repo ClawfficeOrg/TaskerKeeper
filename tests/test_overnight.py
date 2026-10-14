@@ -37,8 +37,14 @@ if mode == "limit":
 if mode == "silent":
     print("I did some things")
     sys.exit(0)
+tid = prompt.split("Task: ")[1].split(" ")[0]
+if os.environ.get("STUB_TRACK"):
+    open(os.environ["STUB_TRACK"], "a").write("s %s %f\n" % (tid, time.time()))
+    time.sleep(float(os.environ.get("STUB_SLEEP", "1.0")))
+    open(os.environ["STUB_TRACK"], "a").write("e %s %f\n" % (tid, time.time()))
 if mode != "nochange":
-    open("work.txt", "w").write("work for " + prompt.split("Task: ")[1].split(" ")[0])
+    name = os.environ.get("STUB_FILE") or ("work-%s.txt" % tid if os.environ.get("STUB_PER_TASK") else "work.txt")
+    open(name, "w").write("work for " + tid)
 if os.environ.get("STUB_SIB_FILE"):
     os.makedirs(os.path.dirname(os.environ["STUB_SIB_FILE"]), exist_ok=True)
     open(os.environ["STUB_SIB_FILE"], "w").write("sib")
@@ -257,6 +263,70 @@ class OvernightRunTests(unittest.TestCase):
         self.assertNotIn("OVERNIGHT_SUMMARY", out)
         self.assertEqual(s.status(), "done")
 
+    def parallel_scratch(self, touches: list[list[str]]) -> Scratch:
+        s = self.scratch(tasks=len(touches))
+        data = json.loads(s.todo.read_text(encoding="utf-8"))
+        for t, tt in zip(data["phases"][0]["tasks"], touches):
+            if tt:
+                t["touches"] = tt
+        s.todo.write_text(json.dumps(data), encoding="utf-8")
+        s.set_config({"gate": [{"cmd": [sys.executable, "-c", "pass"]}],
+                      "review": {"enabled": False}})
+        return s
+
+    @staticmethod
+    def max_concurrency(track: Path) -> int:
+        events = sorted((float(ts), kind) for kind, _tid, ts in
+                        (ln.split() for ln in track.read_text().splitlines()))
+        cur = best = 0
+        for _ts, kind in events:
+            cur += 1 if kind == "s" else -1
+            best = max(best, cur)
+        return best
+
+    def test_jobs_run_disjoint_tasks_at_once_and_merge_them(self):
+        s = self.parallel_scratch([["a/"], ["b/"], ["c/"]])
+        track = s.root.parent / "track.log"
+        code, out = s.run("done", "--hours", "1", "--jobs", "3", STUB_TRACK=str(track), STUB_PER_TASK="1")
+        self.assertEqual(code, 0, out)
+        for tid in ("1.1", "1.2", "1.3"):
+            self.assertEqual(s.status(tid), "done")
+            self.assertTrue((s.work / f"work-{tid}.txt").exists())
+        self.assertGreaterEqual(self.max_concurrency(track), 2)
+        subjects = _git(s.root, "log", s.branch, "--format=%s")
+        for tid in ("1.1", "1.2", "1.3"):
+            self.assertIn(f"{tid}: add work file", subjects)
+        # job worktrees and branches are removed once merged
+        self.assertEqual(len(_git(s.root, "worktree", "list").strip().splitlines()), 2)
+        self.assertNotIn("-1.1", _git(s.root, "branch", "--list"))
+
+    def test_jobs_serialise_tasks_with_overlapping_or_missing_touches(self):
+        s = self.parallel_scratch([["lib/"], ["lib/sub/"], []])
+        track = s.root.parent / "track.log"
+        code, out = s.run("done", "--hours", "1", "--jobs", "3", STUB_TRACK=str(track), STUB_PER_TASK="1")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.max_concurrency(track), 1)
+        for tid in ("1.1", "1.2", "1.3"):
+            self.assertEqual(s.status(tid), "done")
+
+    def test_job_merge_conflict_keeps_branch_and_reopens_task(self):
+        s = self.parallel_scratch([["a/"], ["b/"]])
+        track = s.root.parent / "track.log"
+        # both tasks write work.txt with different content: the second merge conflicts
+        code, out = s.run("done", "--hours", "1", "--jobs", "2", STUB_TRACK=str(track))
+        self.assertIn("MERGE CONFLICT", out)
+        statuses = sorted(s.status(t) for t in ("1.1", "1.2"))
+        self.assertEqual(statuses, ["done", "pending"])
+        self.assertIn(s.branch + "-", _git(s.root, "branch", "--list"))
+
+    def test_jobs_flag_defaults_to_config(self):
+        s = self.parallel_scratch([["a/"], ["b/"]])
+        s.set_config({"gate": [{"cmd": [sys.executable, "-c", "pass"]}],
+                      "review": {"enabled": False}, "parallel": {"jobs": 2}})
+        track = s.root.parent / "track.log"
+        s.run("done", "--hours", "1", STUB_TRACK=str(track), STUB_PER_TASK="1")
+        self.assertEqual(self.max_concurrency(track), 2)
+
     def test_required_changed_downgrades_done(self):
         s = self.scratch()
         s.set_config({"gate": [{"cmd": [sys.executable, "-c", "pass"]}],
@@ -429,7 +499,7 @@ class OvernightUnitTests(unittest.TestCase):
             r.run_dir = Path(d)
             seen = {}
 
-            def fake(argv, cwd, stdin=None, timeout=0, env=None, follow=False):
+            def fake(argv, cwd, stdin=None, timeout=0, env=None, follow=False, prefix=""):
                 seen["timeout"] = timeout
                 return overnight.Proc(0, "OVERNIGHT_RESULT: DONE", "")
             with mock.patch.object(overnight, "run_proc", fake),                     mock.patch.object(r, "assert_safe"):

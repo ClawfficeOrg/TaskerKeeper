@@ -47,6 +47,27 @@ run.
    | failed | FAILED, no result line, timeout, gate failed, DONE with no changes | work stashed (`overnight <date> <id> failed`), task back to pending |
    | skipped | needs a human and changed nothing; provider out of quota | task back to pending or never claimed |
 
+## Running tasks in parallel
+
+`--jobs N` (or `parallel.jobs` in the config) runs up to N tasks at once. Each
+gets its own worktree and branch (`overnight/<date>-<id>`) cut from the run
+branch, and is merged back with `--no-ff` as it finishes, one at a time. The
+todo file is only ever written in the run worktree, so jobs never conflict on
+task state.
+
+- A task runs next to others only if it declares `touches` and none of its
+  paths overlaps (same path, or one inside the other) with a running task's. A
+  task with no `touches` is exclusive: it waits for the running ones to drain,
+  and nothing starts behind it.
+- A merge conflict leaves the job branch and worktree in place, puts the task
+  back to pending, and counts as a failure.
+- Cargo (and other tools that lock a shared directory) serialise on it. Set
+  `parallel.job_env`, e.g. `{"CARGO_TARGET_DIR": "{home}/.overnight/target"}`, to
+  share one build directory instead of compiling every worktree from scratch.
+  `{home}` expands to the checkout.
+- `--follow` output is prefixed with the task id.
+- Not supported together with `siblings` yet.
+
 The deadline only stops new tasks from *starting*: a task already running is
 never cut short by it, only by `limits.task_minutes` (default 120).
 
@@ -78,6 +99,7 @@ All keys optional; unknown keys are an error.
 | `required_changed` | a DONE that did not change these (e.g. `CHANGELOG.md`) becomes PARTIAL |
 | `siblings` | `[{path, scope[]}]` other repos a task may change. Each gets its own worktree `<name>-overnight-<date>` on the same branch name, cut from the branch it is on. In config strings `{sibling:PATH}` is that worktree and `{sibling_home:PATH}` the real checkout (for prebuilt tools) |
 | `review` | `{enabled, model, phase: {enabled, model, on_fail}}`. `enabled`/`model` are the per-task review (default Opus, `provider/model`). `phase` is the optional end-of-phase review: off by default, `model` defaults to the task reviewer, `on_fail` is `continue` (default) or `stop`. Flags: `--task-review-model`, `--no-task-review`, `--phase-review-model` (also enables it), `--no-phase-review`; `--review-model` and `--no-review` are the older names for the task review |
+| `parallel` | `{jobs, job_env}`: concurrent tasks (default 1) and extra env for every agent and gate process, see "Running tasks in parallel" |
 | `limits` | `task_minutes` 120, `gate_minutes` 45, `max_consecutive_failures` 2, `lease_minutes` 480 |
 | `agent_commands` | `{provider: {cmd: [... "{model}" "{prompt}"], stdin: bool}}` for other CLIs |
 | `human_check_pattern`, `human_check_exempt` | regexes for criteria that need a person |

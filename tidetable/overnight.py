@@ -19,6 +19,8 @@ subcommand and no scheduling logic may depend on this module.
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
+import copy
 import fnmatch
 import json
 import os
@@ -28,6 +30,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -87,6 +90,12 @@ DEFAULTS: dict = {
     # its own object: {"task": {...}, "phase": {...}}.
     "review": {"enabled": True, "model": "anthropic/claude-opus-5-5",
                "phase": {"enabled": False, "model": "", "on_fail": "continue"}},
+    # `jobs` > 1 runs that many tasks at once, each in its own worktree on its own branch,
+    # merged back onto the run branch as it finishes. Only tasks whose `touches` do not overlap
+    # (and which declare `touches`) run together. `job_env` is added to every agent and gate
+    # process; `{home}` expands to the checkout, e.g. {"CARGO_TARGET_DIR": "{home}/.overnight/target"}
+    # to share one cargo target dir between jobs (cargo serialises the builds).
+    "parallel": {"jobs": 1, "job_env": {}},
     "limits": {"task_minutes": 120, "gate_minutes": 45,
                "max_consecutive_failures": 2, "lease_minutes": 480},
     "agent_commands": {},          # provider -> {cmd:[...with {model}], stdin:bool}
@@ -178,7 +187,8 @@ def _kill_tree(p: subprocess.Popen) -> None:
 
 
 def run_proc(argv: list[str], cwd: str | Path, stdin: str | None = None,
-             timeout: int = 0, env: dict | None = None, follow: bool = False) -> Proc:
+             timeout: int = 0, env: dict | None = None, follow: bool = False,
+             prefix: str = "") -> Proc:
     """Run argv (no shell) with an optional stdin and a hard timeout in seconds.
 
     `follow` echoes the child's output to this console as it arrives; the full
@@ -203,7 +213,7 @@ def run_proc(argv: list[str], cwd: str | Path, stdin: str | None = None,
             for line in stream:
                 bufs[key].append(line)
                 try:
-                    sys.stdout.write(line)
+                    sys.stdout.write(prefix + line)
                     sys.stdout.flush()
                 except (OSError, ValueError):
                     pass
@@ -233,6 +243,16 @@ def run_proc(argv: list[str], cwd: str | Path, stdin: str | None = None,
         _kill_tree(p)
         out, err = p.communicate()
     return Proc(p.returncode, out or "", err or "", timed_out)
+
+
+def touches_overlap(a: list[str], b: list[str]) -> bool:
+    """True when any path in `a` is the same as, inside, or contains a path in `b`."""
+    for x in a:
+        for y in b:
+            x, y = x.replace("\\", "/").rstrip("/"), y.replace("\\", "/").rstrip("/")
+            if x == y or x.startswith(y + "/") or y.startswith(x + "/"):
+                return True
+    return False
 
 
 def git(cwd: str | Path, *args: str) -> Proc:
@@ -340,6 +360,7 @@ class Runner:
     no_phase_review: bool = False
     follow: bool = False             # echo the agent's output to the console as it runs
     phase_review_model: str = ""
+    jobs: int = 0                    # 0 = use config `parallel.jobs`
     dry_run: bool = False
     base_override: str = ""
     hub: dict | None = None          # {"server", "token", "project"}: todo lives on a hub
@@ -419,6 +440,11 @@ class Runner:
         if self.phase_on_fail not in ("continue", "stop"):
             raise ValueError("review.phase.on_fail must be 'continue' or 'stop'")
         self.phase_reviewed: set[str] = set()
+        par = self.cfg["parallel"]
+        self.job_count = max(1, int(self.jobs or par.get("jobs", 1)))
+        self.job_env = {k: str(v).replace("{home}", str(self.home)) for k, v in par.get("job_env", {}).items()}
+        self.follow_prefix = ""
+        self.merge_lock = threading.Lock()
         for name, lane in self.cfg["lanes"].items():
             merged = {**LANE_DEFAULTS, **lane}
             if "/" not in str(merged["fallback"]):
@@ -818,7 +844,9 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
                 self.opencode_cfg.write_text(call["opencode"], encoding="utf-8")
             try:
                 res = run_proc(call["argv"], self.root, stdin=call["stdin"], timeout=cap, follow=self.follow,
-                               env={"TIDETABLE_OWNER": self.owner, "TASKERKEEPER_OWNER": self.owner})
+                               prefix=self.follow_prefix,
+                               env={"TIDETABLE_OWNER": self.owner, "TASKERKEEPER_OWNER": self.owner,
+                                    **self.job_env})
             finally:
                 if call["opencode"]:
                     self.opencode_cfg.unlink(missing_ok=True)
@@ -856,7 +884,7 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
         if not paths:
             return False
         clear_index_lock(cwd)
-        msg = self.run_dir / f"commitmsg-{os.getpid()}.txt"
+        msg = self.run_dir / f"commitmsg-{os.getpid()}-{threading.get_ident()}.txt"
         msg.write_text(message, encoding="utf-8")
         try:
             r = git(cwd, "add", "-A", "--", *paths)
@@ -956,7 +984,7 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
         gate_log = self.run_dir / f"{tid}-gate.txt"
         for name, cmd, cwd, bad in steps:
             self.say(f"gate: {name}")
-            r = run_proc(cmd, cwd, timeout=self.gate_sec)
+            r = run_proc(cmd, cwd, timeout=self.gate_sec, env=self.job_env or None)
             with open(gate_log, "a", encoding="utf-8") as f:
                 f.write(f"== {name} exit {r.code}\n{r.out}\n{r.err}\n")
             if r.timed_out:
@@ -1094,6 +1122,9 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
                  f"{self.home} is never edited")
         self.say(f"branch {self.branch}; owner {self.owner}; deadline {self.deadline:%Y-%m-%d %H:%M}; lease {self.lease}m")
         self.say(f"review: {self.review_spec if self.review_enabled else 'off'}")
+        self.say(f"jobs: {self.job_count}"
+                 + (" (a task runs alongside others only if its touches do not overlap)"
+                    if self.job_count > 1 else ""))
         self.say(f"phase review: {self.phase_spec if self.phase_enabled else 'off'}"
                  + (f" (on FAIL: {self.phase_on_fail})" if self.phase_enabled else ""))
         if not gates:
@@ -1176,6 +1207,146 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
                 return why
         return None
 
+    # ── parallel jobs
+    def next_compatible(self, skip: list[str], running: list[dict]) -> dict | None:
+        """The next ready task that may start next to `running`, or None.
+
+        A task with no `touches` is exclusive: it waits for the running ones to drain
+        (and nothing starts behind it, so it cannot starve).
+        """
+        r = self.tk("ready", self.todo_arg, "--json")
+        try:
+            ready = json.loads(r.out).get("ready", [])
+        except json.JSONDecodeError:
+            raise RuntimeError(f"tidetable ready failed: {r.out}{r.err}")
+        busy = [p for t in running for p in (t.get("touches") or [])]
+        for t in ready:
+            if t.get("status") != "pending" or t["id"] in skip:
+                continue
+            tt = t.get("touches") or []
+            if not running:
+                return t
+            if not tt:
+                return None
+            if not touches_overlap(tt, busy):
+                return t
+        return None
+
+    def make_job(self, task: dict) -> "Runner":
+        """A runner for one task: own worktree and branch cut from the run branch."""
+        tid = task["id"]
+        branch = f"{self.branch}-{tid}"
+        path = self.wt_path.parent / f"{self.wt_path.name}-{tid}"
+        if path.exists():
+            self.log(f"WARN removing leftover job worktree {path}")
+            git(self.home, "worktree", "remove", "--force", str(path))
+        r = git(self.home, "worktree", "add", "-B", branch, str(path), self.branch)
+        if r.code:
+            raise RuntimeError(f"could not create job worktree {path}: {r.out}{r.err}")
+        job = copy.copy(self)
+        job.root = path
+        job.branch = branch
+        job.follow_prefix = f"[{tid}] "
+        return job
+
+    def integrate(self, task: dict, job: "Runner", outcome: str) -> str:
+        """Merge a finished job back onto the run branch and drop its worktree.
+
+        Serialised. A merge conflict leaves the job branch and worktree in place for you,
+        puts the task back to pending, and counts as a failure.
+        """
+        tid, keep = task["id"], False
+        with self.merge_lock:
+            if outcome in ("done", "partial"):
+                r = git(self.root, "merge", "--no-ff", "-m", f"merge: {tid} ({outcome})", job.branch)
+                if r.code:
+                    git(self.root, "merge", "--abort")
+                    self.log(f"MERGE CONFLICT {tid}: kept {job.branch} at {job.root}; "
+                             f"task back to pending ({(r.out + r.err).strip()[-200:]})")
+                    q = self.tk("reset", self.todo_arg, tid, "--owner", self.owner)
+                    if q.code:
+                        self.log(f"WARN could not reopen {tid}: {q.out}{q.err}")
+                    outcome, keep = "failed", True
+            self.commit_paths(self.root, self.todo_changes(),
+                              f"chore(overnight): todo state after {tid} ({outcome})")
+        if not keep:
+            git(self.home, "worktree", "remove", "--force", str(job.root))
+            git(self.home, "branch", "-D", job.branch)
+        return outcome
+
+    def run_parallel(self, counts: dict, tried: list[str]) -> str:
+        """The main loop with up to `job_count` tasks in flight. Returns why it ended."""
+        inflight: dict = {}
+        consecutive, stopping, why = 0, "", "no more ready tasks"
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self.job_count) as pool:
+            while True:
+                if not stopping:
+                    halted = self.halt_request()
+                    if halted:
+                        stopping = halted
+                    elif datetime.now() >= self.deadline:
+                        stopping = "deadline"
+                    elif consecutive >= self.max_fail:
+                        stopping = f"{consecutive} consecutive failures"
+                while not stopping and len(inflight) < self.job_count:
+                    t = self.next_compatible(tried, [x[0] for x in inflight.values()])
+                    if not t:
+                        break
+                    tried.append(t["id"])
+                    job = self.make_job(t)
+                    inflight[pool.submit(job.run_task, t)] = (t, job)
+                if not inflight:
+                    break
+                finished, _ = concurrent.futures.wait(
+                    list(inflight), timeout=5, return_when=concurrent.futures.FIRST_COMPLETED)
+                for fut in finished:
+                    t, job = inflight.pop(fut)
+                    try:
+                        outcome = fut.result()
+                    except Exception as e:  # noqa: BLE001 - one job must not end the others
+                        self.log(f"ERROR {t['id']}: {e}")
+                        outcome = "failed"
+                    if outcome == "stop":
+                        stopping = stopping or "STOP while waiting out a usage limit"
+                        outcome = "failed"
+                    outcome = self.integrate(t, job, outcome)
+                    counts[outcome] += 1
+                    if outcome == "done" and self.phase_enabled:
+                        if self.review_phase(t["id"]) == "FAIL" and self.phase_on_fail == "stop":
+                            stopping = stopping or "phase review FAIL"
+                    if outcome == "failed":
+                        consecutive += 1
+                    elif outcome in ("done", "partial"):
+                        consecutive = 0
+        return stopping or why
+
+    def run_sequential(self, counts: dict, tried: list[str]) -> str:
+        """The main loop, one task at a time. Returns why it ended."""
+        consecutive = 0
+        while True:
+            halted = self.halt_request()
+            if halted:
+                return halted
+            if datetime.now() >= self.deadline:
+                return "deadline"
+            t = self.next_task(tried)
+            if not t:
+                return "no more ready tasks"
+            tried.append(t["id"])
+            outcome = self.run_task(t)
+            if outcome == "stop":
+                return "STOP while waiting out a usage limit"
+            counts[outcome] += 1
+            if outcome == "done" and self.phase_enabled:
+                if self.review_phase(t["id"]) == "FAIL" and self.phase_on_fail == "stop":
+                    return "phase review FAIL"
+            if outcome == "failed":
+                consecutive += 1
+            elif outcome in ("done", "partial"):
+                consecutive = 0
+            if consecutive >= self.max_fail:
+                return f"{consecutive} consecutive failures"
+
     def execute(self) -> int:
         cur = self.preflight()
         if self.dry_run:
@@ -1187,6 +1358,8 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
             old = self.pid_file.read_text().strip()
             if old.isdigit() and jsonio._pid_alive(int(old)):
                 raise RuntimeError(f"already running (pid {old}, {self.pid_file})")
+        if self.job_count > 1 and self.cfg["siblings"]:
+            raise RuntimeError("--jobs > 1 is not supported together with `siblings` yet")
         self.exclude_runtime_files()
         base = self.base
         if not self.hub and git(self.home, "diff", "--quiet", "HEAD", "--", self.todo_rel).code != 0:
@@ -1213,36 +1386,9 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
 
         counts = dict.fromkeys(("done", "partial", "skipped", "failed", "limited"), 0)
         tried: list[str] = []
-        consecutive, why = 0, "no more ready tasks"
+        why = "no more ready tasks"
         try:
-            while True:
-                halted = self.halt_request()
-                if halted:
-                    why = halted
-                    break
-                if datetime.now() >= self.deadline:
-                    why = "deadline"
-                    break
-                t = self.next_task(tried)
-                if not t:
-                    break
-                tried.append(t["id"])
-                outcome = self.run_task(t)
-                if outcome == "stop":
-                    why = "STOP while waiting out a usage limit"
-                    break
-                counts[outcome] += 1
-                if outcome == "done" and self.phase_enabled:
-                    if self.review_phase(t["id"]) == "FAIL" and self.phase_on_fail == "stop":
-                        why = "phase review FAIL"
-                        break
-                if outcome == "failed":
-                    consecutive += 1
-                elif outcome in ("done", "partial"):
-                    consecutive = 0
-                if consecutive >= self.max_fail:
-                    why = f"{consecutive} consecutive failures"
-                    break
+            why = self.run_parallel(counts, tried) if self.job_count > 1                 else self.run_sequential(counts, tried)
         except Exception as e:  # noqa: BLE001 - the log must record why the night ended
             why = f"error: {e}"
             self.log(f"ABORT {why}")
@@ -1299,7 +1445,7 @@ def cmd_run(args) -> int:
                     deadline=datetime.now() + timedelta(hours=hours, minutes=minutes),
                     model_override=args.model or "", no_review=args.no_review,
                     review_model=args.review_model or "", dry_run=args.dry_run,
-                    phase_review_model=args.phase_review_model or "",
+                    phase_review_model=args.phase_review_model or "", jobs=args.jobs or 0,
                     no_phase_review=args.no_phase_review,
                     follow=sys.stdout.isatty() if args.follow is None else args.follow,
                     base_override=args.base or "", hub=hub)
@@ -1408,6 +1554,9 @@ def add_parser(sub) -> None:
     run.add_argument("--follow", action=argparse.BooleanOptionalAction, default=None,
                      help="Echo the agent's output to the console while it runs "
                           "(default: on when attached to a terminal)")
+    run.add_argument("--jobs", type=int, default=0, metavar="N",
+                     help="Run up to N tasks at once, each in its own worktree "
+                          "(default: config parallel.jobs, 1)")
     run.add_argument("--no-phase-review", action="store_true",
                      help="Skip the phase review even if the config enables it")
     run.add_argument("--base", help="Branch the worktree is cut from (default: base_branch, main)")
