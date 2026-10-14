@@ -17,13 +17,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   registry all come from git; only `.env` and `./projects` are host state. The
   old `deploy/compose.vps.yml` (a `./src` sub-checkout and a hand-maintained
   registry) is superseded.
+- **Command adjudicator for the gray zone.** A command on neither the allow nor
+  the deny list can now go to a decision model instead of being refused outright.
+  With `adjudicator.enabled`, the runner starts a loopback decision service; the
+  agent's opencode hook (`integrations/opencode/tk-adjudicator.ts`, registered
+  via `execute.before`) asks it and blocks the command on a non-allow answer. The
+  agent only ever learns a `host:port` — the endpoint, key and model stay in the
+  supervisor's environment. It fails closed (missing config, network error, low
+  confidence, unexpected verdict all deny) and logs every verdict to
+  `adjudicator.jsonl`. Judge one command without a run with
+  `tidetable tkrun adjudicate <todo> "<command>"`.
 
 ### Documentation
 
 - **Attended vs. unattended runs.** The runner is now described by its mode, not
   as "overnight": attended is an interactive session under your own permissions,
-  unattended is TKRun. The permission model (the static allow/deny lists today,
-  and the planned `clef`/Jev adjudicator for commands on neither list) is in
+  unattended is TKRun. The permission model (the static allow/deny lists, and the
+  implemented `clef`/Jev adjudicator for commands on neither list) is in
   `docs/permissions.md`, with the `--jobs`/`--task`/`--follow` material folded
   into `skills/tidetable/SKILL.md`. `overnight` remains a subcommand alias and
   the on-disk names (`.tidetable/overnight.json`, `.overnight/`,

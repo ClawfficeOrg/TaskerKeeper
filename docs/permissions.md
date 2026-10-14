@@ -48,21 +48,27 @@ and credentials.
 Shell allowlists are prefix rules, and a build/test command runs code the agent
 wrote. Treat an unattended branch as untrusted until reviewed.
 
-### Adjudicator (planned)
+### Adjudicator
 
-The gray zone is a command that is neither on the allow list nor an obvious
-deny. The plan is for the runner to ask an **adjudicator** before running a
-non-listed command, and to log the verdict with the task.
+A command that is neither on the allow list nor on the deny list is the gray zone.
+When `adjudicator.enabled` is set, the runner starts a small **decision service**
+on loopback and the agent's hook asks it before running a bash/shell command. The
+allow and deny lists are checked first (deny wins), so a listed command never
+costs a model call; only a genuinely unlisted command reaches the model.
 
-The intended backend is `clef` on a Jev endpoint. The contract, verified against
-the live service:
+The service holds the credentials; the agent only ever learns a `host:port` (from
+`TIDETABLE_ADJUDICATOR_HOST`/`_PORT` in its environment, or the
+`.overnight/adjudicator.json` discovery file).
+
+The verdict comes from a decision model — `clef` on a Jev endpoint. The contract,
+verified against the live service:
 
 ```
 POST <TIDETABLE_DECISION_ENDPOINT>
 Authorization: Bearer <TIDETABLE_DECISION_API_KEY>
 
 { "model": "<TIDETABLE_DECISION_MODEL>",
-  "state": "<the command, plus worktree/context>",
+  "state": "<the command, plus the worktree>",
   "questions": { "q": { "type": "choice",
                         "instructions": "is this shell command safe to run unattended?",
                         "criteria": { "allow": "...", "deny": "..." } } } }
@@ -73,9 +79,36 @@ Authorization: Bearer <TIDETABLE_DECISION_API_KEY>
      "usage": { ... } }
 ```
 
-Credentials are env-only — never in `.tidetable/overnight.json`. The three names
-are `TIDETABLE_DECISION_ENDPOINT`, `TIDETABLE_DECISION_API_KEY`,
-`TIDETABLE_DECISION_MODEL`, and the runner generates `{env:...}` references (no
-values) into the temporary `opencode.json` when an agent CLI needs them. Until
-this lands, an unlisted command is simply not allowed: the static lists are the
-whole model.
+Sampled verdicts: `cargo test --workspace` → allow 0.98, `git diff --stat` →
+allow 0.99, `rm -rf / --no-preserve-root` → deny 0.98, `git push --force` → deny
+0.99, `cat .env` → deny 0.94.
+
+It **fails closed**: a missing endpoint, key or model, a network error, an
+unparseable reply, an unexpected verdict, or a confidence below
+`adjudicator.min_confidence` all resolve to deny. An `allow` whose probability
+mass on `deny` exceeds `1 - confidence` is also treated as deny.
+
+Wiring, per agent CLI:
+
+- **opencode** — the generated `opencode.json` registers
+  `integrations/opencode/tk-adjudicator.ts`, which uses the `execute.before` hook:
+  it asks the service and **throws** on a non-allow answer, aborting the tool.
+  Fail-closed there too: no service address, a dead service or a timeout all
+  throw. `bash` stays `allow`, so an allowed command is not prompted (the same
+  mechanism the `rtk` plugin relies on).
+- **claude** — the static `--allowedTools`/`--disallowedTools` lists still apply;
+  a runtime hook for claude is not wired yet, so its gray zone falls back to the
+  static lists.
+
+Every verdict is appended to `<run dir>/adjudicator.jsonl` and echoed to the log.
+Try one command without a full run:
+
+```bash
+tidetable tkrun adjudicate docs/todo.json "rm -rf /"
+```
+
+Config (`adjudicator` in `.tidetable/overnight.json`): `enabled`,
+`min_confidence` (default 0.6), `timeout_seconds` (15), and the three `*_env`
+names. `tkrun run --adjudicate` / `--no-adjudicate` overrides `enabled` per run.
+Credentials are env-only — never in the config file. Until this is on, an
+unlisted command is simply not allowed: the static lists are the whole model.

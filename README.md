@@ -124,9 +124,13 @@ file on a throwaway worktree branch with no one watching. The runner — never t
 agent — owns git history and TideTable state, and it decides each command with
 static lists passed to `claude -p` or written into a temporary `opencode.json`:
 a read-only allow list, and a deny list of what must never happen (`git
-push`/`tag`, history rewrites, TideTable state writes, env/secret dumps). An
-adjudicator for commands in neither list is planned; until it lands, an unlisted
-command is simply not allowed.
+push`/`tag`, history rewrites, TideTable state writes, env/secret dumps). A
+command on neither list goes to an **adjudicator** — a decision model (clef on a
+Jev endpoint) that returns allow/deny with a confidence. It fails closed: no
+endpoint, a network error or a low-confidence verdict all mean deny.
+`adjudicator.enabled` turns it on; `TIDETABLE_DECISION_ENDPOINT`,
+`TIDETABLE_DECISION_API_KEY` and `TIDETABLE_DECISION_MODEL` carry the credentials
+(env only). See [docs/permissions.md](docs/permissions.md).
 
 `tkrun run --jobs N` runs up to N tasks at once, each in its own worktree on its
 own branch, merged back one at a time; only tasks with disjoint `touches` run

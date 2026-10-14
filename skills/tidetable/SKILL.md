@@ -291,8 +291,10 @@ tidetable tkrun run  docs/todo-v7.json --hours 8    # run until done or out of t
 tidetable tkrun run  docs/todo-v7.json --jobs 3     # up to 3 tasks at once, own worktree each
 tidetable tkrun run  docs/todo-v7.json --task 7.0.1 # only the named task(s), repeatable
 tidetable tkrun run  docs/todo-v7.json --follow     # echo agent output live (default on a tty)
+tidetable tkrun run  docs/todo-v7.json --adjudicate # gray-zone commands go to the decision model
 tidetable tkrun stop docs/todo-v7.json              # cooperative, after the current task
 tidetable tkrun kill docs/todo-v7.json              # hard stop: sentinel + process-tree kill
+tidetable tkrun adjudicate docs/todo-v7.json "rm -rf /"  # judge one command, no run
 
 # Which provider/model runs each tier, and where each setting came from
 tidetable agents show --todo docs/todo-v7.json
@@ -330,14 +332,26 @@ written into a temporary `opencode.json`:
 - `OPENCODE_SHELL_DENY` — the smaller list opencode 2.x can live with (one
   rejected command removes its shell tool), so only the must-never commands.
 
-An **adjudicator** for the gray zone — a command that is neither on the allow
-list nor an obvious deny — is planned, not yet wired. The intended contract is
-`clef` on a Jev endpoint (`POST /v1/systemone`, a `choice` question returning
-`allow`/`deny` plus a confidence); the runner would call it before running a
-non-listed command and log the verdict. Credentials and endpoint are env-only
-(`TIDETABLE_DECISION_ENDPOINT`, `TIDETABLE_DECISION_API_KEY`,
-`TIDETABLE_DECISION_MODEL`), never in the config file. Until it lands, an
-unlisted command is simply not allowed: the static lists are the whole model.
+An **adjudicator** handles the gray zone — a command on neither list. With
+`adjudicator.enabled`, the runner starts a small decision service on loopback and
+the agent's hook asks it before running a bash/shell command. The verdict comes
+from `clef` on a Jev endpoint (`POST /v1/systemone`, a `choice` question returning
+`allow`/`deny` plus a confidence). It **fails closed**: a missing endpoint, key or
+model, a network error, a low confidence, or an unexpected verdict all mean deny.
+
+- The agent never sees the credentials: it gets `TIDETABLE_ADJUDICATOR_HOST` /
+  `_PORT` (or the `.overnight/adjudicator.json` discovery file) and asks the
+  service. Credentials are env-only (`TIDETABLE_DECISION_ENDPOINT`,
+  `TIDETABLE_DECISION_API_KEY`, `TIDETABLE_DECISION_MODEL`), never in the config.
+- Only opencode is wired for the runtime hook today: the generated `opencode.json`
+  registers `integrations/opencode/tk-adjudicator.ts`, which throws on a non-allow
+  answer in the `execute.before` hook (aborting the tool). claude still falls back
+  to its static `--allowedTools`/`--disallowedTools`.
+- Every verdict is appended to `<run dir>/adjudicator.jsonl`. Try one without a
+  run: `tidetable tkrun adjudicate docs/todo.json "rm -rf /"`.
+
+Until it is on, an unlisted command is simply not allowed: the static lists are
+the whole model.
 
 The prompt also forbids printing env vars, `.env` files and credentials, and
 `SECRET_DENY` blocks `env`, `printenv`, `set`, `git config --list`, `cat *.env*`

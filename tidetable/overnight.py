@@ -76,6 +76,28 @@ AGENT_ENV_DROP = ["TIDETABLE_TOKEN", "TASKERKEEPER_TOKEN", "TK_API_TOKEN", "TIDE
 REVIEW_ALLOWED = ["Read", "Glob", "Grep", "Bash(git status*)", "Bash(git diff*)",
                   "Bash(git show*)", "Bash(git log*)"]
 
+# The gray-zone adjudicator: a command that is on neither the allow nor the deny list is put
+# to a decision model before it runs unattended. The backend is a Jev `choice` endpoint (the
+# same shape ZoidMatter uses): POST {model, state, questions:{q:{type,instructions,criteria}}}
+# -> answers.q.choice in {"allow","deny"} with a confidence. Credentials are env-only, never in
+# the config file. It fails closed: no endpoint, no key, a network error or a low confidence all
+# mean "deny". The runner writes a discovery file the opencode hook reads to find this.
+ADJUDICATOR_DEFAULTS: dict = {
+    "enabled": False,
+    "endpoint_env": "TIDETABLE_DECISION_ENDPOINT",
+    "key_env": "TIDETABLE_DECISION_API_KEY",
+    "model_env": "TIDETABLE_DECISION_MODEL",
+    "min_confidence": 0.6,          # below this the verdict is treated as deny
+    "timeout_seconds": 15,
+    "instructions": ("Decide if this shell command is safe to run unattended by an AI coding "
+                     "agent inside a git worktree on a throwaway branch. Allow read-only or local, "
+                     "reversible commands confined to the worktree. Deny anything destructive, "
+                     "publishing (git push, git tag), touching the base branch, or dumping secrets "
+                     "and environment variables."),
+    "criteria": {"allow": "read-only, local, reversible, or confined to the worktree",
+                 "deny": "destructive, publishing, or touches the base branch or secrets"},
+}
+
 # Criteria that need a person looking at the running app; the agent may not claim them.
 DEFAULT_HUMAN_CHECK = (r"(?i)\b(on[- ]screen|visual(ly)?|looks?|shows?|displays?|dropdown|picker|"
                        r"window|click|hover|dims?|opacity|blur|renders?|menu|preview|native)\b")
@@ -126,6 +148,7 @@ DEFAULTS: dict = {
     # {"mcp": {"blender": {"enabled": false}}}.
     "opencode_extra": {},
     "lanes": {},                   # leased-capacity providers, see LANE_DEFAULTS
+    "adjudicator": {},             # gray-zone command decisions, see ADJUDICATOR_DEFAULTS
 }
 
 # A leased-lane provider (e.g. singularity): an OpenAI-compatible endpoint that only answers
@@ -329,6 +352,102 @@ def matches(path: str, globs: list[str]) -> bool:
     return any(fnmatch.fnmatch(p, g) or p.startswith(g.rstrip("/") + "/") for g in globs)
 
 
+# ── command adjudicator ──────────────────────────────────────────────────────
+
+def decide_command(command: str, adj: dict, home: str = "", allow: list[str] | None = None,
+                   deny: list[str] | None = None) -> dict:
+    """Ask the decision model whether `command` is safe to run unattended.
+
+    Returns {"decision": "allow"|"deny", "confidence": float, "reason": str}. The allow/deny
+    lists are checked first (deny wins) so a listed command never costs a model call. Fails
+    closed: any missing endpoint/key, a network error, an unparseable reply or a confidence
+    below `min_confidence` all resolve to "deny".
+    """
+    import urllib.request
+
+    def closed(reason: str) -> dict:
+        return {"decision": "deny", "confidence": 0.0, "reason": reason}
+
+    # Deny first: a pattern on both lists must never be allowed.
+    if deny and matches(command, deny):
+        return closed("on the deny list")
+    if allow and matches(command, allow):
+        return {"decision": "allow", "confidence": 1.0, "reason": "on the allow list"}
+
+    if not adj.get("enabled"):
+        return closed("adjudicator disabled")
+    endpoint = os.environ.get(adj["endpoint_env"], "")
+    key = os.environ.get(adj["key_env"], "")
+    model = os.environ.get(adj["model_env"], "")
+    missing = [n for n, v in ((adj["endpoint_env"], endpoint), (adj["key_env"], key),
+                              (adj["model_env"], model)) if not v]
+    if missing:
+        return closed("missing env: " + ", ".join(missing))
+
+    state = command
+    if home:
+        state = f"Worktree: {home}\nCommand: {command}"
+    body = json.dumps({"model": model, "state": state, "questions": {"q": {
+        "type": "choice", "instructions": adj["instructions"], "criteria": adj["criteria"]}}}).encode("utf-8")
+    req = urllib.request.Request(endpoint, data=body, headers={
+        "Content-Type": "application/json", "Authorization": f"Bearer {key}"})
+    try:
+        with urllib.request.urlopen(req, timeout=int(adj["timeout_seconds"])) as resp:
+            ans = json.loads(resp.read().decode("utf-8"))["answers"]["q"]
+    except Exception as e:  # noqa: BLE001 - any failure is a deny
+        return closed(f"adjudicator error: {e}")
+
+    choice = str(ans.get("choice", "")).lower()
+    conf = float(ans.get("confidence", 0.0) or 0.0)
+    probs = ans.get("probabilities") or {}
+    if choice not in ("allow", "deny"):
+        return closed(f"unexpected verdict {choice!r}")
+    if conf < float(adj["min_confidence"]):
+        return closed(f"low confidence {conf:.2f} < {adj['min_confidence']}")
+    # An allow with any probability mass on deny is a coin-flip; only a clean allow counts.
+    if choice == "allow" and float(probs.get("deny", 0.0) or 0.0) > (1.0 - conf) + 1e-9:
+        return closed(f"ambiguous allow (deny p={probs.get('deny')})")
+    return {"decision": choice, "confidence": conf, "reason": ""}
+
+
+def _adj_serve(server: dict, adj: dict, home: str) -> None:
+    """Serve `decide` over a loopback socket so the agent hook can ask, without secrets.
+
+    The supervisor already holds the environment; the hook only gets the host:port, which
+    keeps the adapter from needing the endpoint or key. Loopback TCP (not a unix socket) so
+    the same code runs on Windows and Linux; the service returns no secret, only a verdict.
+    Fail-soft: a bad frame replies deny and the loop continues; `server["stop"]` ends it.
+    """
+    srv: socket.socket = server["srv"]
+    srv.settimeout(1.0)
+    while not server["stop"].is_set():
+        try:
+            conn, _ = srv.accept()
+        except socket.timeout:
+            continue
+        except OSError:
+            break
+        with conn:
+            data = b""
+            while not data.endswith(b"\n"):
+                chunk = conn.recv(65536)
+                if not chunk:
+                    break
+                data += chunk
+            try:
+                req = json.loads(data.decode("utf-8") or "{}")
+            except ValueError:
+                conn.sendall(b'{"decision":"deny","reason":"bad request"}\n')
+                continue
+            verdict = decide_command(str(req.get("command", "")),
+                                     req.get("adjudicator") or adj, home=home,
+                                     allow=server.get("allow"), deny=server.get("deny"))
+            record = server.get("record")
+            if record:
+                record(str(req.get("command", "")), verdict)
+            conn.sendall((json.dumps(verdict) + "\n").encode("utf-8"))
+
+
 # ── config ───────────────────────────────────────────────────────────────────
 
 def repo_root_for(todo_path: Path) -> Path:
@@ -483,6 +602,23 @@ class Runner:
         self.job_count = max(1, int(self.jobs or par.get("jobs", 1)))
         self.job_env = {k: str(v).replace("{home}", str(self.home)) for k, v in par.get("job_env", {}).items()}
         self.follow_prefix = ""
+        adj = {**ADJUDICATOR_DEFAULTS, **dict(self.cfg.get("adjudicator") or {})}
+        adj["min_confidence"] = float(adj["min_confidence"])
+        adj["timeout_seconds"] = int(adj["timeout_seconds"])
+        self.adjudicator = adj
+        self.adj_enabled = bool(adj["enabled"])
+        # Fast paths for the service: a listed command never costs a model call. The deny
+        # list must match the agent's own effective list — OPENCODE_SHELL_DENY, not the
+        # stricter BASE_SHELL_DENY — or a natural `git commit` would be fast-path denied and
+        # the opencode shell would die for the session.
+        self.adj_allow = list(self.shell_allow)
+        self.adj_deny = OPENCODE_SHELL_DENY + list(self.cfg["shell_deny"])
+        self.adj_host, self.adj_port = "127.0.0.1", 0   # port assigned when the server starts
+        self.adj_discovery = self.home / RUN_DIR_NAME / "adjudicator.json"
+        self.adj_log = self.run_dir / "adjudicator.jsonl"
+        self.adj_server: socket.socket | None = None
+        self.adj_stop = threading.Event()
+        self.adj_thread: threading.Thread | None = None
         self.merge_lock = threading.Lock()
         for name, lane in self.cfg["lanes"].items():
             merged = {**LANE_DEFAULTS, **lane}
@@ -546,6 +682,63 @@ class Runner:
         if self.log_enabled:
             with open(self.log_file, "a", encoding="utf-8") as f:
                 f.write(f"- {datetime.now():%Y-%m-%d %H:%M:%S} {msg}\n")
+
+    # ── command adjudicator ──────────────────────────────
+    def adjudicate(self, command: str) -> dict:
+        v = decide_command(command, self.adjudicator, home=str(self.home),
+                           allow=self.adj_allow, deny=self.adj_deny)
+        self._adj_record(command, v)
+        return v
+
+    def _adj_record(self, command: str, v: dict) -> None:
+        """Append one verdict to the run's audit log; also echo it."""
+        rec = {"ts": datetime.now().isoformat(timespec="seconds"), "command": command, **v}
+        try:
+            self.run_dir.mkdir(parents=True, exist_ok=True)
+            with open(self.adj_log, "a", encoding="utf-8") as f:
+                f.write(json.dumps(rec) + "\n")
+        except OSError:
+            pass
+        tag = "ALLOW" if v["decision"] == "allow" else "DENY"
+        extra = f" ({v['confidence']:.2f})" if v["confidence"] else ""
+        why = f" - {v['reason']}" if v["reason"] else ""
+        self.say(f"adjudicator {tag}{extra}: {command[:120]}{why}")
+
+    def start_adjudicator(self) -> None:
+        """Start the loopback service + discovery file the agent hook reads. No-op when disabled."""
+        if not self.adj_enabled:
+            return
+        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        srv.bind((self.adj_host, 0))
+        srv.listen(8)
+        self.adj_port = srv.getsockname()[1]
+        self.adj_server = srv
+        # The agent runs with its CWD in the worktree (self.root after make_worktree), so the
+        # discovery file lives there; it carries only host:port, never the endpoint or key.
+        self.adj_discovery = self.root / RUN_DIR_NAME / "adjudicator.json"
+        self.adj_discovery.parent.mkdir(parents=True, exist_ok=True)
+        self.adj_discovery.write_text(json.dumps(
+            {"host": self.adj_host, "port": self.adj_port, "home": str(self.home)}), encoding="utf-8")
+        self.adj_thread = threading.Thread(
+            target=_adj_serve,
+            args=({"srv": srv, "stop": self.adj_stop, "record": self._adj_record,
+                   "allow": self.adj_allow, "deny": self.adj_deny},
+                  self.adjudicator, str(self.home)),
+            daemon=True)
+        self.adj_thread.start()
+        self.say(f"adjudicator on 127.0.0.1:{self.adj_port}; unlisted commands go to the decision model")
+
+    def stop_adjudicator(self) -> None:
+        self.adj_stop.set()
+        if self.adj_server:
+            try:
+                with socket.create_connection((self.adj_host, self.adj_port), timeout=1):
+                    pass
+            except OSError:
+                pass
+            self.adj_server.close()
+        Path(str(self.adj_discovery)).unlink(missing_ok=True)
 
     # ── tidetable
     def tk(self, *args: str) -> Proc:
@@ -820,6 +1013,13 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
                 else:
                     dst[k] = v
         merge(cfg, self.cfg["opencode_extra"])
+        if self.adj_enabled:
+            # The bridge reads the discovery file and asks the supervisor; registered via the
+            # config `plugin` list so it loads for this run only. bash stays "allow" so a normal
+            # command is not prompted; the hook throws on a deny, which aborts it (same mechanism
+            # the rtk plugin relies on). `execute.before` still runs for an allowed command.
+            plugin = str((self.root / "integrations" / "opencode" / "tk-adjudicator.ts"))
+            cfg["plugin"] = [plugin]
         if extra_provider:
             cfg["provider"] = extra_provider
         return json.dumps(cfg, indent=2)
@@ -904,11 +1104,17 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
                     raise RuntimeError(f"{self.opencode_cfg} already exists; remove it (the runner writes its own)")
                 self.opencode_cfg.write_text(call["opencode"], encoding="utf-8")
             try:
+                adj_env = {}
+                if self.adj_enabled and self.adj_server:
+                    # The hook finds the service via env (works in every job worktree) or,
+                    # failing that, the discovery file. Only host:port — never the API key.
+                    adj_env = {"TIDETABLE_ADJUDICATOR_HOST": self.adj_host,
+                               "TIDETABLE_ADJUDICATOR_PORT": str(self.adj_port)}
                 res = run_proc(call["argv"], self.root, stdin=call["stdin"], timeout=cap, follow=self.follow,
                                prefix=self.follow_prefix,
                                drop=AGENT_ENV_DROP + list(self.cfg["agent_env_drop"]),
                                env={"TIDETABLE_OWNER": self.owner, "TASKERKEEPER_OWNER": self.owner,
-                                    **self.job_env})
+                                    **adj_env, **self.job_env})
             finally:
                 if call["opencode"]:
                     self.opencode_cfg.unlink(missing_ok=True)
@@ -1203,6 +1409,9 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
         self.say(f"jobs: {self.job_count}"
                  + (" (a task runs alongside others only if its touches do not overlap)"
                     if self.job_count > 1 else ""))
+        self.say("adjudicator: " + (f"on (gray-zone commands go to the decision model; "
+                 f"fast paths: {len(self.adj_allow)} allow, {len(self.adj_deny)} deny)"
+                 if self.adj_enabled else "off (an unlisted command is not allowed)"))
         self.say(f"phase review: {self.phase_spec if self.phase_enabled else 'off'}"
                  + (f" (on FAIL: {self.phase_on_fail})" if self.phase_enabled else ""))
         if not gates:
@@ -1479,6 +1688,7 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
         self.run_dir.mkdir(parents=True, exist_ok=True)
         self.pid_file.write_text(str(os.getpid()), encoding="ascii")
         self.log_enabled = True
+        self.start_adjudicator()
         if not self.log_file.exists():
             self.log_file.write_text("# Overnight runner log (append-only)\n", encoding="utf-8")
         with open(self.log_file, "a", encoding="utf-8") as f:
@@ -1512,6 +1722,7 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
                      f"yourself, then `git worktree remove {self.wt_path}`")
             self.log(f"END ({why}): done {counts['done']}, partial {counts['partial']}, skipped "
                      f"{counts['skipped']}, failed {counts['failed']}, quota-limited {counts['limited']}")
+            self.stop_adjudicator()
             self.pid_file.unlink(missing_ok=True)
         return 0 if why in ("no more ready tasks", "deadline", "STOP file", "KILL file") else 1
 
@@ -1545,9 +1756,27 @@ def resolve_target(args) -> tuple[Path, Path, dict | None]:
     return Path(args.todo_file), repo_root_for(repo / "_"), hub
 
 
+def cmd_adjudicate(args) -> int:
+    """Judge one command with the configured adjudicator; prints a JSON verdict."""
+    _, root, _ = resolve_target(args)
+    cfg, _path = load_config(root)
+    adj = {**ADJUDICATOR_DEFAULTS, **dict(cfg.get("adjudicator") or {})}
+    if not adj["enabled"]:
+        print("Error: adjudicator is disabled (set adjudicator.enabled true)")
+        return 1
+    runner = Runner(todo=Path(args.todo_file).resolve(), root=root, cfg=cfg,
+                    date=datetime.now().strftime("%Y-%m-%d"), deadline=datetime.now())
+    v = runner.adjudicate(args.command)
+    print(json.dumps(v))
+    return 0
+
+
 def cmd_run(args) -> int:
     todo, root, hub = resolve_target(args)
     cfg, path = load_config(root)
+    adj_override = getattr(args, "adjudicate", None)
+    if adj_override is not None:
+        cfg["adjudicator"] = {**(cfg.get("adjudicator") or {}), "enabled": bool(adj_override)}
     hours, minutes = args.hours, args.minutes
     if minutes and args.hours is None:
         hours = 0
@@ -1678,6 +1907,9 @@ def add_parser(sub) -> None:
     run.add_argument("--base", help="Branch the worktree is cut from (default: base_branch, main)")
     run.add_argument("--no-review", "--no-task-review", dest="no_review", action="store_true",
                      help="Skip the per-task review: close tasks on the gate alone")
+    run.add_argument("--adjudicate", action=argparse.BooleanOptionalAction, default=None,
+                     help="Enable the gray-zone command adjudicator for this run "
+                          "(default: config adjudicator.enabled)")
     run.add_argument("--repo", metavar="PATH",
                      help="With a hub (--server): the git checkout to work in (default: cwd)")
     run.set_defaults(func=cmd_run)
@@ -1700,3 +1932,10 @@ def add_parser(sub) -> None:
     kill.add_argument("--repo", metavar="PATH",
                       help="With a hub (--server): the git checkout to work in (default: cwd)")
     kill.set_defaults(func=cmd_kill)
+
+    adj = inner.add_parser("adjudicate", help="Ask the decision model about one command (no run)")
+    adj.add_argument("todo_file", help="Path to todo JSON file (locates the repo/config)")
+    adj.add_argument("command", help="The shell command to judge")
+    adj.add_argument("--repo", metavar="PATH",
+                     help="With a hub (--server): the git checkout to work in (default: cwd)")
+    adj.set_defaults(func=cmd_adjudicate)

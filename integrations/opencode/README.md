@@ -59,6 +59,23 @@ The plugin first tries the `tidetable` console script, then falls back to
 On any CLI error (missing binary, bad todo path, bad JSON) it renders the
 one-liner `TideTable unavailable` and never throws.
 
+## Adjudicator bridge (`tk-adjudicator.ts`)
+
+A second, separate plugin: the unattended-run permission hook. TKRun starts a
+loopback decision service and passes its address to the agent; this plugin asks
+it, in the `execute.before` hook for `bash`/`shell`, whether the command may run,
+and **throws** on a non-allow answer (which aborts the tool). All the logic — the
+allow/deny lists, the decision model call, the audit log — lives in
+`tidetable/overnight.py`; this file only bridges.
+
+It is registered automatically by the generated `opencode.json` when
+`adjudicator.enabled` is set, so you do not wire it by hand. It stays inert in an
+attended session: with no `TIDETABLE_ADJUDICATOR_HOST`/`_PORT` and no
+`.overnight/adjudicator.json`, it registers no hook.
+
+It **fails closed**: no discovery, a dead service, a timeout, or any non-`allow`
+verdict all throw. It never sees the decision-model API key — only `host:port`.
+
 ## Verify without opencode
 
 ```powershell

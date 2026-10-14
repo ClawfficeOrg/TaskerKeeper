@@ -687,6 +687,102 @@ class OvernightUnitTests(unittest.TestCase):
         self.assertTrue(overnight.matches("src/a/b.rs", ["*.rs"]))
         self.assertFalse(overnight.matches("docs/a.md", ["src/", "*.rs"]))
 
+    # ── adjudicator (decision model is stubbed; no live call) ────────────────
+    @staticmethod
+    def _decision_stub(choice: str, confidence: float, probabilities: dict | None = None):
+        """A local HTTP server answering like the Jev /v1/systemone endpoint."""
+        import threading
+        from http.server import BaseHTTPRequestHandler, HTTPServer
+
+        seen: list[dict] = []
+
+        class H(BaseHTTPRequestHandler):
+            def do_POST(self):
+                n = int(self.headers.get("Content-Length", "0"))
+                seen.append(json.loads(self.rfile.read(n).decode("utf-8")))
+                body = json.dumps({"answers": {"q": {"choice": choice, "confidence": confidence,
+                                                     "probabilities": probabilities
+                                                     or {"allow": confidence, "deny": 1 - confidence}}}}).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *a):  # keep the test output clean
+                pass
+
+        srv = HTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        return srv, seen
+
+    def test_adjudicator_allows_and_denies(self):
+        adj = {**overnight.ADJUDICATOR_DEFAULTS, "enabled": True}
+        for choice, want in (("allow", "allow"), ("deny", "deny")):
+            srv, seen = self._decision_stub(choice, 0.97)
+            try:
+                with mock.patch.dict(os.environ, {"TIDETABLE_DECISION_ENDPOINT": f"http://127.0.0.1:{srv.server_port}/v1/systemone",
+                                                  "TIDETABLE_DECISION_API_KEY": "k",
+                                                  "TIDETABLE_DECISION_MODEL": "clef-test"}):
+                    v = overnight.decide_command("cargo test", adj)
+            finally:
+                srv.shutdown()
+                srv.server_close()
+            self.assertEqual(v["decision"], want)
+            self.assertEqual(v["confidence"], 0.97)
+            self.assertEqual(seen[0]["model"], "clef-test")
+            self.assertEqual(seen[0]["state"], "cargo test")
+
+    def test_adjudicator_fails_closed(self):
+        adj = {**overnight.ADJUDICATOR_DEFAULTS, "enabled": True}
+        with mock.patch.dict(os.environ, {"TIDETABLE_DECISION_ENDPOINT": "", "TIDETABLE_DECISION_API_KEY": "",
+                                          "TIDETABLE_DECISION_MODEL": ""}, clear=False):
+            v = overnight.decide_command("rm -rf /", adj)
+        self.assertEqual(v["decision"], "deny")
+        self.assertIn("missing env", v["reason"])
+        # disabled is a deny too (never a silent allow)
+        self.assertEqual(overnight.decide_command("ls", {**adj, "enabled": False})["decision"], "deny")
+
+    def test_adjudicator_denies_low_confidence_and_ambiguous_allow(self):
+        adj = {**overnight.ADJUDICATOR_DEFAULTS, "enabled": True, "min_confidence": 0.8}
+        srv, _ = self._decision_stub("allow", 0.5, {"allow": 0.5, "deny": 0.5})
+        try:
+            with mock.patch.dict(os.environ, {"TIDETABLE_DECISION_ENDPOINT": f"http://127.0.0.1:{srv.server_port}/x",
+                                              "TIDETABLE_DECISION_API_KEY": "k", "TIDETABLE_DECISION_MODEL": "m"}):
+                v = overnight.decide_command("maybe", adj)
+        finally:
+            srv.shutdown()
+            srv.server_close()
+        self.assertEqual(v["decision"], "deny")
+
+    def test_adjudicator_lists_short_circuit_the_model(self):
+        # A listed command must not reach the model: point the endpoint at a dead port and
+        # assert the list still decides. Deny wins when a command matches both.
+        adj = {**overnight.ADJUDICATOR_DEFAULTS, "enabled": True}
+        with mock.patch.dict(os.environ, {"TIDETABLE_DECISION_ENDPOINT": "http://127.0.0.1:9/x",
+                                          "TIDETABLE_DECISION_API_KEY": "k", "TIDETABLE_DECISION_MODEL": "m"}):
+            allow = overnight.decide_command("git status", adj, allow=["git status*"], deny=["git push*"])
+            deny = overnight.decide_command("git push origin", adj, allow=["git push*"], deny=["git push*"])
+            gray = overnight.decide_command("frobnicate", adj, allow=["git status*"], deny=["git push*"])
+        self.assertEqual(allow["decision"], "allow")
+        self.assertIn("allow list", allow["reason"])
+        self.assertEqual(deny["decision"], "deny")   # a pattern on both lists denies
+        self.assertEqual(gray["decision"], "deny")   # gray zone reaches the dead model -> closed
+
+    def test_adjudicator_enabled_by_flag_without_config(self):
+        self.assertFalse(self.runner().adj_enabled)          # off by default
+        r2 = self.runner(adjudicator={"enabled": True})
+        self.assertTrue(r2.adj_enabled)
+        self.assertEqual(r2.adjudicator["model_env"], "TIDETABLE_DECISION_MODEL")
+
+    def test_opencode_config_adds_the_bridge_only_when_enabled(self):
+        off = json.loads(self.runner().opencode_config())
+        self.assertNotIn("plugin", off)
+        r = self.runner(adjudicator={"enabled": True})
+        on = json.loads(r.opencode_config())
+        self.assertEqual(on["plugin"], [str(r.root / "integrations" / "opencode" / "tk-adjudicator.ts")])
+        self.assertEqual(on["permission"]["bash"]["*"], "allow")
+
     def test_unknown_config_key_is_rejected(self):
         with TemporaryDirectory() as d:
             root = Path(d)

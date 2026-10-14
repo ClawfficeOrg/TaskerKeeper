@@ -113,6 +113,7 @@ All keys optional; unknown keys are an error.
 | `limits` | `task_minutes` 120, `gate_minutes` 45, `max_consecutive_failures` 2, `lease_minutes` 480 |
 | `agent_commands` | `{provider: {cmd: [... "{model}" "{prompt}"], stdin: bool, opencode_permissions: bool}}` for other CLIs. Set `opencode_permissions` when the command is really `opencode run`: the runner then writes its shell allow/deny lists to a temporary `opencode.json` for the call. Without it the user's own opencode config decides what the agent may run |
 | `opencode_extra` | merged over the generated `opencode.json`. The generated file only restricts bash and edit; MCP servers from your global opencode config stay reachable, so disable the ones an agent should not use, e.g. `{"mcp": {"blender": {"enabled": false}}}` |
+| `adjudicator` | `{enabled, min_confidence, timeout_seconds, endpoint_env, key_env, model_env, instructions, criteria}`. With `enabled`, a command on neither the allow nor the deny list goes to a decision model (clef on a Jev endpoint); see below and `docs/permissions.md`. Credentials are env-only. `--adjudicate`/`--no-adjudicate` overrides `enabled` per run |
 | `push` | `true` pushes the run branch (never the base branch) to `origin` when the run ends. Default `false`; the agent itself is never allowed to push |
 | `agent_env_drop` | extra environment variable names (fnmatch patterns) to hide from the agent. The runner's own `TIDETABLE_TOKEN`, `TIDETABLE_SERVER`, `TASKERKEEPER_TOKEN` and `TK_API_TOKEN` are always hidden |
 | `human_check_pattern`, `human_check_exempt` | regexes for criteria that need a person |
@@ -151,6 +152,14 @@ with a vendored sibling lives in Zoid's `examples/specttyr`.
   command, so denying natural commands would silently cripple the agent. If an
   agent commits, the runner soft-resets to where the task began and commits the
   work itself, so the gate and the diff still see it.
+- With `adjudicator.enabled` the runner also starts a loopback decision service
+  and gives the agent only its `host:port` (via `TIDETABLE_ADJUDICATOR_HOST`/
+  `_PORT`, or a `.overnight/adjudicator.json` discovery file in the worktree).
+  The generated `opencode.json` registers `integrations/opencode/tk-adjudicator.ts`,
+  which asks the service in the `execute.before` hook and blocks on a non-allow
+  answer. Every verdict goes to `.overnight/<date>/adjudicator.jsonl`. It fails
+  closed: a missing endpoint/key/model, a network error or a low-confidence
+  verdict all deny. Credentials never reach the agent.
 - A `STOP` or `KILL` file already on disk when a run starts is left over from an
   earlier run: the runner removes it and says so, rather than ending the new run
   before its first task.
