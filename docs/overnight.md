@@ -133,6 +133,9 @@ with a vendored sibling lives in Zoid's `examples/specttyr`.
   tasks, so the current one finishes. `tkrun kill` is the hard stop: it writes
   `KILL` *and* tree-kills the runner PID, so a mid-task agent subprocess dies
   too. Task claims are left to expire on their own.
+- A `STOP` or `KILL` file already on disk when a run starts is left over from an
+  earlier run: the runner removes it and says so, rather than ending the new run
+  before its first task.
 - After a hard kill the task stays `in_progress` with uncommitted changes in the
   worktree; `tidetable reset` it there and inspect `git status`.
 
