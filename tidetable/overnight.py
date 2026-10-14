@@ -1219,6 +1219,15 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
 
     def make_worktree(self) -> None:
         """Every run happens in its own worktree; the checkout you started from is never touched."""
+        if self.wt_path.is_dir() and not any(self.wt_path.iterdir()):
+            # An empty folder is what `git worktree remove` can leave behind on Windows when
+            # something still holds it; it is not a worktree and is safe to reuse.
+            try:
+                self.wt_path.rmdir()
+            except OSError:
+                raise RuntimeError(f"{self.wt_path} is an empty folder that another process holds "
+                                   "open (a terminal or editor with it as its directory); close it "
+                                   "or set worktree_dir.")
         if self.wt_path.exists():
             head = git(self.wt_path, "rev-parse", "--abbrev-ref", "HEAD").out.strip()
             if head != self.branch:
@@ -1409,6 +1418,12 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
                 raise RuntimeError(f"already running (pid {old}, {self.pid_file})")
         if self.job_count > 1 and self.cfg["siblings"]:
             raise RuntimeError("--jobs > 1 is not supported together with `siblings` yet")
+        # Nothing is running here (the pid check above passed), so a STOP or KILL sentinel
+        # still on disk is left over from an earlier run and must not end this one at once.
+        for sentinel in (self.stop_file, self.kill_file):
+            if sentinel.exists():
+                sentinel.unlink(missing_ok=True)
+                self.say(f"ignored a stale {sentinel.name} file from an earlier run")
         self.exclude_runtime_files()
         base = self.base
         if not self.hub and git(self.home, "diff", "--quiet", "HEAD", "--", self.todo_rel).code != 0:

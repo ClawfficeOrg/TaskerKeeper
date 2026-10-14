@@ -38,6 +38,8 @@ if mode == "silent":
     print("I did some things")
     sys.exit(0)
 tid = prompt.split("Task: ")[1].split(" ")[0]
+if os.environ.get("STUB_SENTINEL"):
+    open(os.environ["STUB_SENTINEL"], "w").write("x")
 if os.environ.get("STUB_ENVDUMP"):
     open(os.environ["STUB_ENVDUMP"], "w").write(
         "|".join(k for k in ("TIDETABLE_TOKEN", "TIDETABLE_SERVER", "KEEP_ME") if k in os.environ))
@@ -387,6 +389,24 @@ class OvernightRunTests(unittest.TestCase):
         self.assertIn('"webfetch": "deny"', out)
         self.assertIn('"env": "deny"', out)
 
+    def test_a_stale_stop_file_does_not_end_the_next_run(self):
+        s = self.scratch(tasks=2)
+        stop = s.root / ".overnight" / "STOP"
+        stop.parent.mkdir(exist_ok=True)
+        stop.write_text("stop", encoding="utf-8")
+        code, out = s.run("done", "--hours", "1")
+        self.assertEqual(code, 0, out)
+        self.assertIn("ignored a stale STOP file", out)
+        self.assertEqual(s.status("1.1"), "done")
+        self.assertEqual(s.status("1.2"), "done")
+
+    def test_an_empty_leftover_worktree_folder_is_reused(self):
+        s = self.scratch()
+        s.work.mkdir()
+        code, out = s.run("done", "--hours", "1")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(s.status(), "done")
+
     def test_required_changed_downgrades_done(self):
         s = self.scratch()
         s.set_config({"gate": [{"cmd": [sys.executable, "-c", "pass"]}],
@@ -458,23 +478,35 @@ class OvernightRunTests(unittest.TestCase):
         self.assertEqual(code, 0, out)
         self.assertIn("no more ready tasks", out)
 
-    def test_stop_file_ends_run_before_first_task(self):
-        s = self.scratch()
-        (s.root / ".overnight").mkdir()
-        (s.root / ".overnight" / "STOP").write_text("stop")
-        code, out = s.run("done")
+    def test_stop_file_written_during_a_task_ends_the_run_after_it(self):
+        s = self.scratch(tasks=2)
+        stop = s.root / ".overnight" / "STOP"
+        stop.parent.mkdir(exist_ok=True)
+        code, out = s.run("done", "--hours", "1", STUB_SENTINEL=str(stop))
         self.assertEqual(code, 0)
         self.assertIn("STOP file", out)
-        self.assertEqual(s.status(), "pending")
+        self.assertEqual(s.status("1.1"), "done")
+        self.assertEqual(s.status("1.2"), "pending")
 
-    def test_kill_file_ends_run_before_first_task(self):
-        s = self.scratch()
-        (s.root / ".overnight").mkdir()
-        (s.root / ".overnight" / "KILL").write_text("kill")
-        code, out = s.run("done")
+    def test_kill_file_written_during_a_task_ends_the_run_after_it(self):
+        s = self.scratch(tasks=2)
+        kill = s.root / ".overnight" / "KILL"
+        kill.parent.mkdir(exist_ok=True)
+        code, out = s.run("done", "--hours", "1", STUB_SENTINEL=str(kill))
         self.assertEqual(code, 0)
         self.assertIn("KILL file", out)
-        self.assertEqual(s.status(), "pending")
+        self.assertEqual(s.status("1.1"), "done")
+        self.assertEqual(s.status("1.2"), "pending")
+
+    def test_a_stale_kill_file_is_ignored_too(self):
+        s = self.scratch()
+        kill = s.root / ".overnight" / "KILL"
+        kill.parent.mkdir(exist_ok=True)
+        kill.write_text("kill", encoding="utf-8")
+        code, out = s.run("done", "--hours", "1")
+        self.assertEqual(code, 0, out)
+        self.assertIn("ignored a stale KILL file", out)
+        self.assertEqual(s.status(), "done")
 
     def test_kill_without_pid_file_writes_sentinel(self):
         import types

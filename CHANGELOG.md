@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **TKRun ignores stale sentinels and empty leftover folders.** A `STOP` or
+  `KILL` file left over from an earlier run is removed at start instead of
+  ending the next run before it begins. An empty, unregistered worktree folder
+  (what `git worktree remove` can leave on Windows) is reused instead of
+  refused.
+
 ### Security
 
 - **TKRun keeps secrets out of the agent.** The runner's own tidetable
