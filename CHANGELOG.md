@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **opencode agents kept their shell.** The generated `opencode.json` used an
+  allowlist (`"*": "deny"` plus allow patterns), which opencode 2.x applies to
+  the shell tool itself, so even `git status` was refused. It is now a denylist.
+  The `rtk` prefix is matched too, since the rtk plugin rewrites `git ...` to
+  `rtk git ...` before the permission check. Only publishing (`git push`, `git
+  tag`), tidetable state and secret-dumping commands are denied; local git is
+  allowed because one rejected command makes opencode drop the shell for the
+  whole session. An agent that commits is tolerated: the runner folds its
+  commits back into the working tree.
+
+### Added
+
+- **`push` option.** `"push": true` pushes the run branch to `origin` when a
+  run ends. The agent itself still cannot push.
+
+### Fixed
+
 - **TKRun ignores stale sentinels and empty leftover folders.** A `STOP` or
   `KILL` file left over from an earlier run is removed at start instead of
   ending the next run before it begins. An empty, unregistered worktree folder

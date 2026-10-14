@@ -38,6 +38,11 @@ if mode == "silent":
     print("I did some things")
     sys.exit(0)
 tid = prompt.split("Task: ")[1].split(" ")[0]
+if os.environ.get("STUB_COMMIT"):
+    import subprocess
+    subprocess.run(["git", "add", "-A"], check=True)
+    subprocess.run(["git", "-c", "user.email=a@b.c", "-c", "user.name=agent", "commit", "-qm",
+                    "agent own commit"], check=True)
 if os.environ.get("STUB_SENTINEL"):
     open(os.environ["STUB_SENTINEL"], "w").write("x")
 if os.environ.get("STUB_ENVDUMP"):
@@ -406,6 +411,46 @@ class OvernightRunTests(unittest.TestCase):
         code, out = s.run("done", "--hours", "1")
         self.assertEqual(code, 0, out)
         self.assertEqual(s.status(), "done")
+
+    def test_opencode_config_denies_publishing_and_secrets_but_not_local_git(self):
+        s = self.scratch()
+        s.set_config({"gate": [{"cmd": [sys.executable, "-c", "pass"]}], "review": {"enabled": False},
+                      "agent_commands": {"viaoc": {"cmd": ["echo", "{prompt}"],
+                                                   "opencode_permissions": True}}})
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            cli.main(["overnight", "run", str(s.todo), "--model", "viaoc/m", "--dry-run"])
+        out = buf.getvalue()
+        i = out.index("----- opencode.json")
+        cfg = json.loads(out[i:out.index("----- prompt")].split("\n", 1)[1])
+        bash = cfg["permission"]["bash"]
+        self.assertEqual(bash["*"], "allow")
+        for denied in ("git push*", "rtk git push*", "printenv*", "tidetable done*", "env"):
+            self.assertEqual(bash[denied], "deny", denied)
+        for local in ("git commit*", "git checkout*", "git stash*"):
+            self.assertNotIn(local, bash)
+
+    def test_agent_commits_are_folded_back_and_the_runner_commits_the_task(self):
+        s = self.scratch()
+        code, out = s.run("done", "--hours", "1", STUB_COMMIT="1")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(s.status(), "done")
+        subjects = _git(s.root, "log", s.branch, "--format=%s")
+        self.assertIn("1.1: add work file", subjects)
+        self.assertNotIn("agent own commit", subjects)
+
+    def test_push_option_publishes_the_run_branch_only(self):
+        s = self.scratch()
+        remote = s.root.parent / "remote.git"
+        _git(s.root.parent, "init", "--bare", "-q", str(remote))
+        _git(s.root, "remote", "add", "origin", str(remote))
+        s.set_config({"gate": [{"cmd": [sys.executable, "-c", "pass"]}], "review": {"enabled": False},
+                      "push": True})
+        code, out = s.run("done", "--hours", "1")
+        self.assertEqual(code, 0, out)
+        heads = _git(remote, "branch", "--list")
+        self.assertIn(s.branch, heads)
+        self.assertNotIn("main", heads)
 
     def test_required_changed_downgrades_done(self):
         s = self.scratch()

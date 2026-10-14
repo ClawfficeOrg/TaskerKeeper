@@ -52,17 +52,22 @@ BASE_SHELL_ALLOW = [
     "ls *", "ls", "pwd", "diff *", "wc *",
 ]
 # The runner owns git history and tidetable state; the agent never does.
-BASE_SHELL_DENY = [
-    "git push*", "git tag*", "git commit*", "git checkout*", "git switch*",
-    "git reset*", "git merge*", "git rebase*", "git branch*", "git stash*",
-    "git clean*",
-    "tidetable start*", "tidetable done*", "tidetable reset*",
-    "tidetable status*",
-    # Never dump the environment or secret files into the transcript.
+GIT_LOCAL_DENY = ["git commit*", "git checkout*", "git switch*", "git reset*", "git merge*",
+                  "git rebase*", "git branch*", "git stash*", "git clean*"]
+# Publishing is the owner's call, never an unattended agent's.
+GIT_REMOTE_DENY = ["git push*", "git tag*"]
+TIDETABLE_DENY = ["tidetable start*", "tidetable done*", "tidetable reset*", "tidetable status*"]
+# Never dump the environment or secret files into the transcript.
+SECRET_DENY = [
     "env", "env *", "printenv*", "set", "export*", "declare*", "git config --list*",
     "git config -l*", "cat *.env*", "type *.env*", "more *.env*", "echo $*",
     "Get-ChildItem env:*", "gci env:*", "dir env:*", "ls env:*", "Get-Content *.env*",
 ]
+BASE_SHELL_DENY = GIT_REMOTE_DENY + GIT_LOCAL_DENY + TIDETABLE_DENY + SECRET_DENY
+# What an opencode agent is denied. opencode 2.x drops the shell tool for the rest of the
+# session after ONE rejected command, so only what must never happen is denied here; local
+# git is allowed (the runner folds an agent's commits back into the working tree).
+OPENCODE_SHELL_DENY = GIT_REMOTE_DENY + TIDETABLE_DENY + SECRET_DENY
 # The runner's own credentials: never in an agent's environment. The runner makes its
 # tidetable calls itself, so the agent has no use for them. `agent_env_drop` adds names
 # (fnmatch patterns).
@@ -112,6 +117,8 @@ DEFAULTS: dict = {
     # opencode.json for the call; set it for any command that is really `opencode run`,
     # otherwise the user's own opencode config decides what the agent may do.
     "agent_commands": {},
+    # Push the run branch (never the base branch) to `origin` when the run ends.
+    "push": False,
     "agent_env_drop": [],          # extra env var names (fnmatch) to hide from the agent
     # Merged over the generated opencode.json (dicts merge, other values replace). The
     # generated file only restricts bash/edit; MCP servers from the user's global opencode
@@ -780,9 +787,15 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
             "models": {model: {"name": model, "options": dict(lane["model_options"])}}}}
 
     def opencode_config(self, extra_provider: dict | None = None) -> str:
-        bash = {"*": "deny"}
-        bash.update({p: "allow" for p in self.shell_allow})
-        bash.update({p: "deny" for p in self.shell_deny})
+        # A denylist, not an allowlist: opencode 2.x evaluates the tool-level permission with the
+        # pattern "*", so `"*": "deny"` plus allow patterns refuses the shell outright (even an
+        # allowed `git status`). Later rules win, so the denies below override the wildcard.
+        bash = {"*": "allow"}
+        denied = OPENCODE_SHELL_DENY + list(self.cfg["shell_deny"])
+        bash.update({p: "deny" for p in denied})
+        # The rtk plugin rewrites `git push` to `rtk git push` before the permission check, so
+        # the same patterns must also match behind the `rtk ` prefix.
+        bash.update({f"rtk {p}": "deny" for p in denied})
         ext = {"*": "deny"}
         for d in self.cfg["external_read"]:
             ext[str(Path(os.path.expandvars(os.path.expanduser(d))).resolve()) + os.sep + "**"] = "allow"
@@ -1046,6 +1059,18 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
         return {"status": m[-1][0] if m else "", "detail": m[-1][1].strip() if m else "",
                 "summary": s[-1].strip() if s else ""}
 
+    def fold_agent_commits(self, tid: str, head0: str) -> None:
+        """An agent that commits anyway would hide its work from the gate and the diff, which
+        read the working tree. Soft-reset to where the task started so the work is uncommitted
+        again; the runner then commits it with its own message."""
+        if not head0:
+            return
+        head = git(self.root, "rev-parse", "HEAD").out.strip()
+        if head and head != head0:
+            r = git(self.root, "reset", "--soft", head0)
+            if r.code == 0:
+                self.log(f"NOTE {tid}: the agent committed; folded its commits back into the working tree")
+
     # ── one task end to end → done | partial | skipped | failed | limited | stop
     def run_task(self, task: dict) -> str:
         tid = task["id"]
@@ -1064,7 +1089,9 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
             return "skipped"
         self.log(f"START {tid} '{task.get('title', '')}' agent={spec}")
 
+        head0 = git(self.root, "rev-parse", "HEAD").out.strip()
         run = self.run_agent(provider, model, lambda resume: self.build_prompt(task, spec, resume), tid)
+        self.fold_agent_commits(tid, head0)
         if run["status"] == "stop":
             self.park_failure(task, "stop requested while rate limited")
             return "stop"
@@ -1465,6 +1492,10 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
             for sib in self.siblings:
                 if sib["path"] in self.sib_ready:
                     self.log(f"{sib['path']}: worktree kept at {sib['root']} (branch {self.branch})")
+            if self.cfg["push"] and not self.dry_run:
+                r = git(self.home, "push", "-u", "origin", self.branch)
+                self.log(f"pushed {self.branch} to origin" if r.code == 0
+                         else f"WARN push of {self.branch} failed: {(r.out + r.err).strip()[-200:]}")
             self.log(f"worktree kept at {self.wt_path}; review `git log {self.base}..{self.branch}`, merge it "
                      f"yourself, then `git worktree remove {self.wt_path}`")
             self.log(f"END ({why}): done {counts['done']}, partial {counts['partial']}, skipped "
