@@ -81,7 +81,12 @@ DEFAULTS: dict = {
     "worktree_dir": "",            # default: <repo>-overnight-<date> beside the repo
     "siblings": [],                # other repos the task may change: {path, scope[]}
     "required_changed": [],        # a DONE that did not touch these becomes PARTIAL
-    "review": {"enabled": True, "model": "anthropic/claude-opus-5"},
+    # `enabled`/`model` are the per-task review (read-only, after the gate, before a task
+    # closes). `phase` is a second, optional review that runs once when the last task of a
+    # phase closes; it defaults to the task reviewer's model. `task` may also be written as
+    # its own object: {"task": {...}, "phase": {...}}.
+    "review": {"enabled": True, "model": "anthropic/claude-opus-5-5",
+               "phase": {"enabled": False, "model": "", "on_fail": "continue"}},
     "limits": {"task_minutes": 120, "gate_minutes": 45,
                "max_consecutive_failures": 2, "lease_minutes": 480},
     "agent_commands": {},          # provider -> {cmd:[...with {model}], stdin:bool}
@@ -297,6 +302,8 @@ class Runner:
     model_override: str = ""
     no_review: bool = False
     review_model: str = ""
+    no_phase_review: bool = False
+    phase_review_model: str = ""
     dry_run: bool = False
     base_override: str = ""
     hub: dict | None = None          # {"server", "token", "project"}: todo lives on a hub
@@ -364,8 +371,18 @@ class Runner:
             self.cfg[k] = expand(self.cfg[k])
         self.shell_allow = BASE_SHELL_ALLOW + list(self.cfg["shell_allow"])
         self.shell_deny = BASE_SHELL_DENY + list(self.cfg["shell_deny"])
-        self.review_enabled = bool(self.cfg["review"].get("enabled", True)) and not self.no_review
-        self.review_spec = self.review_model or self.cfg["review"].get("model", "anthropic/claude-opus-5")
+        rv = self.cfg["review"]
+        task_rv = {"enabled": rv.get("enabled", True), "model": rv.get("model", ""), **rv.get("task", {})}
+        self.review_enabled = bool(task_rv["enabled"]) and not self.no_review
+        self.review_spec = self.review_model or task_rv["model"] or "anthropic/claude-opus-5-5"
+        phase_rv = {"enabled": False, "model": "", "on_fail": "continue", **rv.get("phase", {})}
+        self.phase_enabled = (bool(phase_rv["enabled"]) or bool(self.phase_review_model)) \
+            and not self.no_phase_review
+        self.phase_spec = self.phase_review_model or phase_rv["model"] or self.review_spec
+        self.phase_on_fail = phase_rv["on_fail"]
+        if self.phase_on_fail not in ("continue", "stop"):
+            raise ValueError("review.phase.on_fail must be 'continue' or 'stop'")
+        self.phase_reviewed: set[str] = set()
         for name, lane in self.cfg["lanes"].items():
             merged = {**LANE_DEFAULTS, **lane}
             if "/" not in str(merged["fallback"]):
@@ -583,6 +600,79 @@ Last line, exactly one of:
 REVIEW_RESULT: PASS
 REVIEW_RESULT: FAIL <short reasons, ';'-separated>
 """
+
+    def build_phase_review_prompt(self, phase: dict, goal: str, ids: list[str], commits: list[str]) -> str:
+        crit = []
+        for t in phase.get("tasks", []):
+            if t["id"] in ids:
+                crit.append(f"  {t['id']} - {t.get('title', '')}")
+        done = "\n".join(crit)
+        cl = "\n".join(f"  {c}" for c in commits) or "  (none made in this run; the work is already on the base branch)"
+        return f"""You are a strict read-only reviewer. Do not edit anything. Every task of phase {phase['id']}
+- {phase.get('title', '')} has now closed. Review the phase as a whole, in the current directory.
+Phase goal: {goal}
+Tasks in the phase:
+{done}
+
+Commits made for this phase in this run:
+{cl}
+The full run so far is `git diff {self.base}...HEAD`; inspect with git show / git diff and Read.
+Each task was already reviewed on its own and the gate passed; do not rerun the gate. Judge what
+per-task review cannot see: does the phase goal hold end to end, do the tasks fit together, was
+a task's work quietly undone or duplicated by another, is anything stubbed, left half-wired, or
+inconsistent between modules, and are there security or crash paths across task boundaries.
+Criteria that can only be checked on screen are out of scope for you.
+
+Last line, exactly one of:
+REVIEW_RESULT: PASS
+REVIEW_RESULT: FAIL <short reasons, ';'-separated>
+"""
+
+    def review_phase(self, tid: str) -> str | None:
+        """Review the phase `tid` belongs to, once, when that phase has just completed.
+
+        Returns PASS / FAIL, "error" when the reviewer did not finish, or None when
+        nothing was reviewed (phase still open, already reviewed, reviewer out of quota).
+        """
+        r = self.tk("list", self.todo_arg, "--json")
+        try:
+            phases = json.loads(r.out).get("phases", [])
+        except json.JSONDecodeError:
+            return None
+        phase = next((ph for ph in phases if any(t["id"] == tid for t in ph.get("tasks", []))), None)
+        if not phase or not phase.get("complete") or phase["id"] in self.phase_reviewed:
+            return None
+        self.phase_reviewed.add(phase["id"])
+        rp, rm = self.split_agent(self.phase_spec)
+        if rp in self.exhausted:
+            self.log(f"PHASE REVIEW {phase['id']} not run (reviewer out of quota)")
+            return None
+        goal = phase.get("goal") or phase.get("title", "")
+        if not self.hub and self.todo.is_file():
+            try:
+                full = json.loads(self.todo.read_text(encoding="utf-8")).get("phases", [])
+                goal = next((x.get("goal") for x in full if x.get("id") == phase["id"] and x.get("goal")), goal)
+            except (OSError, json.JSONDecodeError):
+                pass
+        ids = [t["id"] for t in phase.get("tasks", [])]
+        lines = git(self.root, "log", "--format=%h %s", f"{self.base}..HEAD").out.splitlines()
+        commits = [ln for ln in lines if any(ln.split(" ", 1)[-1].startswith(f"{i}:")
+                                             or ln.split(" ", 1)[-1].startswith(f"wip({i}):") for i in ids)]
+        self.say(f"phase review {phase['id']}: {rp}/{rm}")
+        prompt = self.build_phase_review_prompt(phase, goal, ids, commits)
+        rrun = self.run_agent(rp, rm, lambda _resume: prompt, f"phase-{phase['id']}-review", "review")
+        hits = re.findall(r"(?m)^\s*REVIEW_RESULT:\s*(PASS|FAIL)\b[ \t]*(.*)$", rrun["res"].out)
+        if rrun["status"] == "limited":
+            self.exhausted.add(rp)
+        if rrun["status"] != "ok" or not hits:
+            rel = rrun["transcript"].relative_to(self.home).as_posix()
+            self.log(f"PHASE REVIEW {phase['id']} not completed ({rrun['status']}); see {rel}")
+            return "error"
+        if hits[-1][0] == "FAIL":
+            self.log(f"PHASE REVIEW FAIL {phase['id']}: {hits[-1][1].strip()}")
+            return "FAIL"
+        self.log(f"PHASE REVIEW PASS {phase['id']}")
+        return "PASS"
 
     # ── agent invocation
     def lane_provider_block(self, provider: str, model: str) -> dict:
@@ -968,6 +1058,8 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
                  f"{self.home} is never edited")
         self.say(f"branch {self.branch}; owner {self.owner}; deadline {self.deadline:%Y-%m-%d %H:%M}; lease {self.lease}m")
         self.say(f"review: {self.review_spec if self.review_enabled else 'off'}")
+        self.say(f"phase review: {self.phase_spec if self.phase_enabled else 'off'}"
+                 + (f" (on FAIL: {self.phase_on_fail})" if self.phase_enabled else ""))
         if not gates:
             self.say("WARNING: no gate configured; run `tidetable overnight init` or tasks close on review alone")
         for s in gates:
@@ -1052,7 +1144,7 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
         cur = self.preflight()
         if self.dry_run:
             return self.show_dry_run(cur)
-        if not self.cfg["gate"] and not self.review_enabled:
+        if not self.cfg["gate"] and not self.review_enabled and not self.phase_enabled:
             raise RuntimeError("no gate and no review configured: nothing would verify a task. "
                                "Run `tidetable overnight init` or enable review.")
         if self.pid_file.exists():
@@ -1104,6 +1196,10 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
                     why = "STOP while waiting out a usage limit"
                     break
                 counts[outcome] += 1
+                if outcome == "done" and self.phase_enabled:
+                    if self.review_phase(t["id"]) == "FAIL" and self.phase_on_fail == "stop":
+                        why = "phase review FAIL"
+                        break
                 if outcome == "failed":
                     consecutive += 1
                 elif outcome in ("done", "partial"):
@@ -1167,6 +1263,8 @@ def cmd_run(args) -> int:
                     deadline=datetime.now() + timedelta(hours=hours, minutes=minutes),
                     model_override=args.model or "", no_review=args.no_review,
                     review_model=args.review_model or "", dry_run=args.dry_run,
+                    phase_review_model=args.phase_review_model or "",
+                    no_phase_review=args.no_phase_review,
                     base_override=args.base or "", hub=hub)
     if path is None:
         runner.say("no .tidetable/overnight.json; using detected stack defaults "
@@ -1266,9 +1364,15 @@ def add_parser(sub) -> None:
     run.add_argument("--minutes", type=float, default=0, help="Added to --hours (alone = minutes only)")
     run.add_argument("--dry-run", action="store_true", help="Show routing, command and prompt; change nothing")
     run.add_argument("--model", help="Force provider/model for every task")
-    run.add_argument("--review-model", help="Override the reviewer (provider/model)")
+    run.add_argument("--review-model", "--task-review-model", dest="review_model",
+                     help="Override the per-task reviewer (provider/model)")
+    run.add_argument("--phase-review-model", help="Review each phase once when it completes, "
+                                                  "with this reviewer (provider/model)")
+    run.add_argument("--no-phase-review", action="store_true",
+                     help="Skip the phase review even if the config enables it")
     run.add_argument("--base", help="Branch the worktree is cut from (default: base_branch, main)")
-    run.add_argument("--no-review", action="store_true", help="Close on the gate alone")
+    run.add_argument("--no-review", "--no-task-review", dest="no_review", action="store_true",
+                     help="Skip the per-task review: close tasks on the gate alone")
     run.add_argument("--repo", metavar="PATH",
                      help="With a hub (--server): the git checkout to work in (default: cwd)")
     run.set_defaults(func=cmd_run)

@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Per-phase review in TKRun.** `review.phase` (`{enabled, model, on_fail}`)
+  adds an optional read-only review that runs once, when the last task of a
+  phase closes, against the phase goal and the commits made for it. It has its
+  own model, independent of the per-task review, so each can be on, off or on
+  a different model. `on_fail: "stop"` ends the run on a phase FAIL; the default
+  logs it and carries on. New flags: `--task-review-model`, `--no-task-review`
+  (aliases of `--review-model`, `--no-review`), `--phase-review-model` and
+  `--no-phase-review`. The default task reviewer is now `anthropic/claude-opus-5-5`.
+
 - **Hub-aware sidebar.** `GET /api/<slug>/sidebar?width=&height=` on
   `tidetable serve` returns the same payload as `tidetable sidebar --json`,
   and `sidebar` now works in remote mode (JSON, or the rendered text when

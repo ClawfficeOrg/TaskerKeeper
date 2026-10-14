@@ -30,8 +30,14 @@ run.
    `agent_commands`. No skip-permissions flag: the shell allow/deny lists below
    are passed to claude, and written to a temporary `opencode.json` for opencode.
 3. The **runner** runs your gate commands. It does not trust the agent's report.
-4. A task reported DONE gets one read-only review of its diff against the
-   success criteria. Only PASS closes it.
+4. A task reported DONE gets one read-only **task review** of its diff against
+   the success criteria (optional, on by default). Only PASS closes it.
+   When the last task of a phase closes, an optional **phase review** (off by
+   default) looks at the phase as a whole against the phase goal. It uses its
+   own model, so a cheap model can review each task and a stronger one each
+   phase, or the reverse. A phase FAIL leaves the tasks closed, logs
+   `PHASE REVIEW FAIL <phase>: <reasons>`, and with `on_fail: "stop"` ends the
+   run there.
 5. Outcome:
 
    | Outcome | When | Result |
@@ -71,7 +77,7 @@ All keys optional; unknown keys are an error.
 | `gate` | steps, below |
 | `required_changed` | a DONE that did not change these (e.g. `CHANGELOG.md`) becomes PARTIAL |
 | `siblings` | `[{path, scope[]}]` other repos a task may change. Each gets its own worktree `<name>-overnight-<date>` on the same branch name, cut from the branch it is on. In config strings `{sibling:PATH}` is that worktree and `{sibling_home:PATH}` the real checkout (for prebuilt tools) |
-| `review` | `{enabled, model}` (default Opus, `provider/model`) |
+| `review` | `{enabled, model, phase: {enabled, model, on_fail}}`. `enabled`/`model` are the per-task review (default Opus, `provider/model`). `phase` is the optional end-of-phase review: off by default, `model` defaults to the task reviewer, `on_fail` is `continue` (default) or `stop`. Flags: `--task-review-model`, `--no-task-review`, `--phase-review-model` (also enables it), `--no-phase-review`; `--review-model` and `--no-review` are the older names for the task review |
 | `limits` | `task_minutes` 120, `gate_minutes` 45, `max_consecutive_failures` 2, `lease_minutes` 480 |
 | `agent_commands` | `{provider: {cmd: [... "{model}" "{prompt}"], stdin: bool}}` for other CLIs |
 | `human_check_pattern`, `human_check_exempt` | regexes for criteria that need a person |

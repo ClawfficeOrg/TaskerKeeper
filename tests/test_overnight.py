@@ -25,7 +25,11 @@ import os, sys, time
 prompt = sys.stdin.read()
 mode = os.environ.get("STUB_MODE", "done")
 if "strict read-only reviewer" in prompt:
-    print("REVIEW_RESULT: " + os.environ.get("STUB_REVIEW", "PASS"))
+    phase = "Every task of phase" in prompt
+    if os.environ.get("STUB_LOG"):
+        open(os.environ["STUB_LOG"], "a").write(("phase" if phase else "task") + "\n")
+    key = "STUB_PHASE_REVIEW" if phase else "STUB_REVIEW"
+    print("REVIEW_RESULT: " + os.environ.get(key, "PASS"))
     sys.exit(0)
 if mode == "limit":
     print("Claude usage limit reached|%d" % (int(time.time()) + 3600))
@@ -168,6 +172,77 @@ class OvernightRunTests(unittest.TestCase):
         s2 = self.scratch(review=True)
         s2.run("done", review="PASS")
         self.assertEqual(s2.status(), "done")
+
+    def two_phases(self, s) -> None:
+        """Move task 1.2 into its own phase 2 so a phase closes mid-run."""
+        data = json.loads(s.todo.read_text(encoding="utf-8"))
+        t2 = data["phases"][0]["tasks"].pop(1)
+        data["phases"].append({"id": "2", "title": "P2", "goal": "g2", "tasks": [t2]})
+        s.todo.write_text(json.dumps(data), encoding="utf-8")
+        _git(s.root, "add", "-A")
+        subprocess.run(["git", "-C", str(s.root), "commit", "-q", "-m", "phases"], check=True,
+                       capture_output=True)
+
+    def test_phase_review_runs_once_when_the_phase_completes(self):
+        s = self.scratch(tasks=2)
+        log = s.root.parent / "reviews.log"
+        s.set_config({"gate": [{"cmd": [sys.executable, "-c", "pass"]}],
+                      "review": {"enabled": False, "phase": {"enabled": True}}})
+        code, out = s.run("done", STUB_LOG=str(log))
+        self.assertEqual(code, 0, out)
+        self.assertEqual(s.status("1.1"), "done")
+        self.assertEqual(s.status("1.2"), "done")
+        self.assertEqual(log.read_text().split(), ["phase"])
+        self.assertIn("PHASE REVIEW PASS 1", out)
+
+    def test_task_and_phase_review_are_independent(self):
+        s = self.scratch(tasks=2, review=True)
+        log = s.root.parent / "reviews.log"
+        s.set_config({"gate": [{"cmd": [sys.executable, "-c", "pass"]}],
+                      "review": {"enabled": True, "phase": {"enabled": True}}})
+        s.run("done", STUB_LOG=str(log))
+        self.assertEqual(log.read_text().split(), ["task", "task", "phase"])
+
+    def test_phase_review_off_by_default(self):
+        s = self.scratch(tasks=2, review=True)
+        log = s.root.parent / "reviews.log"
+        s.run("done", STUB_LOG=str(log))
+        self.assertEqual(log.read_text().split(), ["task", "task"])
+
+    def test_phase_review_fail_continues_by_default(self):
+        s = self.scratch(tasks=2)
+        self.two_phases(s)
+        s.set_config({"gate": [{"cmd": [sys.executable, "-c", "pass"]}],
+                      "review": {"enabled": False, "phase": {"enabled": True}}})
+        code, out = s.run("done", STUB_PHASE_REVIEW="FAIL parts do not fit")
+        self.assertIn("PHASE REVIEW FAIL 1: parts do not fit", out)
+        self.assertEqual(s.status("1.1"), "done")
+        self.assertEqual(s.status("1.2"), "done")
+
+    def test_phase_review_fail_can_stop_the_run(self):
+        s = self.scratch(tasks=2)
+        self.two_phases(s)
+        s.set_config({"gate": [{"cmd": [sys.executable, "-c", "pass"]}],
+                      "review": {"enabled": False,
+                                 "phase": {"enabled": True, "on_fail": "stop"}}})
+        code, out = s.run("done", STUB_PHASE_REVIEW="FAIL parts do not fit")
+        self.assertEqual(code, 1)
+        self.assertEqual(s.status("1.1"), "done")
+        self.assertEqual(s.status("1.2"), "pending")
+
+    def test_no_phase_review_flag_wins_over_config(self):
+        s = self.scratch(tasks=2)
+        log = s.root.parent / "reviews.log"
+        s.set_config({"gate": [{"cmd": [sys.executable, "-c", "pass"]}],
+                      "review": {"enabled": False, "phase": {"enabled": True}}})
+        s.run("done", "--hours", "1", "--no-phase-review", STUB_LOG=str(log))
+        self.assertFalse(log.exists())
+
+    def test_phase_review_model_flag_enables_it(self):
+        s = self.scratch(tasks=2)
+        log = s.root.parent / "reviews.log"
+        s.run("done", "--hours", "1", "--phase-review-model", "anthropic/stub", STUB_LOG=str(log))
+        self.assertEqual(log.read_text().split(), ["phase"])
 
     def test_required_changed_downgrades_done(self):
         s = self.scratch()
