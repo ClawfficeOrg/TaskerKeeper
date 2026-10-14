@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`tkrun run --task ID`.** Run only the named task or tasks (repeatable);
+  the run ends when none of them is left to run. Composes with `--jobs`.
+
 ### Fixed
 
 - **A crashed parallel job keeps its worktree.** An exception in a `--jobs`

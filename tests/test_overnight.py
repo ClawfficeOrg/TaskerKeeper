@@ -468,6 +468,29 @@ class OvernightRunTests(unittest.TestCase):
         self.assertTrue((kept / "partial.txt").exists(), "the crashed job's work is still there")
         self.assertEqual(s.status("1.1"), "done")
 
+    def test_task_flag_runs_only_the_named_task(self):
+        s = self.scratch(tasks=3)
+        code, out = s.run("done", "--hours", "1", "--task", "1.2")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(s.status("1.2"), "done")
+        self.assertEqual(s.status("1.1"), "pending")
+        self.assertEqual(s.status("1.3"), "pending")
+
+    def test_task_flag_is_repeatable_and_works_with_jobs(self):
+        s = self.parallel_scratch([["a/"], ["b/"], ["c/"]])
+        code, out = s.run("done", "--hours", "1", "--jobs", "2", "--task", "1.1", "--task", "1.3",
+                          STUB_PER_TASK="1")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(
+            [s.status(t) for t in ("1.1", "1.2", "1.3")], ["done", "pending", "done"])
+
+    def test_task_flag_naming_nothing_runnable_ends_cleanly(self):
+        s = self.scratch()
+        code, out = s.run("done", "--hours", "1", "--task", "9.9")
+        self.assertEqual(code, 0, out)
+        self.assertIn("no more ready tasks", out)
+        self.assertEqual(s.status(), "pending")
+
     def test_required_changed_downgrades_done(self):
         s = self.scratch()
         s.set_config({"gate": [{"cmd": [sys.executable, "-c", "pass"]}],

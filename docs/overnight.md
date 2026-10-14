@@ -47,6 +47,12 @@ run.
    | failed | FAILED, no result line, timeout, gate failed, DONE with no changes | work stashed (`overnight <date> <id> failed`), task back to pending |
    | skipped | needs a human and changed nothing; provider out of quota | task back to pending or never claimed |
 
+## Running one task
+
+`--task ID` (repeatable) runs only the named tasks, which must be pending and
+ready (their prerequisites done). The run ends when none of them is left, so
+`tkrun run todo.json --task 1.6.1` runs exactly 1.6.1. It composes with `--jobs`.
+
 ## Running tasks in parallel
 
 `--jobs N` (or `parallel.jobs` in the config) runs up to N tasks at once. Each

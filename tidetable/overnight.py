@@ -399,6 +399,7 @@ class Runner:
     follow: bool = False             # echo the agent's output to the console as it runs
     phase_review_model: str = ""
     jobs: int = 0                    # 0 = use config `parallel.jobs`
+    only: list = field(default_factory=list)   # --task: run just these ids (empty = any)
     dry_run: bool = False
     base_override: str = ""
     hub: dict | None = None          # {"server", "token", "project"}: todo lives on a hub
@@ -576,9 +577,13 @@ class Runner:
         except json.JSONDecodeError:
             raise RuntimeError(f"tidetable ready failed: {r.out}{r.err}")
         for t in ready:
-            if t.get("status") == "pending" and t["id"] not in skip:
+            if t.get("status") == "pending" and t["id"] not in skip and self.wanted(t["id"]):
                 return t
         return None
+
+    def wanted(self, tid: str) -> bool:
+        """False for a task `--task` did not name. Everything is wanted without `--task`."""
+        return not self.only or tid in self.only
 
     # ── agent selection
     @staticmethod
@@ -1193,6 +1198,8 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
                  f"{self.home} is never edited")
         self.say(f"branch {self.branch}; owner {self.owner}; deadline {self.deadline:%Y-%m-%d %H:%M}; lease {self.lease}m")
         self.say(f"review: {self.review_spec if self.review_enabled else 'off'}")
+        if self.only:
+            self.say(f"only: {', '.join(self.only)}")
         self.say(f"jobs: {self.job_count}"
                  + (" (a task runs alongside others only if its touches do not overlap)"
                     if self.job_count > 1 else ""))
@@ -1301,7 +1308,7 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
             raise RuntimeError(f"tidetable ready failed: {r.out}{r.err}")
         busy = [p for t in running for p in (t.get("touches") or [])]
         for t in ready:
-            if t.get("status") != "pending" or t["id"] in skip:
+            if t.get("status") != "pending" or t["id"] in skip or not self.wanted(t["id"]):
                 continue
             tt = t.get("touches") or []
             if not running:
@@ -1551,6 +1558,7 @@ def cmd_run(args) -> int:
                     model_override=args.model or "", no_review=args.no_review,
                     review_model=args.review_model or "", dry_run=args.dry_run,
                     phase_review_model=args.phase_review_model or "", jobs=args.jobs or 0,
+                    only=list(args.task or []),
                     no_phase_review=args.no_phase_review,
                     follow=sys.stdout.isatty() if args.follow is None else args.follow,
                     base_override=args.base or "", hub=hub)
@@ -1659,6 +1667,9 @@ def add_parser(sub) -> None:
     run.add_argument("--follow", action=argparse.BooleanOptionalAction, default=None,
                      help="Echo the agent's output to the console while it runs "
                           "(default: on when attached to a terminal)")
+    run.add_argument("--task", action="append", metavar="ID",
+                     help="Run only this task (repeatable). It must be pending and ready; "
+                          "the run ends when none of the named tasks is left")
     run.add_argument("--jobs", type=int, default=0, metavar="N",
                      help="Run up to N tasks at once, each in its own worktree "
                           "(default: config parallel.jobs, 1)")
