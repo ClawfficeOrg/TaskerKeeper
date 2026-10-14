@@ -327,6 +327,15 @@ class OvernightRunTests(unittest.TestCase):
         s.run("done", "--hours", "1", STUB_TRACK=str(track), STUB_PER_TASK="1")
         self.assertEqual(self.max_concurrency(track), 2)
 
+    def test_ctrl_c_is_logged_as_interrupted_not_no_more_tasks(self):
+        s = self.scratch()
+        with mock.patch.object(overnight.Runner, "run_task", side_effect=KeyboardInterrupt):
+            code, out = s.run("done", "--hours", "1")
+        self.assertEqual(code, 1)
+        log = (s.root / ".overnight" / "log.md").read_text(encoding="utf-8")
+        self.assertIn("END (interrupted (Ctrl-C))", log)
+        self.assertNotIn("END (no more ready tasks)", log)
+
     def test_required_changed_downgrades_done(self):
         s = self.scratch()
         s.set_config({"gate": [{"cmd": [sys.executable, "-c", "pass"]}],

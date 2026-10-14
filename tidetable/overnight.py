@@ -1389,6 +1389,10 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
         why = "no more ready tasks"
         try:
             why = self.run_parallel(counts, tried) if self.job_count > 1                 else self.run_sequential(counts, tried)
+        except KeyboardInterrupt:
+            why = "interrupted (Ctrl-C)"
+            self.log("ABORT interrupted; the task in flight keeps its claim and uncommitted work "
+                     f"in {self.wt_path}")
         except Exception as e:  # noqa: BLE001 - the log must record why the night ended
             why = f"error: {e}"
             self.log(f"ABORT {why}")
