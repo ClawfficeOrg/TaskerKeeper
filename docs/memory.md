@@ -180,6 +180,18 @@ What changed in one long dogfooding session driving Swaygent with
   Bash tool, so write scripts to a file; Git Bash `/tmp` is not visible to
   Python on Windows; an `env -u TIDETABLE_SERVER` is needed to run the test suite
   when the shell points at a hub.
+- **First real `--jobs 2` run (Swaygent, 2026-10-14) and what broke:**
+  1.3.1 finished and merged cleanly after 51 minutes while 1.1.6 ran beside it.
+  Then (a) the runner's base-branch SAFETY check aborted 1.3.2 because someone
+  committed to `main` mid-run, and the crashed job's worktree was deleted with
+  24 minutes of work in it (now kept, `KEEP <id>`); (b) a shared
+  `CARGO_TARGET_DIR` across worktrees gave 1.1.6's agent compile errors about
+  `ModelInfo` fields that exist only in another worktree (private target dirs
+  compiled the same source fine, 35 tests passed); (c) a textual-clean merge can
+  still be a semantic conflict: 1.3.1 added fields to `ModelInfo` while 1.1.6
+  constructed it, so run the full gate on the merged tree. Rule of thumb: do
+  not touch the base branch while a run is live (the SAFETY check is strict, and
+  a config tweak is enough to trip it); commit config changes before launching.
 - **Gate mistakes cost whole runs.** A gate that includes a crate with
   pre-existing clippy errors fails every task. Scope the gate to what an agent
   can fix, and run it by hand once before an unattended run.
