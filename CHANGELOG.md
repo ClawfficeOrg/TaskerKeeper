@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **TKRun keeps secrets out of the agent.** The runner's own tidetable
+  credentials (`TIDETABLE_TOKEN`, `TIDETABLE_SERVER`, `TASKERKEEPER_TOKEN`,
+  `TK_API_TOKEN`) are removed from the agent's environment, and `agent_env_drop`
+  hides more. The prompt now forbids printing environment variables, `.env`
+  files and credentials, and `env`, `printenv`, `set`, `git config --list`,
+  `cat *.env*` and the PowerShell `env:` drive are on the shell deny list.
+  An `agent_commands` entry that is really `opencode run` can set
+  `opencode_permissions` so the shell allow/deny lists apply to it too; before,
+  such a command ran under the user's own opencode permissions.
+
 ### Added
 
 - **`tkrun run --jobs N`.** Runs up to N tasks at once, each in its own

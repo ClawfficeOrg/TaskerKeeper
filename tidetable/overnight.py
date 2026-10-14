@@ -58,7 +58,16 @@ BASE_SHELL_DENY = [
     "git clean*",
     "tidetable start*", "tidetable done*", "tidetable reset*",
     "tidetable status*",
+    # Never dump the environment or secret files into the transcript.
+    "env", "env *", "printenv*", "set", "export*", "declare*", "git config --list*",
+    "git config -l*", "cat *.env*", "type *.env*", "more *.env*", "echo $*",
+    "Get-ChildItem env:*", "gci env:*", "dir env:*", "ls env:*", "Get-Content *.env*",
 ]
+# The runner's own credentials: never in an agent's environment. The runner makes its
+# tidetable calls itself, so the agent has no use for them. `agent_env_drop` adds names
+# (fnmatch patterns).
+AGENT_ENV_DROP = ["TIDETABLE_TOKEN", "TASKERKEEPER_TOKEN", "TK_API_TOKEN", "TIDETABLE_SERVER",
+                  "TASKERKEEPER_SERVER"]
 REVIEW_ALLOWED = ["Read", "Glob", "Grep", "Bash(git status*)", "Bash(git diff*)",
                   "Bash(git show*)", "Bash(git log*)"]
 
@@ -98,7 +107,12 @@ DEFAULTS: dict = {
     "parallel": {"jobs": 1, "job_env": {}},
     "limits": {"task_minutes": 120, "gate_minutes": 45,
                "max_consecutive_failures": 2, "lease_minutes": 480},
-    "agent_commands": {},          # provider -> {cmd:[...with {model}], stdin:bool}
+    # provider -> {cmd:[...with {model}], stdin:bool, opencode_permissions:bool}.
+    # `opencode_permissions` writes the runner's shell allow/deny lists to a temporary
+    # opencode.json for the call; set it for any command that is really `opencode run`,
+    # otherwise the user's own opencode config decides what the agent may do.
+    "agent_commands": {},
+    "agent_env_drop": [],          # extra env var names (fnmatch) to hide from the agent
     "lanes": {},                   # leased-capacity providers, see LANE_DEFAULTS
 }
 
@@ -188,7 +202,7 @@ def _kill_tree(p: subprocess.Popen) -> None:
 
 def run_proc(argv: list[str], cwd: str | Path, stdin: str | None = None,
              timeout: int = 0, env: dict | None = None, follow: bool = False,
-             prefix: str = "") -> Proc:
+             prefix: str = "", drop: list[str] | None = None) -> Proc:
     """Run argv (no shell) with an optional stdin and a hard timeout in seconds.
 
     `follow` echoes the child's output to this console as it arrives; the full
@@ -198,6 +212,10 @@ def run_proc(argv: list[str], cwd: str | Path, stdin: str | None = None,
     if exe is None:
         return Proc(127, "", f"{argv[0]}: not found on PATH")
     full_env = {**os.environ, **(env or {})}
+    if drop:
+        import fnmatch
+        for name in [k for k in full_env if any(fnmatch.fnmatch(k.upper(), d.upper()) for d in drop)]:
+            del full_env[name]
     full_env.setdefault("PYTHONIOENCODING", "utf-8")
     p = subprocess.Popen([exe, *argv[1:]], cwd=str(cwd), env=full_env,
                          stdin=subprocess.PIPE if stdin is not None else subprocess.DEVNULL,
@@ -602,6 +620,9 @@ class Runner:
             "Do not run git commit/checkout/switch/branch/stash/reset/push/tag or tidetable "
             "start/done/reset/status. The runner does all of that.",
             "Do not install anything and do not take screenshots or drive a GUI.",
+            "Never print, echo, cat or otherwise output environment variables, .env files, tokens, "
+            "API keys or credentials, and do not run commands whose job is to list them (env, "
+            "printenv, set, git config --list). If a value is needed, refer to it by name.",
             "After you finish, the runner runs these itself; run them first for what you touched:\n"
             + self.gate_commands_text(),
             "Write tests for every behaviour you can test headlessly.",
@@ -772,7 +793,8 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
         custom = self.cfg["agent_commands"].get(provider)
         if custom:
             argv = [a.format(model=model, prompt=prompt) for a in custom["cmd"]]
-            return {"argv": argv, "stdin": prompt if custom.get("stdin") else None, "opencode": None}
+            return {"argv": argv, "stdin": prompt if custom.get("stdin") else None,
+                    "opencode": self.opencode_config() if custom.get("opencode_permissions") else None}
         if provider == "anthropic":
             common = ["-p", "--model", model, "--output-format", "text", "--permission-prompts", "none",
                       "--setting-sources", "project,local", "--strict-mcp-config"]
@@ -845,6 +867,7 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
             try:
                 res = run_proc(call["argv"], self.root, stdin=call["stdin"], timeout=cap, follow=self.follow,
                                prefix=self.follow_prefix,
+                               drop=AGENT_ENV_DROP + list(self.cfg["agent_env_drop"]),
                                env={"TIDETABLE_OWNER": self.owner, "TASKERKEEPER_OWNER": self.owner,
                                     **self.job_env})
             finally:

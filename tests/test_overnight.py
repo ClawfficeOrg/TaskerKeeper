@@ -38,6 +38,9 @@ if mode == "silent":
     print("I did some things")
     sys.exit(0)
 tid = prompt.split("Task: ")[1].split(" ")[0]
+if os.environ.get("STUB_ENVDUMP"):
+    open(os.environ["STUB_ENVDUMP"], "w").write(
+        "|".join(k for k in ("TIDETABLE_TOKEN", "TIDETABLE_SERVER", "KEEP_ME") if k in os.environ))
 if os.environ.get("STUB_TRACK"):
     open(os.environ["STUB_TRACK"], "a").write("s %s %f\n" % (tid, time.time()))
     time.sleep(float(os.environ.get("STUB_SLEEP", "1.0")))
@@ -336,6 +339,39 @@ class OvernightRunTests(unittest.TestCase):
         self.assertIn("END (interrupted (Ctrl-C))", log)
         self.assertNotIn("END (no more ready tasks)", log)
 
+    def test_runner_credentials_are_not_in_the_agent_environment(self):
+        s = self.scratch()
+        dump = s.root.parent / "envdump.txt"
+        s.run("done", "--hours", "1", STUB_ENVDUMP=str(dump), TIDETABLE_TOKEN="tk-secret",
+              KEEP_ME="1")
+        self.assertEqual(dump.read_text(), "KEEP_ME")
+
+    def test_agent_env_drop_hides_extra_names(self):
+        s = self.scratch()
+        s.set_config({"gate": [{"cmd": [sys.executable, "-c", "pass"]}], "review": {"enabled": False},
+                      "agent_env_drop": ["KEEP_*"]})
+        dump = s.root.parent / "envdump.txt"
+        s.run("done", "--hours", "1", STUB_ENVDUMP=str(dump), KEEP_ME="1")
+        self.assertEqual(dump.read_text(), "")
+
+    def test_prompt_forbids_printing_secrets_and_env_dumps_are_denied(self):
+        s = self.scratch()
+        code, out = s.run("done", "--hours", "1", "--dry-run")
+        self.assertIn("Never print, echo, cat or otherwise output environment variables", out)
+        self.assertIn("printenv*", "".join(overnight.BASE_SHELL_DENY))
+        self.assertIn("env", overnight.BASE_SHELL_DENY)
+
+    def test_custom_command_can_opt_into_the_runners_shell_permissions(self):
+        s = self.scratch()
+        s.set_config({"gate": [{"cmd": [sys.executable, "-c", "pass"]}], "review": {"enabled": False},
+                      "agent_commands": {"viaoc": {"cmd": ["echo", "{prompt}"],
+                                                   "opencode_permissions": True}}})
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            cli.main(["overnight", "run", str(s.todo), "--model", "viaoc/m", "--dry-run"])
+        self.assertIn('"permission"', buf.getvalue())
+        self.assertIn('"env": "deny"', buf.getvalue())
+
     def test_required_changed_downgrades_done(self):
         s = self.scratch()
         s.set_config({"gate": [{"cmd": [sys.executable, "-c", "pass"]}],
@@ -508,7 +544,7 @@ class OvernightUnitTests(unittest.TestCase):
             r.run_dir = Path(d)
             seen = {}
 
-            def fake(argv, cwd, stdin=None, timeout=0, env=None, follow=False, prefix=""):
+            def fake(argv, cwd, stdin=None, timeout=0, env=None, follow=False, prefix="", drop=None):
                 seen["timeout"] = timeout
                 return overnight.Proc(0, "OVERNIGHT_RESULT: DONE", "")
             with mock.patch.object(overnight, "run_proc", fake),                     mock.patch.object(r, "assert_safe"):

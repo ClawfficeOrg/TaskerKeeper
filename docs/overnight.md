@@ -101,7 +101,8 @@ All keys optional; unknown keys are an error.
 | `review` | `{enabled, model, phase: {enabled, model, on_fail}}`. `enabled`/`model` are the per-task review (default Opus, `provider/model`). `phase` is the optional end-of-phase review: off by default, `model` defaults to the task reviewer, `on_fail` is `continue` (default) or `stop`. Flags: `--task-review-model`, `--no-task-review`, `--phase-review-model` (also enables it), `--no-phase-review`; `--review-model` and `--no-review` are the older names for the task review |
 | `parallel` | `{jobs, job_env}`: concurrent tasks (default 1) and extra env for every agent and gate process, see "Running tasks in parallel" |
 | `limits` | `task_minutes` 120, `gate_minutes` 45, `max_consecutive_failures` 2, `lease_minutes` 480 |
-| `agent_commands` | `{provider: {cmd: [... "{model}" "{prompt}"], stdin: bool}}` for other CLIs |
+| `agent_commands` | `{provider: {cmd: [... "{model}" "{prompt}"], stdin: bool, opencode_permissions: bool}}` for other CLIs. Set `opencode_permissions` when the command is really `opencode run`: the runner then writes its shell allow/deny lists to a temporary `opencode.json` for the call. Without it the user's own opencode config decides what the agent may run |
+| `agent_env_drop` | extra environment variable names (fnmatch patterns) to hide from the agent. The runner's own `TIDETABLE_TOKEN`, `TIDETABLE_SERVER`, `TASKERKEEPER_TOKEN` and `TK_API_TOKEN` are always hidden |
 | `human_check_pattern`, `human_check_exempt` | regexes for criteria that need a person |
 
 Gate step: `{name, cmd[], cwd, repo, when_changed[], append_changed, exclude[], fail_output_regex}`.
