@@ -138,6 +138,52 @@ environment artifact, not a code failure.
   active. `agents providers` lists the presets.
 - `TIDETABLE_CONFIG_HOME` relocates the user config; the tests rely on it.
 
+## TKRun session notes (2026-10-14)
+
+What changed in one long dogfooding session driving Swaygent with
+`deeprelay/deepseek-v4.1-flash` through opencode, and what it taught us.
+
+- **Per-task and per-phase review** are independent. `review.phase`
+  (`{enabled, model, on_fail}`) runs once, when the last task of a phase
+  closes, against the phase goal and that phase's commits. `on_fail` is
+  `continue` (default) or `stop`. Flags: `--task-review-model`,
+  `--no-task-review`, `--phase-review-model` (also enables it),
+  `--no-phase-review`. The default task reviewer is `anthropic/claude-opus-5-5`.
+- **`--jobs N`** runs tasks in parallel: one worktree and branch per task
+  (`overnight/<date>-<id>`), merged back `--no-ff` one at a time. Only tasks that
+  declare disjoint `touches` run together; a task with no `touches` runs alone.
+  Todo state is only written in the run worktree, so jobs never conflict on it.
+  Share a cargo target dir with `parallel.job_env`. Not combinable with
+  `siblings` yet. Tested against stub agents; first real run is still to do.
+- **`--follow`** echoes agent output while it runs (default on a tty).
+- **Secrets stay out of the agent.** The runner's `TIDETABLE_TOKEN` and friends
+  are stripped from the agent environment, `agent_env_drop` hides more, the
+  prompt forbids printing env/.env, and env-dumping commands are denied.
+- **A custom `agent_commands` entry that is really `opencode run` bypasses the
+  runner's permissions** unless it sets `opencode_permissions: true`. It also
+  needs `--standalone`, or the agent session lives in opencode's background
+  service and keeps editing the worktree after the runner is killed.
+- **opencode 2.0.26 permissions:** an allowlist (`"*": "deny"` plus allow
+  patterns) refuses the shell outright, even `git status`; and one rejected
+  command removes the shell tool for the rest of the session. So the generated
+  config is a denylist of only what must never happen (`git push`/`tag`,
+  tidetable state, env/secret dumps), also behind the `rtk ` prefix because the
+  rtk plugin rewrites `git ...` before the permission check. Local git is
+  allowed; the runner folds an agent's own commits back into the working tree
+  with a soft reset so the gate and diff still see them.
+- **Stale `STOP`/`KILL` sentinels are ignored at start** (they ended the next run
+  before its first task). An empty leftover worktree folder is reused.
+- **`push: true`** pushes the run branch (never the base) to origin at the end.
+- **Windows/Git-Bash traps hit while doing this:** `taskkill //PID` is Git Bash
+  syntax, PowerShell wants `/PID`; `cp` is aliased interactive in Git Bash (use
+  `cat src > dst` or Python); heredocs with apostrophes or backticks break the
+  Bash tool, so write scripts to a file; Git Bash `/tmp` is not visible to
+  Python on Windows; an `env -u TIDETABLE_SERVER` is needed to run the test suite
+  when the shell points at a hub.
+- **Gate mistakes cost whole runs.** A gate that includes a crate with
+  pre-existing clippy errors fails every task. Scope the gate to what an agent
+  can fix, and run it by hand once before an unattended run.
+
 ## Decisions
 
 - **One implementation of the DAG.** `ralph/ralph-json.sh` was a parallel
