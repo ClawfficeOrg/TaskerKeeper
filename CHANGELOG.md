@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`tkrun run --jobs N`.** Runs up to N tasks at once, each in its own
+  worktree on its own branch, merged back onto the run branch one at a time as
+  they finish. Only tasks that declare `touches` and whose `touches` do not
+  overlap run together; a task without `touches` runs alone. A merge conflict
+  keeps the job branch and reopens the task. `parallel.jobs` sets the default
+  and `parallel.job_env` adds env (e.g. a shared `CARGO_TARGET_DIR`) to agent
+  and gate processes. Not yet combinable with `siblings`.
 - **`tkrun run --follow`.** Echoes the agent's output to the console as it
   runs, like the old ralph scripts. On by default when attached to a terminal;
   `--no-follow` restores the quiet log-only behaviour. The transcript file is
