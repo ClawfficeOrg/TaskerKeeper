@@ -244,6 +244,19 @@ class OvernightRunTests(unittest.TestCase):
         s.run("done", "--hours", "1", "--phase-review-model", "anthropic/stub", STUB_LOG=str(log))
         self.assertEqual(log.read_text().split(), ["phase"])
 
+    def test_follow_echoes_agent_output_and_still_closes(self):
+        s = self.scratch()
+        code, out = s.run("done", "--hours", "1", "--follow")
+        self.assertEqual(code, 0, out)
+        self.assertIn("OVERNIGHT_SUMMARY: add work file", out)
+        self.assertEqual(s.status(), "done")
+
+    def test_no_follow_keeps_agent_output_off_the_console(self):
+        s = self.scratch()
+        code, out = s.run("done", "--hours", "1", "--no-follow")
+        self.assertNotIn("OVERNIGHT_SUMMARY", out)
+        self.assertEqual(s.status(), "done")
+
     def test_required_changed_downgrades_done(self):
         s = self.scratch()
         s.set_config({"gate": [{"cmd": [sys.executable, "-c", "pass"]}],
@@ -416,7 +429,7 @@ class OvernightUnitTests(unittest.TestCase):
             r.run_dir = Path(d)
             seen = {}
 
-            def fake(argv, cwd, stdin=None, timeout=0, env=None):
+            def fake(argv, cwd, stdin=None, timeout=0, env=None, follow=False):
                 seen["timeout"] = timeout
                 return overnight.Proc(0, "OVERNIGHT_RESULT: DONE", "")
             with mock.patch.object(overnight, "run_proc", fake),                     mock.patch.object(r, "assert_safe"):

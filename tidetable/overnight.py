@@ -178,8 +178,12 @@ def _kill_tree(p: subprocess.Popen) -> None:
 
 
 def run_proc(argv: list[str], cwd: str | Path, stdin: str | None = None,
-             timeout: int = 0, env: dict | None = None) -> Proc:
-    """Run argv (no shell) with an optional stdin and a hard timeout in seconds."""
+             timeout: int = 0, env: dict | None = None, follow: bool = False) -> Proc:
+    """Run argv (no shell) with an optional stdin and a hard timeout in seconds.
+
+    `follow` echoes the child's output to this console as it arrives; the full
+    output is still captured and returned.
+    """
     exe = shutil.which(argv[0])
     if exe is None:
         return Proc(127, "", f"{argv[0]}: not found on PATH")
@@ -191,6 +195,37 @@ def run_proc(argv: list[str], cwd: str | Path, stdin: str | None = None,
                          encoding="utf-8", errors="replace",
                          start_new_session=(os.name != "nt"))
     timed_out = False
+    if follow:
+        import threading
+        bufs: dict[str, list[str]] = {"out": [], "err": []}
+
+        def pump(stream, key):
+            for line in stream:
+                bufs[key].append(line)
+                try:
+                    sys.stdout.write(line)
+                    sys.stdout.flush()
+                except (OSError, ValueError):
+                    pass
+        threads = [threading.Thread(target=pump, args=(p.stdout, "out"), daemon=True),
+                   threading.Thread(target=pump, args=(p.stderr, "err"), daemon=True)]
+        for t in threads:
+            t.start()
+        if stdin is not None:
+            try:
+                p.stdin.write(stdin)
+                p.stdin.close()
+            except OSError:
+                pass
+        try:
+            p.wait(timeout=timeout or None)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            _kill_tree(p)
+            p.wait()
+        for t in threads:
+            t.join(timeout=5)
+        return Proc(p.returncode, "".join(bufs["out"]), "".join(bufs["err"]), timed_out)
     try:
         out, err = p.communicate(stdin, timeout=timeout or None)
     except subprocess.TimeoutExpired:
@@ -303,6 +338,7 @@ class Runner:
     no_review: bool = False
     review_model: str = ""
     no_phase_review: bool = False
+    follow: bool = False             # echo the agent's output to the console as it runs
     phase_review_model: str = ""
     dry_run: bool = False
     base_override: str = ""
@@ -781,7 +817,7 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
                     raise RuntimeError(f"{self.opencode_cfg} already exists; remove it (the runner writes its own)")
                 self.opencode_cfg.write_text(call["opencode"], encoding="utf-8")
             try:
-                res = run_proc(call["argv"], self.root, stdin=call["stdin"], timeout=cap,
+                res = run_proc(call["argv"], self.root, stdin=call["stdin"], timeout=cap, follow=self.follow,
                                env={"TIDETABLE_OWNER": self.owner, "TASKERKEEPER_OWNER": self.owner})
             finally:
                 if call["opencode"]:
@@ -1265,6 +1301,7 @@ def cmd_run(args) -> int:
                     review_model=args.review_model or "", dry_run=args.dry_run,
                     phase_review_model=args.phase_review_model or "",
                     no_phase_review=args.no_phase_review,
+                    follow=sys.stdout.isatty() if args.follow is None else args.follow,
                     base_override=args.base or "", hub=hub)
     if path is None:
         runner.say("no .tidetable/overnight.json; using detected stack defaults "
@@ -1368,6 +1405,9 @@ def add_parser(sub) -> None:
                      help="Override the per-task reviewer (provider/model)")
     run.add_argument("--phase-review-model", help="Review each phase once when it completes, "
                                                   "with this reviewer (provider/model)")
+    run.add_argument("--follow", action=argparse.BooleanOptionalAction, default=None,
+                     help="Echo the agent's output to the console while it runs "
+                          "(default: on when attached to a terminal)")
     run.add_argument("--no-phase-review", action="store_true",
                      help="Skip the phase review even if the config enables it")
     run.add_argument("--base", help="Branch the worktree is cut from (default: base_branch, main)")

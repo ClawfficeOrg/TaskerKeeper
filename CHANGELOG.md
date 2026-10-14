@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`tkrun run --follow`.** Echoes the agent's output to the console as it
+  runs, like the old ralph scripts. On by default when attached to a terminal;
+  `--no-follow` restores the quiet log-only behaviour. The transcript file is
+  written either way.
 - **Per-phase review in TKRun.** `review.phase` (`{enabled, model, on_fail}`)
   adds an optional read-only review that runs once, when the last task of a
   phase closes, against the phase goal and the commits made for it. It has its
