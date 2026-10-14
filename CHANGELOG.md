@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   An `agent_commands` entry that is really `opencode run` can set
   `opencode_permissions` so the shell allow/deny lists apply to it too; before,
   such a command ran under the user's own opencode permissions.
+  `opencode_extra` merges more into that generated file, e.g. to disable MCP
+  servers from the global opencode config, which the bash/edit rules do not cover.
 
 ### Added
 

@@ -113,6 +113,11 @@ DEFAULTS: dict = {
     # otherwise the user's own opencode config decides what the agent may do.
     "agent_commands": {},
     "agent_env_drop": [],          # extra env var names (fnmatch) to hide from the agent
+    # Merged over the generated opencode.json (dicts merge, other values replace). The
+    # generated file only restricts bash/edit; MCP servers from the user's global opencode
+    # config stay reachable, so disable the ones an agent has no business with here, e.g.
+    # {"mcp": {"blender": {"enabled": false}}}.
+    "opencode_extra": {},
     "lanes": {},                   # leased-capacity providers, see LANE_DEFAULTS
 }
 
@@ -240,11 +245,14 @@ def run_proc(argv: list[str], cwd: str | Path, stdin: str | None = None,
         for t in threads:
             t.start()
         if stdin is not None:
-            try:
-                p.stdin.write(stdin)
-                p.stdin.close()
-            except OSError:
-                pass
+            def feed():
+                try:
+                    p.stdin.write(stdin)
+                    p.stdin.close()
+                except (OSError, ValueError):
+                    pass
+            # a thread, so a child that never reads stdin cannot block the timeout below
+            threading.Thread(target=feed, daemon=True).start()
         try:
             p.wait(timeout=timeout or None)
         except subprocess.TimeoutExpired:
@@ -253,6 +261,11 @@ def run_proc(argv: list[str], cwd: str | Path, stdin: str | None = None,
             p.wait()
         for t in threads:
             t.join(timeout=5)
+        for stream in (p.stdout, p.stderr):
+            try:
+                stream.close()
+            except OSError:
+                pass
         return Proc(p.returncode, "".join(bufs["out"]), "".join(bufs["err"]), timed_out)
     try:
         out, err = p.communicate(stdin, timeout=timeout or None)
@@ -781,6 +794,14 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
         cfg = {"$schema": "https://opencode.ai/config.json", "permission": {
             "bash": bash, "edit": edit, "external_directory": ext,
             "question": "deny", "webfetch": "allow"}}
+
+        def merge(dst: dict, src: dict) -> None:
+            for k, v in src.items():
+                if isinstance(v, dict) and isinstance(dst.get(k), dict):
+                    merge(dst[k], v)
+                else:
+                    dst[k] = v
+        merge(cfg, self.cfg["opencode_extra"])
         if extra_provider:
             cfg["provider"] = extra_provider
         return json.dumps(cfg, indent=2)
@@ -1316,7 +1337,12 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
                     if not t:
                         break
                     tried.append(t["id"])
-                    job = self.make_job(t)
+                    try:
+                        job = self.make_job(t)
+                    except RuntimeError as e:
+                        self.log(f"SKIP {t['id']} - {e}")
+                        counts["skipped"] += 1
+                        continue
                     inflight[pool.submit(job.run_task, t)] = (t, job)
                 if not inflight:
                     break
@@ -1331,7 +1357,7 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
                         outcome = "failed"
                     if outcome == "stop":
                         stopping = stopping or "STOP while waiting out a usage limit"
-                        outcome = "failed"
+                        outcome = "skipped"
                     outcome = self.integrate(t, job, outcome)
                     counts[outcome] += 1
                     if outcome == "done" and self.phase_enabled:
@@ -1411,7 +1437,8 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
         tried: list[str] = []
         why = "no more ready tasks"
         try:
-            why = self.run_parallel(counts, tried) if self.job_count > 1                 else self.run_sequential(counts, tried)
+            why = (self.run_parallel(counts, tried) if self.job_count > 1
+                   else self.run_sequential(counts, tried))
         except KeyboardInterrupt:
             why = "interrupted (Ctrl-C)"
             self.log("ABORT interrupted; the task in flight keeps its claim and uncommitted work "

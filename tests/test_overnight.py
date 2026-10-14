@@ -372,6 +372,21 @@ class OvernightRunTests(unittest.TestCase):
         self.assertIn('"permission"', buf.getvalue())
         self.assertIn('"env": "deny"', buf.getvalue())
 
+    def test_opencode_extra_is_merged_into_the_generated_config(self):
+        s = self.scratch()
+        s.set_config({"gate": [{"cmd": [sys.executable, "-c", "pass"]}], "review": {"enabled": False},
+                      "agent_commands": {"viaoc": {"cmd": ["echo", "{prompt}"],
+                                                   "opencode_permissions": True}},
+                      "opencode_extra": {"mcp": {"blender": {"enabled": False}},
+                                         "permission": {"webfetch": "deny"}}})
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            cli.main(["overnight", "run", str(s.todo), "--model", "viaoc/m", "--dry-run"])
+        out = buf.getvalue()
+        self.assertIn('"blender"', out)
+        self.assertIn('"webfetch": "deny"', out)
+        self.assertIn('"env": "deny"', out)
+
     def test_required_changed_downgrades_done(self):
         s = self.scratch()
         s.set_config({"gate": [{"cmd": [sys.executable, "-c", "pass"]}],

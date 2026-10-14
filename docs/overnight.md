@@ -102,6 +102,7 @@ All keys optional; unknown keys are an error.
 | `parallel` | `{jobs, job_env}`: concurrent tasks (default 1) and extra env for every agent and gate process, see "Running tasks in parallel" |
 | `limits` | `task_minutes` 120, `gate_minutes` 45, `max_consecutive_failures` 2, `lease_minutes` 480 |
 | `agent_commands` | `{provider: {cmd: [... "{model}" "{prompt}"], stdin: bool, opencode_permissions: bool}}` for other CLIs. Set `opencode_permissions` when the command is really `opencode run`: the runner then writes its shell allow/deny lists to a temporary `opencode.json` for the call. Without it the user's own opencode config decides what the agent may run |
+| `opencode_extra` | merged over the generated `opencode.json`. The generated file only restricts bash and edit; MCP servers from your global opencode config stay reachable, so disable the ones an agent should not use, e.g. `{"mcp": {"blender": {"enabled": false}}}` |
 | `agent_env_drop` | extra environment variable names (fnmatch patterns) to hide from the agent. The runner's own `TIDETABLE_TOKEN`, `TIDETABLE_SERVER`, `TASKERKEEPER_TOKEN` and `TK_API_TOKEN` are always hidden |
 | `human_check_pattern`, `human_check_exempt` | regexes for criteria that need a person |
 
