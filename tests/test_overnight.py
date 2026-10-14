@@ -297,7 +297,7 @@ class OvernightRunTests(unittest.TestCase):
     def test_jobs_run_disjoint_tasks_at_once_and_merge_them(self):
         s = self.parallel_scratch([["a/"], ["b/"], ["c/"]])
         track = s.root.parent / "track.log"
-        code, out = s.run("done", "--hours", "1", "--jobs", "3", STUB_TRACK=str(track), STUB_PER_TASK="1")
+        code, out = s.run("done", "--hours", "1", "--jobs", "3", STUB_TRACK=str(track), STUB_SLEEP="2.5", STUB_PER_TASK="1")
         self.assertEqual(code, 0, out)
         for tid in ("1.1", "1.2", "1.3"):
             self.assertEqual(s.status(tid), "done")
@@ -313,7 +313,7 @@ class OvernightRunTests(unittest.TestCase):
     def test_jobs_serialise_tasks_with_overlapping_or_missing_touches(self):
         s = self.parallel_scratch([["lib/"], ["lib/sub/"], []])
         track = s.root.parent / "track.log"
-        code, out = s.run("done", "--hours", "1", "--jobs", "3", STUB_TRACK=str(track), STUB_PER_TASK="1")
+        code, out = s.run("done", "--hours", "1", "--jobs", "3", STUB_TRACK=str(track), STUB_SLEEP="2.5", STUB_PER_TASK="1")
         self.assertEqual(code, 0, out)
         self.assertEqual(self.max_concurrency(track), 1)
         for tid in ("1.1", "1.2", "1.3"):
@@ -323,7 +323,7 @@ class OvernightRunTests(unittest.TestCase):
         s = self.parallel_scratch([["a/"], ["b/"]])
         track = s.root.parent / "track.log"
         # both tasks write work.txt with different content: the second merge conflicts
-        code, out = s.run("done", "--hours", "1", "--jobs", "2", STUB_TRACK=str(track))
+        code, out = s.run("done", "--hours", "1", "--jobs", "2", STUB_TRACK=str(track), STUB_SLEEP="2.5")
         self.assertIn("MERGE CONFLICT", out)
         statuses = sorted(s.status(t) for t in ("1.1", "1.2"))
         self.assertEqual(statuses, ["done", "pending"])
@@ -334,7 +334,7 @@ class OvernightRunTests(unittest.TestCase):
         s.set_config({"gate": [{"cmd": [sys.executable, "-c", "pass"]}],
                       "review": {"enabled": False}, "parallel": {"jobs": 2}})
         track = s.root.parent / "track.log"
-        s.run("done", "--hours", "1", STUB_TRACK=str(track), STUB_PER_TASK="1")
+        s.run("done", "--hours", "1", STUB_TRACK=str(track), STUB_SLEEP="2.5", STUB_PER_TASK="1")
         self.assertEqual(self.max_concurrency(track), 2)
 
     def test_ctrl_c_is_logged_as_interrupted_not_no_more_tasks(self):
@@ -451,6 +451,22 @@ class OvernightRunTests(unittest.TestCase):
         heads = _git(remote, "branch", "--list")
         self.assertIn(s.branch, heads)
         self.assertNotIn("main", heads)
+
+    def test_a_crashed_parallel_job_keeps_its_worktree_and_branch(self):
+        s = self.parallel_scratch([["a/"], ["b/"]])
+        real = overnight.Runner.run_task
+
+        def crash_second(runner, task):
+            if task["id"] == "1.2":
+                (runner.root / "partial.txt").write_text("unfinished work", encoding="utf-8")
+                raise RuntimeError("boom")
+            return real(runner, task)
+        with mock.patch.object(overnight.Runner, "run_task", crash_second):
+            code, out = s.run("done", "--hours", "1", "--jobs", "2", STUB_PER_TASK="1")
+        self.assertIn("KEEP 1.2", out)
+        kept = s.root.parent / f"{s.root.name}-overnight-{datetime.now():%Y-%m-%d}-1.2"
+        self.assertTrue((kept / "partial.txt").exists(), "the crashed job's work is still there")
+        self.assertEqual(s.status("1.1"), "done")
 
     def test_required_changed_downgrades_done(self):
         s = self.scratch()

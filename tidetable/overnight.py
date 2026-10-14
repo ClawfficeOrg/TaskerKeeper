@@ -1329,13 +1329,17 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
         job.follow_prefix = f"[{tid}] "
         return job
 
-    def integrate(self, task: dict, job: "Runner", outcome: str) -> str:
+    def integrate(self, task: dict, job: "Runner", outcome: str, crashed: bool = False) -> str:
         """Merge a finished job back onto the run branch and drop its worktree.
 
         Serialised. A merge conflict leaves the job branch and worktree in place for you,
-        puts the task back to pending, and counts as a failure.
+        puts the task back to pending, and counts as a failure. So does a job that crashed
+        (`crashed`): its uncommitted work is the only copy, so it is never deleted.
         """
-        tid, keep = task["id"], False
+        tid, keep = task["id"], crashed
+        if crashed:
+            self.log(f"KEEP {tid}: the job crashed; its work is left in {job.root} "
+                     f"(branch {job.branch})")
         with self.merge_lock:
             if outcome in ("done", "partial"):
                 r = git(self.root, "merge", "--no-ff", "-m", f"merge: {tid} ({outcome})", job.branch)
@@ -1386,15 +1390,16 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
                     list(inflight), timeout=5, return_when=concurrent.futures.FIRST_COMPLETED)
                 for fut in finished:
                     t, job = inflight.pop(fut)
+                    crashed = False
                     try:
                         outcome = fut.result()
                     except Exception as e:  # noqa: BLE001 - one job must not end the others
                         self.log(f"ERROR {t['id']}: {e}")
-                        outcome = "failed"
+                        outcome, crashed = "failed", True
                     if outcome == "stop":
                         stopping = stopping or "STOP while waiting out a usage limit"
                         outcome = "skipped"
-                    outcome = self.integrate(t, job, outcome)
+                    outcome = self.integrate(t, job, outcome, crashed)
                     counts[outcome] += 1
                     if outcome == "done" and self.phase_enabled:
                         if self.review_phase(t["id"]) == "FAIL" and self.phase_on_fail == "stop":

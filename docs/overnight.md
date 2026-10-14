@@ -61,10 +61,14 @@ task state.
   and nothing starts behind it.
 - A merge conflict leaves the job branch and worktree in place, puts the task
   back to pending, and counts as a failure.
-- Cargo (and other tools that lock a shared directory) serialise on it. Set
-  `parallel.job_env`, e.g. `{"CARGO_TARGET_DIR": "{home}/.overnight/target"}`, to
-  share one build directory instead of compiling every worktree from scratch.
-  `{home}` expands to the checkout.
+- **Do not share one `CARGO_TARGET_DIR` between worktrees of the same crate.**
+  Cargo can reuse another worktree's compiled workspace crates, so an agent gets
+  compile errors about fields and functions that are not in its own source
+  (and a gate can pass on code that is not the code in front of it). The
+  default, a `target/` per worktree, costs a first full build per job but is
+  correct. `parallel.job_env` is for variables that are genuinely safe to share.
+- A job that crashes (an exception, not a failed gate) keeps its worktree and
+  branch, logged as `KEEP <id>`, so its uncommitted work is not lost.
 - `--follow` output is prefixed with the task id.
 - Not supported together with `siblings` yet.
 

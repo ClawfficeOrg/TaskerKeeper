@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A crashed parallel job keeps its worktree.** An exception in a `--jobs`
+  task (for example the base-branch SAFETY check) used to remove the job's
+  worktree and branch with the agent's uncommitted work in it. It is now kept
+  and logged as `KEEP <id>`.
+- **Docs no longer recommend a shared `CARGO_TARGET_DIR` for `--jobs`.** Sharing
+  one across worktrees of the same crate gave an agent compile errors from
+  another worktree's artifacts.
+
+### Fixed
+
 - **opencode agents kept their shell.** The generated `opencode.json` used an
   allowlist (`"*": "deny"` plus allow patterns), which opencode 2.x applies to
   the shell tool itself, so even `git status` was refused. It is now a denylist.
