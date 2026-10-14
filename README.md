@@ -60,7 +60,7 @@ Without installing, `python -m tidetable <command>` and `python scripts/tidetabl
 | `agents path` | Print the config file a scope writes to |
 | `serve [--port 8471] [--bind 127.0.0.1]` | Single-writer core API over HTTP: GET reads, locked POST writes, heartbeats, and an SSE stream — all delegating to the same DAG logic, never a second implementation |
 | `sidebar <file> [--width 80] [--height 40]` | Budgeted sidebar payload for harness panels: current, concurrent (disjoint), upcoming, current-phase tree, overall tree — sections cut to room with `more` counts instead of silent drops |
-| `tkrun run <file> [--hours 8] [--dry-run]` | Unattended loop (**TKRun**; `overnight` is a kept alias): claims each ready task, runs its tier's agent headless in its own git worktree on `overnight/<date>`, gates it with *your* commands, reviews, commits, closes. Commits only there: never merges, pushes, or touches the base branch. `tkrun init` writes `.tidetable/overnight.json` from the detected stack; `tkrun stop` ends a run after the current task; `tkrun kill` hard-stops now (sentinel plus process-tree signal). Leased lanes route a reservation-window provider to a fallback when the window closes. See [docs/overnight.md](docs/overnight.md) |
+| `tkrun run <file> [--hours 8] [--dry-run] [--jobs N] [--task ID] [--follow]` | Unattended runner (**TKRun**; `overnight` is a kept alias): claims each ready task, runs its tier's agent headless in its own git worktree on `overnight/<date>`, gates it with *your* commands, reviews, commits, closes. Commits only there: never merges, pushes, or touches the base branch. `--jobs N` runs up to N tasks at once, one worktree each, only disjoint `touches` together; `--task ID` (repeatable) narrows the run to named tasks; `--follow` echoes output live. `tkrun init` writes `.tidetable/overnight.json` from the detected stack; `tkrun stop` ends a run after the current task; `tkrun kill` hard-stops now (sentinel plus process-tree signal). Leased lanes route a reservation-window provider to a fallback when the window closes. See [docs/overnight.md](docs/overnight.md) |
 | `integrations list\|install\|uninstall <name\|all>` | Wire `integrations/` (opencode, pi, paseo, openchamber) into the tools that load them: symlinks the Paseo plugin, adds the opencode `tui.json` entry without touching your other plugins, runs `pi install`, prints the OpenChamber folder to paste. Needs a checkout; `--dry-run` previews |
 
 Every read command takes `--json`, so agents parse structured output instead of scraping box-drawing characters:
@@ -110,6 +110,47 @@ lowest-numbered task wins a contested path; everything skipped comes back under
 `deferred` with what it collided with. Without `--disjoint`, overlaps are
 reported as a warning rather than silently ignored. `next --disjoint` applies
 the same rule to a single task.
+
+## Unattended Runs
+
+TideTable runs in two modes that differ only in who approves a shell command.
+
+**Attended** is you driving a session: your own opencode/claude permissions
+apply, you see each command, and the base branch is yours. That is the ordinary
+`start`/`done` CLI and the `serve` hub.
+
+**Unattended** is **TKRun** (`tidetable tkrun run`), which works through a todo
+file on a throwaway worktree branch with no one watching. The runner — never the
+agent — owns git history and TideTable state, and it decides each command with
+static lists passed to `claude -p` or written into a temporary `opencode.json`:
+a read-only allow list, and a deny list of what must never happen (`git
+push`/`tag`, history rewrites, TideTable state writes, env/secret dumps). An
+adjudicator for commands in neither list is planned; until it lands, an unlisted
+command is simply not allowed.
+
+`tkrun run --jobs N` runs up to N tasks at once, each in its own worktree on its
+own branch, merged back one at a time; only tasks with disjoint `touches` run
+together. `--task ID` narrows a run to named tasks. See
+[docs/overnight.md](docs/overnight.md).
+
+## Self-Hosting the Hub
+
+`tidetable serve` is the single-writer core API remote workers and the
+dashboard talk to. On the VPS it is one container, built from this repo:
+
+```bash
+git clone git@github.com:ClawfficeOrg/TideTable.git
+cd TideTable
+cp .env.example .env      # set TK_API_TOKEN
+mkdir -p projects
+docker compose up -d --build
+```
+
+The root `docker-compose.yml` builds the image from the repo `Dockerfile`,
+mounts `./projects` for the todo files it writes, and mounts
+`deploy/registry.json` (tracked) as the registry. Routing is Traefik labels on
+the shared `proxy-public` network; the `/api` route carries no forwardAuth, so
+machine agents authenticate with the bearer token at the app layer.
 
 ## History
 

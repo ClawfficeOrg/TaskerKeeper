@@ -30,7 +30,9 @@ ralph/ralph-json.sh                      Thin wrapper -> tidetable CLI
 skills/tidetable/SKILL.md             Hermes skill
 integrations/                            opencode, pi, paseo, openchamber adapters
 web/                                     SvelteKit read-only dashboard
-deploy/                                  compose.yml, migrations, registry.json
+docker-compose.yml                       VPS hub, built from this repo (git pull && compose up)
+.env.example                             TK_API_TOKEN starter for the compose file
+deploy/                                  compose.yml, compose.vps.yml (superseded), migrations, registry.json
 tests/                                   stdlib unittest suite (test_cli, sidebar,
                                          overnight, integrations, projector, tokens)
 .github/workflows/ci.yml                 Tests + example validation, Linux/Windows

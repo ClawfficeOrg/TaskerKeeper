@@ -11,6 +11,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`tkrun run --task ID`.** Run only the named task or tasks (repeatable);
   the run ends when none of them is left to run. Composes with `--jobs`.
+- **Root `docker-compose.yml` for the VPS hub.** The core API is now brought
+  up from a checkout: `git pull && cp .env.example .env && mkdir -p projects &&
+  docker compose up -d --build`. The compose file, the Dockerfile and the
+  registry all come from git; only `.env` and `./projects` are host state. The
+  old `deploy/compose.vps.yml` (a `./src` sub-checkout and a hand-maintained
+  registry) is superseded.
+
+### Documentation
+
+- **Attended vs. unattended runs.** The runner is now described by its mode, not
+  as "overnight": attended is an interactive session under your own permissions,
+  unattended is TKRun. The permission model (the static allow/deny lists today,
+  and the planned `clef`/Jev adjudicator for commands on neither list) is in
+  `docs/permissions.md`, with the `--jobs`/`--task`/`--follow` material folded
+  into `skills/tidetable/SKILL.md`. `overnight` remains a subcommand alias and
+  the on-disk names (`.tidetable/overnight.json`, `.overnight/`,
+  `overnight/<date>`) are unchanged.
 
 ### Fixed
 

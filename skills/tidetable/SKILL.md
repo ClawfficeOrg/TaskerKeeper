@@ -1,7 +1,7 @@
 ---
 name: tidetable
 description: "Use when creating, reading, or managing TideTable JSON todo files. Structured task management with dependency DAG, parallel groups, and semver mapping."
-version: 2.4.0
+version: 2.5.0
 author: KITT (ClawfficeOrg)
 license: MIT
 metadata:
@@ -284,12 +284,15 @@ tidetable sidebar docs/todo-v7.json --width 80 --height 40 --json
 # pi (extension panel, also loads under oh-my-pi omp), openchamber (rail panel
 # over the serve API), paseo (sidebar item + workspace panel via server RPC)
 
-# TKRun: unattended loop on a throwaway worktree branch (overnight is an alias)
-tidetable tkrun init docs/todo-v7.json             # .tidetable/overnight.json
-tidetable tkrun run  docs/todo-v7.json --dry-run   # preview, changes nothing
-tidetable tkrun run  docs/todo-v7.json --hours 8   # go
-tidetable tkrun stop docs/todo-v7.json             # cooperative, after current task
-tidetable tkrun kill docs/todo-v7.json             # hard stop: sentinel + tree-kill
+# TKRun: the unattended runner, on a throwaway worktree branch (`overnight` is a kept subcommand alias)
+tidetable tkrun init docs/todo-v7.json              # writes .tidetable/overnight.json
+tidetable tkrun run  docs/todo-v7.json --dry-run    # preview: routing, gate, command, prompt
+tidetable tkrun run  docs/todo-v7.json --hours 8    # run until done or out of time
+tidetable tkrun run  docs/todo-v7.json --jobs 3     # up to 3 tasks at once, own worktree each
+tidetable tkrun run  docs/todo-v7.json --task 7.0.1 # only the named task(s), repeatable
+tidetable tkrun run  docs/todo-v7.json --follow     # echo agent output live (default on a tty)
+tidetable tkrun stop docs/todo-v7.json              # cooperative, after the current task
+tidetable tkrun kill docs/todo-v7.json              # hard stop: sentinel + process-tree kill
 
 # Which provider/model runs each tier, and where each setting came from
 tidetable agents show --todo docs/todo-v7.json
@@ -297,6 +300,71 @@ tidetable agents providers                  # presets: anthropic, opencode-go
 tidetable agents use opencode-go            # switch every tier at once
 tidetable agents set pro_dev_agent --model claude-opus-5 --scope repo
 ```
+
+## Attended and unattended runs
+
+TideTable has two run modes, and they differ only in who approves a shell
+command. The mode is the **permission model**; the commands are the same CLI.
+
+- **Attended**: you drive the session. Your own opencode/claude permissions
+  apply, a person sees and approves commands, and the base branch is yours to
+  touch. This is the normal `tidetable start|done|...` use and the `serve` hub.
+- **Unattended**: **TKRun** (`tidetable tkrun run`) works through a todo file on
+  a throwaway worktree branch. No human is watching, so the permission model is
+  stricter and the runner — not the agent — owns git history and TideTable state.
+
+A run is unattended by construction: `tkrun run` builds the agent's environment
+and permission lists itself. There is no flag that turns an attended session
+unattended; `tkrun` is the unattended entry point.
+
+### How an unattended command is approved
+
+Today TKRun decides every command with static lists, passed to `claude -p` or
+written into a temporary `opencode.json`:
+
+- `BASE_SHELL_ALLOW` — read-only inspection (`git status|diff|log|show`, `ls`),
+  the safe default for any repo; a config adds to it.
+- `BASE_SHELL_DENY` — what must never happen unattended: `git push`/`tag`, local
+  git history rewrites, TideTable state writes (`start|done|reset|status`), and
+  commands that dump the environment or `.env` files.
+- `OPENCODE_SHELL_DENY` — the smaller list opencode 2.x can live with (one
+  rejected command removes its shell tool), so only the must-never commands.
+
+An **adjudicator** for the gray zone — a command that is neither on the allow
+list nor an obvious deny — is planned, not yet wired. The intended contract is
+`clef` on a Jev endpoint (`POST /v1/systemone`, a `choice` question returning
+`allow`/`deny` plus a confidence); the runner would call it before running a
+non-listed command and log the verdict. Credentials and endpoint are env-only
+(`TIDETABLE_DECISION_ENDPOINT`, `TIDETABLE_DECISION_API_KEY`,
+`TIDETABLE_DECISION_MODEL`), never in the config file. Until it lands, an
+unlisted command is simply not allowed: the static lists are the whole model.
+
+The prompt also forbids printing env vars, `.env` files and credentials, and
+`SECRET_DENY` blocks `env`, `printenv`, `set`, `git config --list`, `cat *.env*`
+and the PowerShell `env:` drive. The runner's own `TIDETABLE_TOKEN`,
+`TIDETABLE_SERVER`, `TASKERKEEPER_TOKEN` and `TK_API_TOKEN` are stripped from the
+agent environment, and `agent_env_drop` hides more.
+
+## Parallel jobs
+
+`tkrun run --jobs N` (or `parallel.jobs` in the config) runs up to N tasks at
+once. Each job gets its own worktree and branch off the run branch and is
+merged back `--no-ff` as it finishes, one at a time.
+
+- A task runs beside others only if it declares `touches` and none of its paths
+  overlaps a running task's. A task with no `touches` is exclusive: it waits for
+  the running jobs to drain and nothing starts behind it.
+- `--task ID` (repeatable) narrows the run to named tasks; it composes with
+  `--jobs`. The run ends when none of the named tasks is left.
+- A merge conflict leaves the job's branch and worktree in place, reopens the
+  task. An exception keeps the worktree too (`KEEP <id>`); a failed *gate* does
+  not.
+- Do **not** share one `CARGO_TARGET_DIR` between worktrees of a crate. The
+  default, a `target/` per worktree, is correct; a shared one gives an agent
+  another worktree's artifacts and compile errors. `parallel.job_env` is for
+  variables genuinely safe to share.
+- Not combinable with `siblings` yet. Todo state is written only in the run
+  worktree, so jobs never conflict on it.
 
 ## Choosing the Model for a Task
 

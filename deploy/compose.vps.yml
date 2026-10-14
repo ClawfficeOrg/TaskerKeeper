@@ -1,14 +1,19 @@
-# Core API only, on the shared Traefik host (proxy-public network).
+# Superseded by the repository-root docker-compose.yml.
+#
+# The VPS now runs `docker compose up -d --build` at the checkout root after a
+# `git pull`: the compose file, the registry and the Dockerfile all come from
+# git, so there is no hand-maintained copy to drift. The root file uses
+# `build: .`; this one assumed a `./src` sub-checkout and a registry inside
+# ./projects. Kept for reference only.
 #
 #   /opt/compewtertutor/tidetable/
-#     compose.yml          this file
+#     docker-compose.yml   <- the real one, from the repo root
 #     .env                 TK_API_TOKEN=...   (chmod 600)
-#     projects/registry.json
 #     projects/<slug>/todo.json
 #
 # The API route deliberately has no forwardAuth: machine agents authenticate
-# with a bearer token at the app layer (same reasoning as compose.yml). The
-# hub refuses every request without one.
+# with a bearer token at the app layer. The hub refuses every request without
+# one.
 services:
   core:
     build: ./src

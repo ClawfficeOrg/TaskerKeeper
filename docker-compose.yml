@@ -1,0 +1,41 @@
+# VPS hub: the single-writer core API (`tidetable serve`), built from this repo.
+#
+#   git pull
+#   cp .env.example .env      # set TK_API_TOKEN
+#   mkdir -p projects
+#   docker compose up -d --build
+#
+# The registry is the tracked deploy/registry.json; the todo files the hub
+# writes live in ./projects (git-ignored, created on first run). Nothing else
+# is host state — the code, the Dockerfile and the registry all come from a
+# git pull.
+services:
+  core:
+    build: .
+    image: tidetable-core:latest
+    container_name: tidetable-core
+    restart: unless-stopped
+    # The mounted todo files must be writable. Matches the uid that owns
+    # ./projects on the VPS; the image's own `tidetable` user is 10001.
+    user: "1002:1002"
+    env_file: .env
+    volumes:
+      - ./projects:/app/projects
+      - ./deploy/registry.json:/app/projects/registry.json:ro
+    expose:
+      - "8471"
+    networks:
+      - proxy-public
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=proxy-public"
+      - "traefik.http.routers.tidetable.rule=Host(`tidetable.compewtertutor.com`)"
+      - "traefik.http.routers.tidetable.entrypoints=websecure"
+      - "traefik.http.routers.tidetable.middlewares=security-headers@file"
+      - "traefik.http.routers.tidetable.tls=true"
+      - "traefik.http.routers.tidetable.tls.certresolver=cloudflare-ct"
+      - "traefik.http.services.tidetable.loadbalancer.server.port=8471"
+
+networks:
+  proxy-public:
+    external: true
