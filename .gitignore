@@ -41,6 +41,10 @@ Thumbs.db
 # Lock files left behind by an interrupted CLI write
 *.json.lock
 
+# VPS hub runtime state: todo files and the sqlite projection/token DBs.
+# The tracked registry lives in deploy/ and is mounted read-only over this.
+/projects/
+
 # Real Singularity lane credentials (the .example file is tracked)
 tk.singularity.env
 
