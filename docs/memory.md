@@ -317,5 +317,16 @@ What changed in one long dogfooding session driving Swaygent with
 - Markdown → JSON conversion is not implemented, by decision rather than
   omission.
 - No GitHub Issues sync (see `docs/philosophy.md` "Future Directions").
+- Skill directories are not readable by default. An `opencode` agent that opens
+  a skill reference outside the worktree (a project-level `<repo>/.opencode/skills`
+  or a global `~/.agents/skills`, `~/.config/opencode/skills`) is denied with
+  `Permission denied: external_directory` unless the repo lists that path in
+  `external_read`, and then falls back to slower shell reads. Seen 2026-10-15 on
+  Wheelhouse 1.1.1 reading `Zoid/.opencode/skills/.../zoid-design.md`. Fix
+  direction (not applied): add the harness's project and global skill
+  directories to the default `external_read` set, read-only, so a repo does not
+  have to rediscover them; `~` already expands, so the global ones need no
+  per-user path. Wheelhouse lists them explicitly in `.tidetable/tkrun.json` in
+  the meantime.
 - `docs/notes.md` is the external v0.1 review that drove the v0.2 rework. It is
   history now; its findings are closed.
