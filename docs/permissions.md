@@ -29,7 +29,7 @@ things change because of that:
 
 ### Static lists (what runs today)
 
-Every command is decided by lists in `tidetable/overnight.py`, passed to
+Every command is decided by lists in `tidetable/tkrun.py`, passed to
 `claude -p` or written into a temporary `opencode.json` for the call:
 
 | List | Meaning |
@@ -48,9 +48,23 @@ and credentials.
 Shell allowlists are prefix rules, and a build/test command runs code the agent
 wrote. Treat an unattended branch as untrusted until reviewed.
 
+### The gray zone: adjudicated or prompted
+
+A command that is neither on the allow list nor on the deny list is the gray
+zone. It is settled in exactly one of two ways, never silently run:
+
+- **Adjudicator on** (`adjudicator.enabled`: it decides). The decision service
+  below judges the command; allow runs it, deny blocks it.
+- **Adjudicator off** (nobody can decide unattended: the person is prompted).
+  opencode is told `bash: "*": "ask"` and `claude -p` keeps the asking
+  permission mode, so the harness raises the command to whoever is watching.
+  An unattended run with no watcher therefore does not quietly execute it.
+
+The allow and deny lists are checked first and are unchanged: a listed command
+never reaches either path.
+
 ### Adjudicator
 
-A command that is neither on the allow list nor on the deny list is the gray zone.
 When `adjudicator.enabled` is set, the runner starts a small **decision service**
 on loopback and the agent's hook asks it before running a bash/shell command. The
 allow and deny lists are checked first (deny wins), so a listed command never
@@ -58,7 +72,7 @@ costs a model call; only a genuinely unlisted command reaches the model.
 
 The service holds the credentials; the agent only ever learns a `host:port` (from
 `TIDETABLE_ADJUDICATOR_HOST`/`_PORT` in its environment, or the
-`.overnight/adjudicator.json` discovery file).
+`.tkrun/adjudicator.json` discovery file).
 
 The verdict comes from a decision model — `clef` on a Jev endpoint. The contract,
 verified against the live service:
@@ -107,8 +121,9 @@ Try one command without a full run:
 tidetable tkrun adjudicate docs/todo.json "rm -rf /"
 ```
 
-Config (`adjudicator` in `.tidetable/overnight.json`): `enabled`,
+Config (`adjudicator` in `.tidetable/tkrun.json`): `enabled`,
 `min_confidence` (default 0.6), `timeout_seconds` (15), and the three `*_env`
 names. `tkrun run --adjudicate` / `--no-adjudicate` overrides `enabled` per run.
 Credentials are env-only — never in the config file. Until this is on, an
-unlisted command is simply not allowed: the static lists are the whole model.
+unlisted command is not silently run: opencode asks (`bash: "*": "ask"`) and
+`claude -p` keeps the asking permission mode, so the person decides.

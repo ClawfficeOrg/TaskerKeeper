@@ -41,6 +41,11 @@ Thumbs.db
 # Lock files left behind by an interrupted CLI write
 *.json.lock
 
+# TKRun runtime: run dir (log, transcripts, sentinels, pid). The runner also
+# adds these to .git/info/exclude; this keeps a fresh checkout clean too.
+.tkrun/
+.overnight/
+
 # VPS hub runtime state: todo files and the sqlite projection/token DBs.
 # The tracked registry lives in deploy/ and is mounted read-only over this.
 /projects/

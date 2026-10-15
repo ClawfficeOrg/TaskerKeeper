@@ -95,8 +95,34 @@ def _tree_lines(phase: dict, width: int, limit: int) -> tuple[list[str], int]:
     return _cap(lines, limit)
 
 
-def sidebar_payload(data: dict, width: int = 80, height: int = 40) -> dict:
-    """Five budgeted sections. Width truncates lines, height caps row counts."""
+def _run_rows(state: dict | None) -> list[str]:
+    """Human lines for the live-run section, or [] when there is nothing to say."""
+    if not state:
+        return []
+    if state["status"] == "running":
+        head = f"► {state.get('date') or 'run'} (pid {state.get('pid')})"
+        if state.get("branch"):
+            head += f" on {state['branch']}"
+        rows = [head]
+        if state.get("deadline"):
+            rows.append(f"  deadline {state['deadline']}")
+        if state.get("last"):
+            rows.append(f"  {state['last']}")
+        return rows
+    if state["status"] == "stale":
+        return [f"· {state.get('date') or 'run'} pid {state.get('pid')} is gone (no END); "
+                "the worktree may need review"]
+    if state["status"] in ("stopped", "killed"):
+        return [f"· {state.get('date') or 'run'} {state['status']} "
+                f"(sentinel {'KILL' if state.get('kill_requested') else 'STOP'})"]
+    if state["status"] == "finished":
+        return [f"· {state.get('date') or 'run'} finished"]
+    return []
+
+
+def sidebar_payload(data: dict, width: int = 80, height: int = 40,
+                    run: dict | None = None) -> dict:
+    """Five budgeted sections plus the live-run banner. Width truncates, height caps."""
     width = max(20, width)
     height = max(10, height)
     running = cli.in_progress_tasks(data)
@@ -149,6 +175,7 @@ def sidebar_payload(data: dict, width: int = 80, height: int = 40) -> dict:
                   "title": current_phase.get("title", ""),
                   "tree": phase_tree, "more": phase_more},
         "overall": {"tree": overall, "more": overall_more},
+        "run": run,
     }
 
 
@@ -182,6 +209,9 @@ def render_sidebar(payload: dict, width: int = 80) -> str:
             out.append(_truncate(f"  touches: {', '.join(t['touches'])}", width - 2))
         return "\n".join(out)
 
+    runs = _run_rows(payload.get("run"))
+    if runs:
+        _section(lines, "Run", [_truncate(r, width - 2) for r in runs], 0, width)
     cur = payload["current"]
     _section(lines, "Current", [fmt(t) for t in cur["tasks"]], cur["more"], width)
     con = payload["concurrent"]
@@ -199,13 +229,18 @@ def render_sidebar(payload: dict, width: int = 80) -> str:
 def main(argv: list[str] | None = None) -> dict:
     """Build a payload from a todo file path. Adapters call this via the CLI."""
     import argparse
+    from pathlib import Path
+
+    from tidetable import runs
+
     parser = argparse.ArgumentParser(prog="tidetable sidebar")
     parser.add_argument("todo_file")
     parser.add_argument("--width", type=int, default=80)
     parser.add_argument("--height", type=int, default=40)
     args = parser.parse_args(argv)
     data = cli.load_todo(args.todo_file)
-    return sidebar_payload(data, args.width, args.height)
+    run = runs.find_state(Path(args.todo_file).resolve().parent)
+    return sidebar_payload(data, args.width, args.height, run)
 
 
 if __name__ == "__main__":  # pragma: no cover - CLI entry below owns this

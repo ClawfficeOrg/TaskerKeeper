@@ -45,7 +45,7 @@ interface PluginContext {
   };
 }
 
-const DISCOVERY = path.join(".overnight", "adjudicator.json");
+const DISCOVERY = path.join(".tkrun", "adjudicator.json");
 
 function readDiscovery(start: string): Discovery | undefined {
   // The runner passes the service address in the environment (works in every job worktree);
@@ -55,12 +55,14 @@ function readDiscovery(start: string): Discovery | undefined {
   if (envHost && Number.isInteger(envPort) && envPort > 0) return { host: envHost, port: envPort };
   let dir = start;
   for (;;) {
-    try {
-      const raw = readFileSync(path.join(dir, DISCOVERY), "utf8");
-      const parsed = JSON.parse(raw) as Discovery;
-      if (parsed && typeof parsed.port === "number" && typeof parsed.host === "string") return parsed;
-    } catch {
-      // no file here; keep walking up
+    for (const rel of [DISCOVERY, path.join(".overnight", "adjudicator.json")]) {
+      try {
+        const raw = readFileSync(path.join(dir, rel), "utf8");
+        const parsed = JSON.parse(raw) as Discovery;
+        if (parsed && typeof parsed.port === "number" && typeof parsed.host === "string") return parsed;
+      } catch {
+        // no file here; try the next name, then keep walking up
+      }
     }
     const parent = path.dirname(dir);
     if (parent === dir) return undefined;

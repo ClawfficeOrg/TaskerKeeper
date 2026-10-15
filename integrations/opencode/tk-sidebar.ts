@@ -50,12 +50,22 @@ type TaskRow = {
   blocked_by?: string[];
 };
 
+type RunState = {
+  status?: string;
+  date?: string;
+  pid?: number;
+  branch?: string;
+  deadline?: string;
+  last?: string;
+};
+
 type SidebarPayload = {
   current?: { tasks?: TaskRow[]; more?: number };
   concurrent?: { tasks?: TaskRow[]; more?: number; deferred?: number };
   upcoming?: { tasks?: TaskRow[]; more?: number };
   phase?: { id?: string; title?: string; tree?: string[]; more?: number };
   overall?: { tree?: string[]; more?: number };
+  run?: RunState | null;
 };
 
 const DEFAULT_TODO = path.join("docs", "todo-sidebars.json");
@@ -131,6 +141,15 @@ export function renderText(payload: SidebarPayload, collapsed: boolean): string 
   const conTasks = con.tasks ?? [];
   const upTasks = up.tasks ?? [];
   const lines = ["TideTable ▼", "═".repeat(24)];
+  const run = payload.run;
+  if (run && run.status) {
+    if (run.status === "running") {
+      lines.push(`► running ${run.date ?? ""} ${run.branch ?? ""}${run.deadline ? ` (deadline ${run.deadline})` : ""}`.trimEnd());
+      if (run.last) lines.push(`  ${run.last}`);
+    } else {
+      lines.push(`· ${run.status} ${run.date ?? ""}`.trimEnd());
+    }
+  }
   if (collapsed) {
     lines.push(
       `current ${curTasks.length}${cur.more ? ` (+${cur.more})` : ""} · ` +

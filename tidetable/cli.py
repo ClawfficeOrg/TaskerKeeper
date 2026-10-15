@@ -544,7 +544,7 @@ def record_event(todo_file: str, event: str, **fields) -> None:
 
     Status fields are overwritten in place, so the file alone cannot answer
     "how many times did this task get reset, and by whom" — the questions that
-    matter when an autonomous loop misbehaves overnight.
+    matter when an autonomous loop misbehaves unattended.
     """
     payload = {"at": utc_now(), "event": event}
     payload.update({k: v for k, v in fields.items() if v is not None})
@@ -1217,10 +1217,16 @@ def cmd_list(args) -> int:
 
 
 def cmd_sidebar(args) -> int:
-    from tidetable import sidebar
+    from pathlib import Path
+
+    from tidetable import runs, sidebar
 
     data = load_todo(args.todo_file)
-    payload = sidebar.sidebar_payload(data, args.width, args.height)
+    # A hub todo is a slug, not a path: there is no local repo to scan for run state.
+    run = None
+    if not str(args.todo_file).startswith(("http", "hub:")) and Path(args.todo_file).exists():
+        run = runs.find_state(Path(args.todo_file).resolve().parent)
+    payload = sidebar.sidebar_payload(data, args.width, args.height, run)
     if args.json:
         emit_json(payload)
     else:
@@ -1737,8 +1743,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.set_defaults(func=cmd_serve)
 
     build_agents_parser(sub)
-    from tidetable import overnight
-    overnight.add_parser(sub)
+    from tidetable import tkrun
+    tkrun.add_parser(sub)
     from tidetable import integrations
     integrations.add_parser(sub)
     return parser

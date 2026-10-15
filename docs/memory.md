@@ -18,7 +18,8 @@ tidetable/agents.py                   Tier -> provider/model config layering
 tidetable/jsonio.py                   Atomic writes, the file lock, the event log
 tidetable/sidebar.py                  Budgeted sidebar payload for harness panels
 tidetable/integrations.py             `integrations list|install|uninstall` adapters
-tidetable/overnight.py                TKRun: unattended runner (`tkrun`, `overnight` alias)
+tidetable/tkrun.py                     TKRun: unattended runner (`tkrun`, `overnight` alias)
+tidetable/runs.py                      Live run state (pid/STOP/KILL/log) read by the sidebar
 tidetable/serve.py                    Single-writer HTTP API (`serve`)
 tidetable/projector.py                Projection + presence for the hub
 tidetable/sessions.py                 Session/token handling for the hub
@@ -34,10 +35,10 @@ docker-compose.yml                       VPS hub, built from this repo (git pull
 .env.example                             TK_API_TOKEN starter for the compose file
 deploy/                                  compose.yml, compose.vps.yml (superseded), migrations, registry.json
 tests/                                   stdlib unittest suite (test_cli, sidebar,
-                                         overnight, integrations, projector, tokens)
+                                         overnight (compat shim), integrations, projector, tokens)
 .github/workflows/ci.yml                 Tests + example validation, Linux/Windows
 docs/                                    philosophy, integration guide, memory,
-                                         module-plan, notes, overnight,
+                                         module-plan, notes, tkrun,
                                          singularity.lanes
 examples/                                simple-project, zoidmatter-v7
 pyproject.toml                           setuptools packaging, console script
@@ -85,10 +86,14 @@ pyproject.toml                           setuptools packaging, console script
   append). Phase prerequisites gate the new phase through the existing
   `blockers_for` path — no scheduling change, and nothing half-writes on
   rejection.
-- Unreleased: `overnight` is renamed **TKRun** (`tidetable tkrun run|init|stop|kill`,
-  `overnight` kept as an alias); `tkrun kill` hard-stops with a sentinel plus a
-  process-tree signal; leased `lanes` route a reservation-window provider to a
-  fallback. See `docs/overnight.md` and `docs/singularity.lanes.md`.
+- 0.11.0 retired the `overnight` name: `tidetable tkrun` and `tidetable/tkrun.py`
+  are canonical, `overnight` stays a subparser alias plus a same-object module
+  shim, and `.tidetable/overnight.json` / `.overnight/` are read as fallbacks.
+  A gray-zone command is now either adjudicated (decision model) or prompted to
+  the person; the static allow/deny lists are unchanged. The sidebar gained a
+  live `run` section. `tkrun kill` hard-stops with a sentinel plus a process-tree
+  signal; leased `lanes` route a reservation-window provider to a fallback. See
+  `docs/tkrun.md` and `docs/singularity.lanes.md`.
 - Tests are stdlib `unittest`, run on Linux and Windows in CI against a
   non-editable install.
 
@@ -152,7 +157,7 @@ What changed in one long dogfooding session driving Swaygent with
   `--no-task-review`, `--phase-review-model` (also enables it),
   `--no-phase-review`. The default task reviewer is `anthropic/claude-opus-5-5`.
 - **`--jobs N`** runs tasks in parallel: one worktree and branch per task
-  (`overnight/<date>-<id>`), merged back `--no-ff` one at a time. Only tasks that
+  (`tkrun/<date>-<id>`), merged back `--no-ff` one at a time. Only tasks that
   declare disjoint `touches` run together; a task with no `touches` runs alone.
   Todo state is only written in the run worktree, so jobs never conflict on it.
   Share a cargo target dir with `parallel.job_env`. Not combinable with
@@ -243,12 +248,16 @@ What changed in one long dogfooding session driving Swaygent with
   over: no SDK dependency, no API keys, no network. Unknown settings
   (`--option effort=xhigh`) pass through untouched so a supervisor can use them
   without TideTable knowing what they mean.
-- **The unattended runner is TKRun.** `tkrun` is the name; `overnight` stays a
-  subparser alias so existing scripts and config paths keep working. `stop` is
+- **The unattended runner is TKRun.** `tkrun` is the name; a new config is
+  `.tidetable/tkrun.json` and a new run dir `.tkrun/`, with the pre-0.11
+  `overnight` names (subparser alias, same-object module shim, legacy
+  `.tidetable/overnight.json` config and `.overnight/` run dir) kept as
+  fallbacks. `stop` is
   cooperative (a `STOP` sentinel checked between tasks); `kill` is a hard stop
   (writes `KILL` *and* tree-kills the runner PID so a mid-task agent dies too).
   Claims are left to expire rather than edited, because the supervisor, not the
-  agent, owns tidetable state.
+  agent, owns tidetable state. A gray-zone command is either adjudicated (with
+  `adjudicator.enabled`) or prompted to the person; it is never silently run.
 - **Leased lanes never book.** `lanes` only reads `GET /reservations`; keys come
   from the environment (`infisical run`), and the generated `opencode.json` holds
   `{env:...}` references, never values. A task already running when the window
@@ -267,6 +276,11 @@ What changed in one long dogfooding session driving Swaygent with
   editing different functions in one file might be fine, and it cannot see a
   file a task forgot to declare.
 - The event log has no rotation or compaction.
+- `test_jobs_serialise_tasks_with_overlapping_or_missing_touches` is flaky: it
+  failed roughly one run in five of the full suite under load, while passing in
+  isolation and in ten full-suite runs on `main`. Timing-sensitive (the stub
+  agent sleeps 2.5s and the tasks must serialise on overlapping `touches`); the
+  parallel scheduler or the test's timing assumption needs the real fix.
 - The leased-lane reader has no booking and no renewal: if a provider changes its
   reservations API shape, `lane_window` silently sees no window and every task
   falls back. There is no test against a live API, only a stub.

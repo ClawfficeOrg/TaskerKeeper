@@ -19,7 +19,8 @@ Every read command has a `--json` mode; do not break it.
 tidetable/cli.py                    All CLI logic. One file on purpose.
 tidetable/agents.py                 Tier -> provider/model resolution
 tidetable/integrations.py           `integrations list|install|uninstall` for the sidebar adapters
-tidetable/overnight.py              Unattended runner TKRun (`tkrun run|init|stop|kill`, `overnight` alias), the one supervisor
+tidetable/tkrun.py                  Unattended runner TKRun (`tkrun run|init|stop|kill`, `overnight` alias), the one supervisor
+tidetable/runs.py                   Live run state (pid / STOP / KILL / log) read by the sidebar
 tidetable/remote.py                 `--server` client: argv -> hub HTTP route, no logic
 tidetable/jsonio.py                 Atomic writes, the file lock, the event log
 tidetable/__main__.py               python -m tidetable
@@ -113,7 +114,7 @@ called. Unknown liveness falls back to lock age, never to "assume dead".
 `release_ready` and stops. The last task of a phase is an ordinary task, and a
 tag created as its side effect appears at a moment nobody chose. Keep tagging
 behind the explicit command and the explicit flag. The one other exception is
-`overnight.py` (below).
+`tkrun.py` (below).
 
 **The event log is append-only and best-effort.** `append_event` swallows its
 own IO errors on purpose: losing an audit line must never fail the write that
@@ -131,14 +132,23 @@ dependency, an API key lookup, or a network call — the supervisor owns that.
 Model IDs in `DEFAULT_TIERS` are data, not endorsements; keep them current but
 do not build logic around specific ones.
 
-**`overnight.py` is the only supervisor.** `tidetable tkrun run` (alias
-`overnight run`) shells
-out to agent CLIs and to git, because an unattended loop has to. That is
+**`tkrun.py` is the only supervisor.** `tidetable tkrun run` (alias
+`overnight run`) shells out to agent CLIs and to git, because an unattended loop
+has to. That is
 allowed in exactly that module: it never imports an SDK or reads an API key
 (the CLIs own auth), `cli.py` only registers its subparser, and no scheduling
 logic may depend on it. It must never touch the base branch, push, or tag; the
 runner, not the agent, owns git history and tidetable state. Everything
-repo-specific belongs in `<repo>/.tidetable/overnight.json`, never in code.
+repo-specific belongs in `<repo>/.tidetable/tkrun.json`, never in code.
+
+**The old name keeps working.** The runner was `overnight` before 0.11.
+`overnight` stays a subparser alias, `tidetable/overnight.py` is a shim that
+re-exports the *same module object* as `tidetable/tkrun.py` (so monkeypatching
+either name affects both), `TKRUN_*` env vars fall back to `OVERNIGHT_*`, and a
+legacy `.tidetable/overnight.json` config or `.overnight/` run directory is used
+when the new one is absent. Do not remove a fallback without a changelog line.
+`tidetable/runs.py` is the one reader of the run directory; `tkrun.py` and the
+sidebar both go through it rather than naming `.tkrun`/`.overnight` themselves.
 
 **Config layering is last-wins, and the order is fixed:** built-in, user, repo,
 todo file, then a task's own `provider`/`model`. Each config layer contributes
