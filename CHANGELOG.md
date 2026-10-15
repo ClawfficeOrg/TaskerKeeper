@@ -36,6 +36,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The adjudicator retries a transient decision-server fault.** A 5xx, 429 or
+  refused/timed-out connection is retried (3 tries, 0.75 s steps) inside the
+  same `timeout_seconds` budget, so the agent hooks' ~20 s limit still holds. A
+  persistent fault, a 4xx or a bad reply still denies. Before this, one `507
+  Insufficient Storage` denied a harmless command and sent the agent off to work
+  around it.
 - **The opencode adjudicator bridge now loads in any repo.** The runner pointed
   `opencode.json` at `<worktree>/integrations/opencode/tk-adjudicator.ts`, which
   only exists in TideTable's own checkout. A copy now ships in the package

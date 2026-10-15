@@ -775,6 +775,64 @@ class TKRunUnitTests(unittest.TestCase):
         self.assertEqual(deny["decision"], "deny")   # a pattern on both lists denies
         self.assertEqual(gray["decision"], "deny")   # gray zone reaches the dead model -> closed
 
+    @staticmethod
+    def _flaky_decision_stub(statuses: list[int]):
+        """Answers each POST with the next status; a 200 carries a clean allow."""
+        import threading
+        from http.server import BaseHTTPRequestHandler, HTTPServer
+
+        hits: list[int] = []
+
+        class H(BaseHTTPRequestHandler):
+            def do_POST(self):
+                self.rfile.read(int(self.headers.get("Content-Length", "0")))
+                status = statuses[min(len(hits), len(statuses) - 1)]
+                hits.append(status)
+                body = json.dumps({"answers": {"q": {"choice": "allow", "confidence": 0.97,
+                                                     "probabilities": {"allow": 0.97, "deny": 0.03}}}}
+                                  if status == 200 else {"error": "busy"}).encode()
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *a):
+                pass
+
+        srv = HTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        return srv, hits
+
+    def _decide_against(self, statuses: list[int]) -> tuple[dict, list[int]]:
+        adj = {**tkrun.ADJUDICATOR_DEFAULTS, "enabled": True}
+        srv, hits = self._flaky_decision_stub(statuses)
+        try:
+            with mock.patch.dict(os.environ, {
+                    "TIDETABLE_DECISION_ENDPOINT": f"http://127.0.0.1:{srv.server_port}/v1/systemone",
+                    "TIDETABLE_DECISION_API_KEY": "k", "TIDETABLE_DECISION_MODEL": "m"}), \
+                    mock.patch.object(tkrun, "ADJUDICATOR_BACKOFF_SEC", 0.01):
+                return tkrun.decide_command("frobnicate", adj), hits
+        finally:
+            srv.shutdown()
+            srv.server_close()
+
+    def test_adjudicator_retries_a_transient_server_fault(self):
+        v, hits = self._decide_against([507, 500, 200])
+        self.assertEqual(v["decision"], "allow")
+        self.assertEqual(hits, [507, 500, 200])
+
+    def test_adjudicator_fails_closed_when_the_fault_persists(self):
+        v, hits = self._decide_against([507])
+        self.assertEqual(v["decision"], "deny")
+        self.assertIn("507", v["reason"])
+        self.assertEqual(len(hits), tkrun.ADJUDICATOR_ATTEMPTS)
+
+    def test_adjudicator_does_not_retry_a_client_error(self):
+        v, hits = self._decide_against([404, 200])
+        self.assertEqual(v["decision"], "deny")
+        self.assertEqual(hits, [404])
+
     def test_adjudicator_enabled_by_flag_without_config(self):
         self.assertFalse(self.runner().adj_enabled)          # off by default
         r2 = self.runner(adjudicator={"enabled": True})

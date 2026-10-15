@@ -100,6 +100,8 @@ REVIEW_ALLOWED = ["Read", "Glob", "Grep", "Bash(git status*)", "Bash(git diff*)"
 # -> answers.q.choice in {"allow","deny"} with a confidence. Credentials are env-only, never in
 # the config file. It fails closed: no endpoint, no key, a network error or a low confidence all
 # mean "deny". The runner writes a discovery file the opencode hook reads to find this.
+ADJUDICATOR_ATTEMPTS = 3            # tries per verdict on a transient fault, within timeout_seconds
+ADJUDICATOR_BACKOFF_SEC = 0.75      # pause before retry n is n * this
 ADJUDICATOR_DEFAULTS: dict = {
     "enabled": False,
     "endpoint_env": "TIDETABLE_DECISION_ENDPOINT",
@@ -381,6 +383,7 @@ def decide_command(command: str, adj: dict, home: str = "", allow: list[str] | N
     closed: any missing endpoint/key, a network error, an unparseable reply or a confidence
     below `min_confidence` all resolve to "deny".
     """
+    import urllib.error
     import urllib.request
 
     def closed(reason: str) -> dict:
@@ -409,11 +412,42 @@ def decide_command(command: str, adj: dict, home: str = "", allow: list[str] | N
         "type": "choice", "instructions": adj["instructions"], "criteria": adj["criteria"]}}}).encode("utf-8")
     req = urllib.request.Request(endpoint, data=body, headers={
         "Content-Type": "application/json", "Authorization": f"Bearer {key}"})
-    try:
-        with urllib.request.urlopen(req, timeout=int(adj["timeout_seconds"])) as resp:
-            ans = json.loads(resp.read().decode("utf-8"))["answers"]["q"]
-    except Exception as e:  # noqa: BLE001 - any failure is a deny
-        return closed(f"adjudicator error: {e}")
+    # A transient server fault (5xx, 429, a refused or timed-out connection) is retried inside
+    # the same `timeout_seconds` budget, so the agent hooks, which give up after ~20 s, still
+    # get an answer. Without this, one 507 from a busy decision server denied a harmless
+    # command and sent the agent off to work around it. Anything else, and a retry budget
+    # that runs out, still fails closed.
+    deadline = time.monotonic() + int(adj["timeout_seconds"])
+    ans = None
+    last_err = "no attempt"
+    for attempt in range(ADJUDICATOR_ATTEMPTS):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0.5:
+            break
+        transient = False
+        try:
+            with urllib.request.urlopen(req, timeout=remaining) as resp:
+                ans = json.loads(resp.read().decode("utf-8"))["answers"]["q"]
+            break
+        except urllib.error.HTTPError as e:
+            # keep the server's own explanation: a bare "507" does not say why it refused
+            try:
+                detail = e.read(200).decode("utf-8", "replace").strip().replace("\n", " ")
+            except Exception:  # noqa: BLE001
+                detail = ""
+            last_err = f"{e}" + (f" - {detail}" if detail else "")
+            transient = e.code >= 500 or e.code == 429
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
+            last_err, transient = str(e), True
+        except Exception as e:  # noqa: BLE001 - bad JSON / shape / anything else: a deny, no retry
+            return closed(f"adjudicator error: {e}")
+        if not transient:
+            break
+        pause = min(ADJUDICATOR_BACKOFF_SEC * (attempt + 1), max(0.0, deadline - time.monotonic() - 1.0))
+        if pause > 0:
+            time.sleep(pause)
+    if ans is None:
+        return closed(f"adjudicator error: {last_err}")
 
     choice = str(ans.get("choice", "")).lower()
     conf = float(ans.get("confidence", 0.0) or 0.0)
