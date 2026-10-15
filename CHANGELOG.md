@@ -22,7 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `repair.attempts` times (default 2), then the gate re-runs. Only a failure that
   survives the repair counts toward `max_consecutive_failures`. The prompt forbids
   deleting or weakening tests to get a pass. `repair.enabled: false` restores the
-  old behaviour.
+  old behaviour. The crew also takes a task whose agent reported FAILED, timed
+  out, printed no result line, or said DONE with nothing changed: it inspects the
+  partial work and finishes the task (or leaves it PARTIAL for a human).
 - **`merge_resolve`: parallel jobs no longer conflict on generated files.** A job
   merge whose only conflicted paths are listed here (default `Cargo.lock` →
   `cargo update --workspace`) takes the run branch's copy, runs the command and
