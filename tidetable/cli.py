@@ -1802,21 +1802,24 @@ def main(argv: list[str] | None = None) -> int:
         refusal = remote.reject_if_local_only(args)
         if refusal:
             print(f"Error: {refusal}")
-            return 1
-        code = remote.run(args) if remote.active(args) else args.func(args)
+            code = 1
+        else:
+            code = remote.run(args) if remote.active(args) else args.func(args)
     except remote.RemoteError as e:
         print(f"Error: {e}")
-        return 1
+        code = 1
     except FileNotFoundError as e:
         print(f"Error: {e.filename} not found")
-        return 1
+        code = 1
     except json.JSONDecodeError as e:
         target = getattr(args, "todo_file", None) or getattr(args, "todo", None) or "input"
         print(f"✗ Invalid JSON in {target}: {e}")
-        return 1
+        code = 1
     except (LockTimeout, ValueError) as e:
         print(f"Error: {e}")
-        return 1
+        code = 1
+    # Errors exit through here too: `python -m tidetable` and the script shims
+    # call main() bare, so a returned 1 would leave the process exiting 0.
     if argv is None:
         sys.exit(code)
     return code

@@ -6,6 +6,11 @@ no dev dependencies. pytest runs these too.
 
 from __future__ import annotations
 
+try:  # before anything reads the environment; see tests/hermetic.py
+    from . import hermetic  # python -m unittest tests.test_x
+except ImportError:
+    import hermetic  # python -m unittest discover -s tests
+
 import io
 import json
 import os
@@ -1240,6 +1245,25 @@ class TestServeStream(unittest.TestCase):
         self.assertEqual(since_q, 2)
 
 
+class TestHermeticEnv(unittest.TestCase):
+    """tests/hermetic.py: the developer's shell must not reach the suite."""
+
+    def test_scrub_drops_every_project_namespace(self):
+        env = {"TIDETABLE_SERVER": "https://hub", "TASKERKEEPER_TOKEN": "t", "TKRUN_CLAUDE": "x",
+               "OVERNIGHT_OPENCODE": "y", "TK_API_TOKEN": "z", "PATH": "/bin", "KEEP_ME": "1"}
+        gone = hermetic.scrub(env)
+        self.assertEqual(sorted(gone), ["OVERNIGHT_OPENCODE", "TASKERKEEPER_TOKEN", "TIDETABLE_SERVER",
+                                        "TKRUN_CLAUDE", "TK_API_TOKEN"])
+        self.assertEqual(env, {"PATH": "/bin", "KEEP_ME": "1"})
+
+    def test_suite_runs_with_no_hub_and_a_throwaway_config_home(self):
+        leaked = [k for k in os.environ if k.upper().startswith(hermetic.PREFIXES)
+                  and k.upper() != "TIDETABLE_CONFIG_HOME"]
+        self.assertEqual(leaked, [])
+        self.assertEqual(os.environ["TIDETABLE_CONFIG_HOME"], hermetic.CONFIG_HOME)
+        self.assertNotEqual(Path(hermetic.CONFIG_HOME).resolve(), (Path.home() / ".config").resolve())
+
+
 class TestTaskerKeeperCompat(unittest.TestCase):
     """The pre-0.9 names keep working: TASKERKEEPER_*, .taskerkeeper/, import taskerkeeper."""
 
@@ -1300,6 +1324,16 @@ class TestTaskerKeeperCompat(unittest.TestCase):
              str(EXAMPLES / "simple-project.json")],
             capture_output=True, text=True, cwd=REPO_ROOT)
         self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_module_entry_point_exits_nonzero_on_error(self):
+        # main() returned 1 on handled errors without exiting, so `python -m`
+        # (and the Paseo sidebar's fallback) saw exit 0 beside "Error: ...".
+        for module in ("tidetable", "taskerkeeper"):
+            r = subprocess.run(
+                [os.sys.executable, "-m", module, "--local", "list", "no-such-todo.json"],
+                capture_output=True, text=True, cwd=REPO_ROOT)
+            self.assertEqual(r.returncode, 1, module)
+            self.assertIn("not found", r.stdout)
 
 
 class TestRemoteClient(unittest.TestCase):

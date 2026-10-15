@@ -24,5 +24,6 @@ taskerkeeper = "tidetable.cli:main"
 packages = ["tidetable", "taskerkeeper"]
 
 [tool.setuptools.package-data]
-# The schema ships inside the package so a non-editable install can find it.
-tidetable = ["schema/*.json"]
+# The schema and the adjudicator bridges ship inside the package so a non-editable
+# install (and a worktree of another repo) can find them.
+tidetable = ["schema/*.json", "bridges/*/*.ts"]

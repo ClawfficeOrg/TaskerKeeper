@@ -110,9 +110,14 @@ Wiring, per agent CLI:
   Fail-closed there too: no service address, a dead service or a timeout all
   throw. `bash` stays `allow`, so an allowed command is not prompted (the same
   mechanism the `rtk` plugin relies on).
-- **claude** — the static `--allowedTools`/`--disallowedTools` lists still apply;
-  a runtime hook for claude is not wired yet, so its gray zone falls back to the
-  static lists.
+- **claude** — the static `--allowedTools`/`--disallowedTools` lists still apply,
+  and the runner adds `--settings` with a `PreToolUse` hook for `Bash`
+  (`tidetable/claude_hook.py`). The hook asks the same service and answers
+  `allow` or `deny` — never `ask`, so the agent still never prompts. It sends
+  `"agent": "claude"`, and the service then judges against claude's deny list
+  (which also bars local `git commit`/`checkout`/…), not opencode's. Fail-closed:
+  no service address, a dead service or a timeout deny. Only `Bash` is judged;
+  other tools stay on the static lists. A read-only review agent has no hook.
 
 Every verdict is appended to `<run dir>/adjudicator.jsonl` and echoed to the log.
 Try one command without a full run:

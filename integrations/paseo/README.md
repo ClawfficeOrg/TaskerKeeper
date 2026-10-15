@@ -1,76 +1,81 @@
 # paseo-tidetable
 
-Read-only Paseo plugin for TideTable. The nav badge shows the
-in-progress count; the workspace tab renders the five `tidetable
-sidebar` sections (current with details, concurrent, upcoming with
-waits, current-phase tree, overall tree). All scheduling stays in
-`tidetable/cli.py` — the server shells out to the CLI.
+Read-only Paseo plugin for TideTable (Paseo ≥ 0.11). A sidebar row shows the
+in-progress count; its screen, and a workspace panel, render the five
+`tidetable sidebar` sections (current with details, concurrent, upcoming with
+waits, current-phase tree, overall tree) plus the live TKRun line. All
+scheduling stays in `tidetable/cli.py`: the server half shells out to the CLI.
 
-## Files
+## Layout
 
-- `package.json` — plugin manifest (`paseo.client` / `paseo.server` entries
-  plus `settings.todo`, `settings.width`, `settings.height`).
-- `server.js` — `handle({ method, params }, ctx)` RPC. The only method is
-  `tidetable.sidebar`, which spawns
-  `tidetable sidebar <todo> --json --width --height` and returns the
-  parsed payload. Read-only, fail-soft (`{ ok: false, error }`).
-- `client.js` — `activate(ctx)` registering the `addSidebarItem` nav entry
-  and the `addWorkspacePanel` tab via the `@getpaseo/client` SDK shape.
-  Polls the RPC every 15s; failures render inline, never throw.
+Paseo compiles `client/` into the app bundle, `server/` into the daemon
+subprocess, and `shared/` into both; a module at the root is a compile error.
 
-## Install / load
+- `paseo-plugin.json` — manifest: `id: paseo-tidetable`, `requirements.paseo`.
+- `index.client.tsx` — registers the `tidetable` screen, the `tidetable`
+  sidebar header item (badge = `current.tasks` length, `►` prefix while a run
+  is live), the `tidetable` workspace panel, an "Open TideTable" Command Center
+  item, and the settings screen.
+- `index.server.ts` — registers the settings document and handles the RPC.
+- `shared/sidebar.ts` — `tidetable.sidebar` RPC contract and the payload
+  schema (loose, so a newer CLI adding fields still validates).
+- `shared/settings.ts` — host settings: `todo`, `server`, `token`, `width`,
+  `height`.
+- `server/sidebar.ts` — spawns
+  `tidetable [--local] sidebar <todo> --json --width --height`, falling back to
+  `python -m tidetable` when the CLI is missing or predates `sidebar`.
+  Fail-soft: errors come back as `{ ok: false, error }` and render in the panel.
+- `client/` — React Native views (`View`/`Text`, theme tokens, no DOM). The
+  sidebar row, screen and panel share one 15 s React Query poll.
 
-1. Copy (or symlink) this folder to your Paseo plugins directory, or add it
-   via the Paseo plugin manager pointing at this path.
-2. Enable the `paseo-tidetable` plugin and restart Paseo.
-3. The "TideTable" nav entry and workspace tab appear across Paseo
-   clients (desktop and web share the same client/server split).
+## Install
 
-Requires the `tidetable` CLI on the server's `PATH`.
+```bash
+tidetable integrations install paseo          # runs the line below
+paseo plugin install /path/to/TideTable/integrations/paseo
+```
 
-## Settings (todo path)
+Paseo reads a directory source in place, so after `git pull` run
+`paseo plugin reload paseo-tidetable`. The desktop app ships the CLI without
+putting it on `PATH` (Windows:
+`%LOCALAPPDATA%\Programs\Paseo\resources\bin\paseo.cmd`); the integrations
+command looks there too. Needs the `tidetable` CLI (≥ 0.10 for hub mode) on
+the daemon's `PATH`.
 
-- `todo` — path to the todo JSON file the sidebar reads.
-  Falls back to the `TIDETABLE_TODO` env var.
-  Example: `/data/todos/sidebars.json` (or `docs/todo-sidebars.json` in
-  this repo).
-- `width` (default 80) — passed as `--width`, truncates long lines.
-- `height` (default 40) — passed as `--height`, caps section row counts
-  (overflow shows as "…N more").
+## Settings
 
-## Hub mode (todo lives on a `tidetable serve` hub)
+Settings → Plugins → paseo-tidetable → TideTable. Each field falls back to an
+environment variable on the daemon.
 
-Set `server` (and `token`), and put the **project slug** in `todo`:
+- **Todo** — todo file path on the daemon host (`TIDETABLE_TODO`), or the
+  project slug in hub mode.
+- **Hub URL** — a `tidetable serve` base URL (`TIDETABLE_SERVER`). A hub set
+  here always wins; one only inherited from the environment is ignored when
+  Todo is an existing file, so a path is never sent to a hub as a slug.
+- **Hub token** — bearer token (`TIDETABLE_TOKEN`). The settings document is
+  plain host-side JSON every connected client can read, so prefer the env var.
+  The token reaches the CLI through its environment, never argv.
+- **Width** / **Height** (80 / 40) — `--width` truncates lines, `--height`
+  caps section rows (overflow shows as "…N more").
 
-- `server` — hub base URL, e.g. `https://tidetable.compewtertutor.com`.
-  Falls back to `TIDETABLE_SERVER`.
-- `token` — bearer token. Falls back to `TIDETABLE_TOKEN`; prefer the env var
-  where the machine is shared. It reaches the CLI through its environment,
-  not argv.
-- `todo` — the project slug (`tidetable`), not a path.
+## Develop
 
-The panel is identical: the hub's `GET /api/<slug>/sidebar` returns the same
-payload `tidetable sidebar --json` prints locally. Needs a `tidetable` CLI
->= 0.10 on the Paseo server's `PATH`.
+```bash
+npm install            # dev-only: SDK types, React Native, TypeScript
+npm run typecheck
+paseo plugin reload paseo-tidetable
+paseo plugin logs paseo-tidetable
+```
 
-## Screenshots (description)
+Paseo supplies `@getpaseo/plugin`, React, React Native, React Query and zod
+at runtime; `node_modules/` is for typechecking only.
 
-- Nav: "TideTable" entry with a numeric badge equal to the
-  `current.tasks` length (blank when zero).
-- Panel tab "TideTable": five stacked sections — Current (icon, id,
-  title, `[owner age]` line plus goal and `touches:` basenames),
-  Concurrent ("safe to fan out" list), Upcoming (pending rows show
-  `[waits: ...]`), `Phase <id>: <title>` tree, Overall phase tree —
-  each with an "…N more" line when the height budget cuts rows.
-- Misconfigured (no todo path) or CLI failure: panel shows a single
-  dim line, e.g. `TideTable: no todo file configured …`.
+## What to look at after a change
 
-## Manual load test (paseo plugin scaffold shape)
-
-1. `node --check server.js && node --check client.js`
-2. Set `TIDETABLE_TODO=<repo>/docs/todo-sidebars.json`, then from node:
-   `await require('./server.js').handle({ method: 'tidetable.sidebar',
-   params: {} }, {})` → `{ ok: true, payload: { current, concurrent,
-   upcoming, phase, overall } }`.
-3. Load the plugin in Paseo and open the TideTable tab: all five
-   sections render; badge matches `current.tasks` length.
+- Sidebar: a "TideTable" row with a list icon; the trailing badge equals the
+  number of Current tasks (blank at zero, `►N` while a run is live).
+- Pressing it opens the TideTable screen: Run (when present), Current,
+  Concurrent, Upcoming (`[waits: …]` on blocked rows), `Phase <id>: <title>`,
+  Overall, each with "…N more" when the height budget cuts rows.
+- No todo configured, or a CLI error: one muted line,
+  `TideTable: no todo file configured …`, in the screen and panel.

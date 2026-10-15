@@ -6,8 +6,14 @@ behaviour STUB_MODE selects.
 
 from __future__ import annotations
 
+try:  # before anything reads the environment; see tests/hermetic.py
+    from . import hermetic  # python -m unittest tests.test_x
+except ImportError:
+    import hermetic  # python -m unittest discover -s tests
+
 import io
 import json
+import socket
 import os
 import subprocess
 import sys
@@ -596,7 +602,7 @@ class TKRunRunTests(unittest.TestCase):
         import types
 
         s = self.scratch()
-        code = tkrun.cmd_kill(types.SimpleNamespace(todo_file=str(s.todo)))
+        code = tkrun.cmd_kill(types.SimpleNamespace(todo_file=str(s.todo), local=True))
         self.assertEqual(code, 0)
         self.assertTrue((s.root / ".tkrun" / "KILL").exists())
 
@@ -606,7 +612,7 @@ class TKRunRunTests(unittest.TestCase):
         s = self.scratch()
         (s.root / ".tkrun").mkdir()
         (s.root / ".tkrun" / "pid").write_text("2147483647", encoding="ascii")
-        code = tkrun.cmd_kill(types.SimpleNamespace(todo_file=str(s.todo)))
+        code = tkrun.cmd_kill(types.SimpleNamespace(todo_file=str(s.todo), local=True))
         self.assertEqual(code, 0)
         self.assertTrue((s.root / ".tkrun" / "KILL").exists())
         self.assertFalse((s.root / ".tkrun" / "pid").exists())
@@ -780,8 +786,24 @@ class TKRunUnitTests(unittest.TestCase):
         self.assertNotIn("plugin", off)
         r = self.runner(adjudicator={"enabled": True})
         on = json.loads(r.opencode_config())
-        self.assertEqual(on["plugin"], [str(r.root / "integrations" / "opencode" / "tk-adjudicator.ts")])
+        # this repo carries no integrations/ tree, so the bundled bridge is what loads
+        self.assertEqual(on["plugin"], [str(tkrun.BUNDLED_OPENCODE_PLUGIN)])
+        self.assertTrue(Path(on["plugin"][0]).is_dir())
         self.assertEqual(on["permission"]["bash"]["*"], "allow")
+
+    def test_bundled_bridge_is_a_plugin_directory_opencode_can_load(self):
+        # opencode 2.x rejects a bare file ("configured plugin path must be a directory")
+        # and loads <dir>/server.ts, so the config must name the directory.
+        d = tkrun.BUNDLED_OPENCODE_PLUGIN
+        self.assertTrue(d.is_dir())
+        self.assertTrue((d / "server.ts").is_file())
+
+    def test_bundled_bridge_matches_the_integration_copy(self):
+        """The shipped plugin is a duplicate of integrations/opencode/tk-adjudicator.ts; no drift."""
+        src = Path(tkrun.__file__).resolve().parent.parent / "integrations" / "opencode" / "tk-adjudicator.ts"
+        if not src.is_file():
+            self.skipTest("not a TideTable checkout")
+        self.assertEqual(src.read_bytes(), (tkrun.BUNDLED_OPENCODE_PLUGIN / "server.ts").read_bytes())
 
     def test_gray_zone_is_decided_by_the_adjudicator_or_prompted(self):
         """Adjudicator on -> the hook decides (bash allow); off -> ask, so the person does."""
@@ -799,6 +821,98 @@ class TKRunUnitTests(unittest.TestCase):
         on = self.runner(adjudicator={"enabled": True}).agent_call("anthropic", "m", "prompt")["argv"]
         self.assertIn("none", on)                        # decisions are automatic; no prompts
         self.assertIn("acceptEdits", on)
+
+    def test_claude_routes_bash_through_the_adjudicator_hook(self):
+        off = self.runner().agent_call("anthropic", "m", "prompt")["argv"]
+        self.assertNotIn("--settings", off)
+        r = self.runner(adjudicator={"enabled": True})
+        on = r.agent_call("anthropic", "m", "prompt")["argv"]
+        self.assertIn("--permission-prompts", on)        # still never asks
+        hook = json.loads(on[on.index("--settings") + 1])["hooks"]["PreToolUse"][0]
+        self.assertEqual(hook["matcher"], "Bash")
+        cmd = hook["hooks"][0]["command"]
+        self.assertIn(tkrun.CLAUDE_HOOK.as_posix(), cmd)
+        self.assertNotIn("\\", cmd)                      # POSIX shell: forward slashes only
+        self.assertTrue(tkrun.CLAUDE_HOOK.is_file())
+        # a read-only review never runs commands the adjudicator would need to judge
+        rv = r.agent_call("anthropic", "m", "prompt", kind="review")["argv"]
+        self.assertNotIn("--settings", rv)
+
+    def _serve_adjudicator(self, **lists):
+        """Run the real loopback service; returns (host, port, stop)."""
+        import threading
+        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(4)
+        stop = threading.Event()
+        adj = {**tkrun.ADJUDICATOR_DEFAULTS, "enabled": False}   # lists only: no model call
+        server = {"srv": srv, "stop": stop, "record": None, **lists}
+        t = threading.Thread(target=tkrun._adj_serve, args=(server, adj, ""), daemon=True)
+        t.start()
+
+        def shut():
+            stop.set()
+            t.join(timeout=3)
+            srv.close()
+        return "127.0.0.1", srv.getsockname()[1], shut
+
+    def _run_claude_hook(self, event: dict, host: str = "", port: int = 0) -> dict | None:
+        """The hook as Claude Code runs it: event on stdin, verdict JSON on stdout."""
+        import io
+        from contextlib import redirect_stdout
+        from tidetable import claude_hook
+        env = {"TIDETABLE_ADJUDICATOR_HOST": host, "TIDETABLE_ADJUDICATOR_PORT": str(port)}
+        out = io.StringIO()
+        with mock.patch.dict(os.environ, env), \
+                mock.patch("sys.stdin", io.StringIO(json.dumps(event))), redirect_stdout(out):
+            self.assertEqual(claude_hook.main(), 0)
+        text = out.getvalue().strip()
+        return json.loads(text)["hookSpecificOutput"] if text else None
+
+    def test_claude_hook_allows_and_denies_through_the_service(self):
+        host, port, shut = self._serve_adjudicator(allow=["cargo test*"], deny=["git push*"])
+        try:
+            ok = self._run_claude_hook({"tool_name": "Bash", "tool_input": {"command": "cargo test -p x"}},
+                                       host, port)
+            bad = self._run_claude_hook({"tool_name": "Bash", "tool_input": {"command": "git push origin"}},
+                                        host, port)
+            gray = self._run_claude_hook({"tool_name": "Bash", "tool_input": {"command": "frobnicate"}},
+                                         host, port)
+        finally:
+            shut()
+        self.assertEqual(ok["permissionDecision"], "allow")
+        self.assertEqual(bad["permissionDecision"], "deny")
+        self.assertEqual(gray["permissionDecision"], "deny")   # model disabled/unreachable -> closed
+        self.assertEqual(ok["hookEventName"], "PreToolUse")
+        for v in (ok, bad, gray):
+            self.assertNotEqual(v["permissionDecision"], "ask")   # never leaves a prompt
+
+    def test_claude_hook_fails_closed_and_ignores_other_tools(self):
+        bash = {"tool_name": "Bash", "tool_input": {"command": "ls"}}
+        with TemporaryDirectory() as d:
+            # no env address and no discovery file anywhere above the cwd -> deny
+            v = self._run_claude_hook({**bash, "cwd": d})
+        self.assertEqual(v["permissionDecision"], "deny")
+        # a dead service is a deny, not an error
+        v = self._run_claude_hook(bash, "127.0.0.1", 9)
+        self.assertEqual(v["permissionDecision"], "deny")
+        # only Bash is judged
+        self.assertIsNone(self._run_claude_hook({"tool_name": "Edit", "tool_input": {"file_path": "x"}}))
+
+    def test_claude_hook_is_judged_against_claudes_stricter_deny_list(self):
+        """opencode may commit locally; claude may not, so `git commit` is denied for claude only."""
+        host, port, shut = self._serve_adjudicator(allow=["git commit*"], deny=[],
+                                                   deny_claude=["git commit*"])
+        try:
+            event = {"tool_name": "Bash", "tool_input": {"command": "git commit -m x"}}
+            via_claude = self._run_claude_hook(event, host, port)
+            with socket.create_connection((host, port), timeout=5) as s:
+                s.sendall(b'{"command": "git commit -m x"}\n')
+                via_opencode = json.loads(s.makefile().readline())
+        finally:
+            shut()
+        self.assertEqual(via_claude["permissionDecision"], "deny")
+        self.assertEqual(via_opencode["decision"], "allow")
 
     def test_legacy_overnight_names_still_resolve(self):
         """A repo that predates the rename keeps its config and its control directory."""

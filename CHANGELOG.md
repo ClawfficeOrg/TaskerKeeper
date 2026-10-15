@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Claude Code agents are adjudicated too.** With `adjudicator.enabled`, a
+  `claude -p` dev agent now gets a `PreToolUse` hook (`tidetable/claude_hook.py`,
+  passed with `--settings`) that sends every Bash command to the runner's
+  loopback service. The hook answers `allow` or `deny` itself, so claude still
+  never prompts, and it fails closed. Claude's requests are judged against
+  claude's own (stricter) deny list. Previously the claude gray zone fell back to
+  the static lists, so the decision model was never consulted for those tiers.
+
+### Changed
+
+- **The Paseo plugin is rebuilt for Paseo ≥ 0.8 (declares `>=0.11.0`).** The
+  daemon rejected the old one at install: no `paseo-plugin.json`, a CommonJS
+  root `client.js`/`server.js`, and a DOM panel that cannot run on Paseo's
+  React Native clients. It now has `index.client.tsx` (screen, sidebar header
+  item with the in-progress badge, workspace panel, Command Center item, and a
+  settings screen) and `index.server.ts` (one typed `tidetable.sidebar` RPC over
+  `tidetable sidebar --json`), with code under `client/`, `server/`, `shared/`.
+  Settings moved from `package.json` to a host settings document edited under
+  Settings → Plugins; the `TIDETABLE_*` env fallbacks are unchanged.
+- **`integrations install paseo` runs `paseo plugin install <checkout>/integrations/paseo`.**
+  Paseo ≥ 0.8 does not scan a plugins directory, so the old symlink loaded
+  nothing. `uninstall` runs `paseo plugin remove paseo-tidetable`, and `list`
+  reads `paseo plugin ls --json`. `--paseo-dir` keeps the old link/copy
+  behaviour for anyone who still needs it.
+
+### Fixed
+
+- **The opencode adjudicator bridge now loads in any repo.** The runner pointed
+  `opencode.json` at `<worktree>/integrations/opencode/tk-adjudicator.ts`, which
+  only exists in TideTable's own checkout. A copy now ships in the package
+  (`tidetable/bridges/`) and is used when the served repo has none.
+- **The test suite ignores the developer's environment.** With
+  `TIDETABLE_SERVER` exported, about a hundred tests sent temp todo paths to the
+  real hub as slugs, and `tkrun kill` tests resolved their repo to the cwd and
+  wrote a live KILL sentinel into the checkout's own `.overnight/`. Every test
+  module now imports `tests/hermetic.py`, which strips the project's env
+  namespaces and gives the run a throwaway `TIDETABLE_CONFIG_HOME`.
+- **`python -m tidetable` exits 1 on a handled error.** `main()` returned 1 for
+  "not found", invalid JSON, lock timeouts and remote errors without calling
+  `sys.exit`, so the module form, `scripts/tidetable.py` and
+  `ralph/ralph-json.sh` exited 0 beside `Error: ...`. The console script was
+  unaffected.
+- **The Paseo sidebar no longer sends a local todo path to a hub.** A
+  `TIDETABLE_SERVER` inherited by the Paseo daemon turned a file path into an
+  "unknown slug"; an env-only hub is now ignored when the todo is an existing
+  file, and local reads pass `--local`. Its CLI fallback also stopped retrying
+  the CLI's own `... not found` errors through `python -m`.
+
 ## [0.11.0]
 
 ### Changed

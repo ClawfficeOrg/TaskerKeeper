@@ -44,6 +44,13 @@ from pathlib import Path
 from tidetable import jsonio
 from tidetable.runs import LEGACY_RUN_DIR_NAME, RUN_DIR_NAME, control_dir
 
+# Shipped inside the package so a non-editable install, or a worktree of another repo,
+# still has the adjudicator bridges (the repo-level integrations/ tree does not ship).
+# opencode 2.x loads a configured plugin from a *directory* (<dir>/server.ts, else index.ts);
+# a bare .ts file path is rejected with "configured plugin path must be a directory".
+BUNDLED_OPENCODE_PLUGIN = Path(__file__).resolve().parent / "bridges" / "opencode-adjudicator"
+CLAUDE_HOOK = Path(__file__).resolve().parent / "claude_hook.py"
+
 CONFIG_NAME = "tkrun.json"
 LEGACY_CONFIG_NAME = "overnight.json"
 CONFIG_DIR = ".tidetable"
@@ -450,9 +457,14 @@ def _adj_serve(server: dict, adj: dict, home: str) -> None:
             except ValueError:
                 conn.sendall(b'{"decision":"deny","reason":"bad request"}\n')
                 continue
+            # claude's own deny list is stricter than opencode's (it also bars local git
+            # history edits), so a claude hook is judged against that one.
+            deny = server.get("deny")
+            if req.get("agent") == "claude" and server.get("deny_claude") is not None:
+                deny = server["deny_claude"]
             verdict = decide_command(str(req.get("command", "")),
                                      req.get("adjudicator") or adj, home=home,
-                                     allow=server.get("allow"), deny=server.get("deny"))
+                                     allow=server.get("allow"), deny=deny)
             record = server.get("record")
             if record:
                 record(str(req.get("command", "")), verdict)
@@ -747,7 +759,8 @@ class Runner:
         self.adj_thread = threading.Thread(
             target=_adj_serve,
             args=({"srv": srv, "stop": self.adj_stop, "record": self._adj_record,
-                   "allow": self.adj_allow, "deny": self.adj_deny},
+                   "allow": self.adj_allow, "deny": self.adj_deny,
+                   "deny_claude": list(self.shell_deny)},
                   self.adjudicator, str(self.home)),
             daemon=True)
         self.adj_thread.start()
@@ -1047,11 +1060,32 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
             # config `plugin` list so it loads for this run only. bash stays "allow" so a normal
             # command is not prompted; the hook throws on a deny, which aborts it (same mechanism
             # the rtk plugin relies on). `execute.before` still runs for an allowed command.
-            plugin = str((self.root / "integrations" / "opencode" / "tk-adjudicator.ts"))
-            cfg["plugin"] = [plugin]
+            cfg["plugin"] = [self.adjudicator_plugin()]
         if extra_provider:
             cfg["provider"] = extra_provider
         return json.dumps(cfg, indent=2)
+
+    def adjudicator_plugin(self) -> str:
+        """The opencode bridge as a plugin directory, always the copy shipped in the package.
+
+        The runner works in a worktree of whatever repo it serves, and only TideTable's own
+        checkout has `integrations/opencode/`, so a path into the worktree would name a
+        plugin opencode cannot load for any other repo (and a bare file path is rejected
+        by opencode 2.x in any case).
+        """
+        return str(BUNDLED_OPENCODE_PLUGIN)
+
+    def claude_hook_settings(self) -> str:
+        """`--settings` JSON that routes every Bash call of a claude agent through the adjudicator.
+
+        The hook answers allow or deny itself, so claude never asks anyone. The interpreter and
+        script are quoted with forward slashes: claude runs hook commands through a POSIX shell,
+        which would eat the backslashes of a Windows path.
+        """
+        cmd = f'"{Path(sys.executable).as_posix()}" "{CLAUDE_HOOK.as_posix()}"'
+        return json.dumps({"hooks": {"PreToolUse": [{
+            "matcher": "Bash",
+            "hooks": [{"type": "command", "command": cmd, "timeout": 30}]}]}})
 
     def agent_call(self, provider: str, model: str, prompt: str, kind: str = "dev") -> dict:
         allowed = ["Read", "Edit", "Write", "Glob", "Grep", "WebFetch", "WebSearch"] \
@@ -1082,6 +1116,10 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
                 for s in self.siblings:
                     for sc in s["scope"] or ["."]:
                         a += ["--add-dir", str((s["root"] / sc).resolve())]
+                if self.adj_enabled:
+                    # A command on neither list reaches the decision model through the hook;
+                    # the hook answers allow/deny, so the agent still never prompts.
+                    a += ["--settings", self.claude_hook_settings()]
             return {"argv": a, "stdin": prompt, "opencode": None}
         if provider in self.cfg["lanes"]:
             a = self.opencode_bin + ["run", "--standalone", "--auto", "-m", f"{provider}/{model}",

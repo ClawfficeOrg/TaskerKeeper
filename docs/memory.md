@@ -185,8 +185,8 @@ What changed in one long dogfooding session driving Swaygent with
   syntax, PowerShell wants `/PID`; `cp` is aliased interactive in Git Bash (use
   `cat src > dst` or Python); heredocs with apostrophes or backticks break the
   Bash tool, so write scripts to a file; Git Bash `/tmp` is not visible to
-  Python on Windows; an `env -u TIDETABLE_SERVER` is needed to run the test suite
-  when the shell points at a hub.
+  Python on Windows. (Running the suite from a shell pointed at a hub used to
+  need `env -u TIDETABLE_SERVER`; `tests/hermetic.py` now scrubs it.)
 - **First real `--jobs 2` run (Swaygent, 2026-10-14) and what broke:**
   1.3.1 finished and merged cleanly after 51 minutes while 1.1.6 ran beside it.
   Then (a) the runner's base-branch SAFETY check aborted 1.3.2 because someone
@@ -281,6 +281,32 @@ What changed in one long dogfooding session driving Swaygent with
   isolation and in ten full-suite runs on `main`. Timing-sensitive (the stub
   agent sleeps 2.5s and the tasks must serialise on overlapping `touches`); the
   parallel scheduler or the test's timing assumption needs the real fix.
+  - Investigated 2026-10-14 and **not reproduced**: 8 solo runs, 6 concurrent,
+    12 x the four `--jobs` tests, 5 full suites - all clean. The scheduler logic
+    (`run_parallel` + `next_compatible`, `tidetable/tkrun.py`) was traced by hand
+    and could not be made to place two overlapping tasks in `inflight` together:
+    an empty-`touches` task returns `None` while anything runs, and overlapping
+    `touches` are skipped via `touches_overlap`. Jobs share the parent worktree's
+    `todo.json` (`make_job` does a shallow `copy.copy`, so `job.todo` still points
+    at the parent path), so `start`/`done` claims are visible to the parent's
+    `ready` call.
+  - The only failure seen under CPU saturation was a **different** test,
+    `test_missing_or_wrong_token_is_a_clean_failure` (got `unauthorized` from a
+    real hub). That is environment bleed (`TIDETABLE_SERVER` / `TIDETABLE_TOKEN`
+    leaking into the test run) - see the Windows/Git-Bash note above - **not**
+    this flake. The very first "reproduction" attempt was the same trap: the hub
+    hijacked the run (`hub ... project '...todo.json' not reachable`).
+  - Honest read: no evidence of a scheduler concurrency bug. The flake is either
+    (a) the test's timing assumption - it infers scheduler behaviour from
+    wall-clock timestamps written by sleeping subprocesses, which is inherently
+    racy under load - or (b) an environmental hiccup (`s`/`e` line outside the
+    measured window, or a stray extra stub invocation writing to the track file).
+    Neither was confirmed.
+  - Fix direction (not applied): assert the **scheduler's decisions**, not
+    wall-clock. Have the stub take an OS-level exclusive lock (or an `O_EXCL`
+    "running" marker file) per task so a second concurrent start fails at once,
+    or expose dispatch order from `run_parallel` (e.g. `START` log lines) and
+    assert the sequence, keeping the timestamp check as a smoke test only.
 - The leased-lane reader has no booking and no renewal: if a provider changes its
   reservations API shape, `lane_window` silently sees no window and every task
   falls back. There is no test against a live API, only a stub.
