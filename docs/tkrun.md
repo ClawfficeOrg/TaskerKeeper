@@ -104,7 +104,7 @@ All keys optional; unknown keys are an error.
 | `extra_paths` | paths besides the task's `touches` the agent may edit |
 | `shell_allow`, `shell_deny` | added to the built-in read-only-git allow and no-commit/no-state deny lists |
 | `deny_edit` | globs the agent must never edit (generated files) |
-| `external_read` | directories outside the repo the agent may read (`~` and env vars expand) |
+| `external_read` | directories outside the repo the agent may read (`~` and env vars expand). Skill directories (`~/.agents/skills`, `~/.config/opencode/skills`, `~/.claude/skills`, `<repo>/.opencode/skills`) are always readable and need not be listed |
 | `gate` | steps, below |
 | `required_changed` | a DONE that did not change these (e.g. `CHANGELOG.md`) becomes PARTIAL |
 | `siblings` | `[{path, scope[]}]` other repos a task may change. Each gets its own worktree `<name>-tkrun-<date>` on the same branch name, cut from the branch it is on. In config strings `{sibling:PATH}` is that worktree and `{sibling_home:PATH}` the real checkout (for prebuilt tools) |

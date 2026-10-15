@@ -540,6 +540,11 @@ class TKRunRunTests(unittest.TestCase):
             self.assertEqual(bash[denied], "deny", denied)
         for local in ("git commit*", "git checkout*", "git stash*"):
             self.assertNotIn(local, bash)
+        ext = cfg["permission"]["external_directory"]
+        self.assertEqual(ext["*"], "deny")
+        for skills in ("agents", "claude"):
+            tail = os.sep.join([f".{skills}", "skills", "**"])
+            self.assertTrue(any(k.endswith(os.sep + tail) and v == "allow" for k, v in ext.items()), skills)
 
     def test_agent_commits_are_folded_back_and_the_runner_commits_the_task(self):
         s = self.scratch()

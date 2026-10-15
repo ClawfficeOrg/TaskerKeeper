@@ -122,6 +122,10 @@ ADJUDICATOR_DEFAULTS: dict = {
 DEFAULT_HUMAN_CHECK = (r"(?i)\b(on[- ]screen|visual(ly)?|looks?|shows?|displays?|dropdown|picker|"
                        r"window|click|hover|dims?|opacity|blur|renders?|menu|preview|native)\b")
 
+# Skill directories every agent may read (read-only), so a repo need not list them in
+# `external_read`: the harness's global ones, plus the checkout's own `.opencode/skills`.
+SKILL_READ_DIRS = ["~/.agents/skills", "~/.config/opencode/skills", "~/.claude/skills"]
+
 DEFAULTS: dict = {
     "version": 1,
     "base_branch": "main",
@@ -1079,7 +1083,7 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
         # the same patterns must also match behind the `rtk ` prefix.
         bash.update({f"rtk {p}": "deny" for p in denied})
         ext = {"*": "deny"}
-        for d in self.cfg["external_read"]:
+        for d in SKILL_READ_DIRS + [str(self.home / ".opencode" / "skills")] + list(self.cfg["external_read"]):
             ext[str(Path(os.path.expandvars(os.path.expanduser(d))).resolve()) + os.sep + "**"] = "allow"
         for s in self.siblings:
             for sc in s["scope"] or ["."]:
