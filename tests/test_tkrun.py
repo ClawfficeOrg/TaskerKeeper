@@ -1,6 +1,6 @@
-"""Tests for `tidetable overnight`, with a stub agent and a scratch git repo.
+"""Tests for `tidetable tkrun`, with a stub agent and a scratch git repo.
 
-No model is ever called: OVERNIGHT_CLAUDE points at a python stub whose
+No model is ever called: TKRUN_CLAUDE points at a python stub whose
 behaviour STUB_MODE selects.
 """
 
@@ -18,7 +18,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import mock
 
-from tidetable import cli, overnight
+from tidetable import cli, tkrun
 
 STUB = r'''
 import os, sys, time
@@ -58,9 +58,9 @@ if mode != "nochange":
 if os.environ.get("STUB_SIB_FILE"):
     os.makedirs(os.path.dirname(os.environ["STUB_SIB_FILE"]), exist_ok=True)
     open(os.environ["STUB_SIB_FILE"], "w").write("sib")
-print("OVERNIGHT_SUMMARY: add work file")
-print({"partial": "OVERNIGHT_RESULT: PARTIAL needs eyes",
-       "failed": "OVERNIGHT_RESULT: FAILED cannot"}.get(mode, "OVERNIGHT_RESULT: DONE"))
+print("TKRUN_SUMMARY: add work file")
+print({"partial": "TKRUN_RESULT: PARTIAL needs eyes",
+       "failed": "TKRUN_RESULT: FAILED cannot"}.get(mode, "TKRUN_RESULT: DONE"))
 '''
 
 
@@ -70,7 +70,7 @@ def _git(cwd, *args):
 
 
 class Scratch:
-    """A git repo with a todo file, an overnight config and a stub agent."""
+    """A git repo with a todo file, a tkrun config and a stub agent."""
 
     def __init__(self, gate_exit: int = 0, tasks: int = 1, review: bool = False):
         self._tmp = TemporaryDirectory()
@@ -88,15 +88,15 @@ class Scratch:
                 "phases": [{"id": "1", "title": "P", "goal": "g", "tasks": task_list}]}
         self.todo = self.root / "todo.json"
         self.todo.write_text(json.dumps(todo), encoding="utf-8")
-        self.cfg_path = self.root / ".tidetable" / "overnight.json"
+        self.cfg_path = self.root / ".tidetable" / "tkrun.json"
         self.cfg_path.parent.mkdir()
         self.set_config({"gate": [{"name": "gate", "cmd": [sys.executable, "-c",
                                                            f"raise SystemExit({gate_exit})"]}],
                          "review": {"enabled": review}})
         stub = Path(self._tmp.name) / "stub.py"
         stub.write_text(STUB, encoding="utf-8")
-        self.env = {"OVERNIGHT_CLAUDE": f'"{sys.executable}" "{stub}"',
-                    "OVERNIGHT_RATE_MARGIN_SEC": "0"}
+        self.env = {"TKRUN_CLAUDE": f'"{sys.executable}" "{stub}"',
+                    "TKRUN_RATE_MARGIN_SEC": "0"}
 
     def set_config(self, cfg: dict) -> None:
         self.cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
@@ -108,7 +108,7 @@ class Scratch:
         env = {**self.env, "STUB_MODE": mode, "STUB_REVIEW": review, **env_extra}
         buf = io.StringIO()
         with mock.patch.dict(os.environ, env), redirect_stdout(buf):
-            code = cli.main(["overnight", "run", str(self.todo), "--model", "anthropic/stub",
+            code = cli.main(["tkrun", "run", str(self.todo), "--model", "anthropic/stub",
                              *(extra or ("--hours", "1"))])
         return code, buf.getvalue()
 
@@ -121,17 +121,17 @@ class Scratch:
     @property
     def work(self) -> Path:
         """The run's worktree, beside the repo."""
-        return self.root.parent / f"{self.root.name}-overnight-{datetime.now():%Y-%m-%d}"
+        return self.root.parent / f"{self.root.name}-tkrun-{datetime.now():%Y-%m-%d}"
 
     @property
     def branch(self) -> str:
-        return f"overnight/{datetime.now():%Y-%m-%d}"
+        return f"tkrun/{datetime.now():%Y-%m-%d}"
 
     def close(self):
         self._tmp.cleanup()
 
 
-class OvernightRunTests(unittest.TestCase):
+class TKRunRunTests(unittest.TestCase):
     def scratch(self, **kw) -> Scratch:
         s = Scratch(**kw)
         self.addCleanup(s.close)
@@ -160,7 +160,7 @@ class OvernightRunTests(unittest.TestCase):
         _, out = s.run("done")
         self.assertEqual(s.status(), "pending")
         self.assertFalse((s.work / "work.txt").exists())
-        self.assertIn("overnight", _git(s.work, "stash", "list"))
+        self.assertIn("tkrun", _git(s.work, "stash", "list"))
         self.assertIn("gate", out)
 
     def test_agent_failed_and_silent_agent_reset_task(self):
@@ -264,13 +264,13 @@ class OvernightRunTests(unittest.TestCase):
         s = self.scratch()
         code, out = s.run("done", "--hours", "1", "--follow")
         self.assertEqual(code, 0, out)
-        self.assertIn("OVERNIGHT_SUMMARY: add work file", out)
+        self.assertIn("TKRUN_SUMMARY: add work file", out)
         self.assertEqual(s.status(), "done")
 
     def test_no_follow_keeps_agent_output_off_the_console(self):
         s = self.scratch()
         code, out = s.run("done", "--hours", "1", "--no-follow")
-        self.assertNotIn("OVERNIGHT_SUMMARY", out)
+        self.assertNotIn("TKRUN_SUMMARY", out)
         self.assertEqual(s.status(), "done")
 
     def parallel_scratch(self, touches: list[list[str]]) -> Scratch:
@@ -339,10 +339,10 @@ class OvernightRunTests(unittest.TestCase):
 
     def test_ctrl_c_is_logged_as_interrupted_not_no_more_tasks(self):
         s = self.scratch()
-        with mock.patch.object(overnight.Runner, "run_task", side_effect=KeyboardInterrupt):
+        with mock.patch.object(tkrun.Runner, "run_task", side_effect=KeyboardInterrupt):
             code, out = s.run("done", "--hours", "1")
         self.assertEqual(code, 1)
-        log = (s.root / ".overnight" / "log.md").read_text(encoding="utf-8")
+        log = (s.root / ".tkrun" / "log.md").read_text(encoding="utf-8")
         self.assertIn("END (interrupted (Ctrl-C))", log)
         self.assertNotIn("END (no more ready tasks)", log)
 
@@ -365,8 +365,8 @@ class OvernightRunTests(unittest.TestCase):
         s = self.scratch()
         code, out = s.run("done", "--hours", "1", "--dry-run")
         self.assertIn("Never print, echo, cat or otherwise output environment variables", out)
-        self.assertIn("printenv*", "".join(overnight.BASE_SHELL_DENY))
-        self.assertIn("env", overnight.BASE_SHELL_DENY)
+        self.assertIn("printenv*", "".join(tkrun.BASE_SHELL_DENY))
+        self.assertIn("env", tkrun.BASE_SHELL_DENY)
 
     def test_custom_command_can_opt_into_the_runners_shell_permissions(self):
         s = self.scratch()
@@ -375,7 +375,7 @@ class OvernightRunTests(unittest.TestCase):
                                                    "opencode_permissions": True}}})
         buf = io.StringIO()
         with redirect_stdout(buf):
-            cli.main(["overnight", "run", str(s.todo), "--model", "viaoc/m", "--dry-run"])
+            cli.main(["tkrun", "run", str(s.todo), "--model", "viaoc/m", "--dry-run"])
         self.assertIn('"permission"', buf.getvalue())
         self.assertIn('"env": "deny"', buf.getvalue())
 
@@ -388,7 +388,7 @@ class OvernightRunTests(unittest.TestCase):
                                          "permission": {"webfetch": "deny"}}})
         buf = io.StringIO()
         with redirect_stdout(buf):
-            cli.main(["overnight", "run", str(s.todo), "--model", "viaoc/m", "--dry-run"])
+            cli.main(["tkrun", "run", str(s.todo), "--model", "viaoc/m", "--dry-run"])
         out = buf.getvalue()
         self.assertIn('"blender"', out)
         self.assertIn('"webfetch": "deny"', out)
@@ -396,7 +396,7 @@ class OvernightRunTests(unittest.TestCase):
 
     def test_a_stale_stop_file_does_not_end_the_next_run(self):
         s = self.scratch(tasks=2)
-        stop = s.root / ".overnight" / "STOP"
+        stop = s.root / ".tkrun" / "STOP"
         stop.parent.mkdir(exist_ok=True)
         stop.write_text("stop", encoding="utf-8")
         code, out = s.run("done", "--hours", "1")
@@ -419,12 +419,12 @@ class OvernightRunTests(unittest.TestCase):
                                                    "opencode_permissions": True}}})
         buf = io.StringIO()
         with redirect_stdout(buf):
-            cli.main(["overnight", "run", str(s.todo), "--model", "viaoc/m", "--dry-run"])
+            cli.main(["tkrun", "run", str(s.todo), "--model", "viaoc/m", "--dry-run"])
         out = buf.getvalue()
         i = out.index("----- opencode.json")
         cfg = json.loads(out[i:out.index("----- prompt")].split("\n", 1)[1])
         bash = cfg["permission"]["bash"]
-        self.assertEqual(bash["*"], "allow")
+        self.assertEqual(bash["*"], "ask")   # no adjudicator, so a gray-zone command prompts
         for denied in ("git push*", "rtk git push*", "printenv*", "tidetable done*", "env"):
             self.assertEqual(bash[denied], "deny", denied)
         for local in ("git commit*", "git checkout*", "git stash*"):
@@ -454,17 +454,17 @@ class OvernightRunTests(unittest.TestCase):
 
     def test_a_crashed_parallel_job_keeps_its_worktree_and_branch(self):
         s = self.parallel_scratch([["a/"], ["b/"]])
-        real = overnight.Runner.run_task
+        real = tkrun.Runner.run_task
 
         def crash_second(runner, task):
             if task["id"] == "1.2":
                 (runner.root / "partial.txt").write_text("unfinished work", encoding="utf-8")
                 raise RuntimeError("boom")
             return real(runner, task)
-        with mock.patch.object(overnight.Runner, "run_task", crash_second):
+        with mock.patch.object(tkrun.Runner, "run_task", crash_second):
             code, out = s.run("done", "--hours", "1", "--jobs", "2", STUB_PER_TASK="1")
         self.assertIn("KEEP 1.2", out)
-        kept = s.root.parent / f"{s.root.name}-overnight-{datetime.now():%Y-%m-%d}-1.2"
+        kept = s.root.parent / f"{s.root.name}-tkrun-{datetime.now():%Y-%m-%d}-1.2"
         self.assertTrue((kept / "partial.txt").exists(), "the crashed job's work is still there")
         self.assertEqual(s.status("1.1"), "done")
 
@@ -545,7 +545,7 @@ class OvernightRunTests(unittest.TestCase):
                                {"name": "sib-gate", "repo": "../sib", "when_repo_changed": "../sib",
                                 "cmd": [sys.executable, "-c", "pass"]}],
                       "review": {"enabled": False}, "siblings": [{"path": "../sib", "scope": ["lib/"]}]})
-        sib_wt = sib.parent / f"sib-overnight-{datetime.now():%Y-%m-%d}"
+        sib_wt = sib.parent / f"sib-tkrun-{datetime.now():%Y-%m-%d}"
         code, out = s.run("done", STUB_SIB_FILE=str(sib_wt / "lib" / "b.txt"))
         self.assertEqual(code, 0, out)
         self.assertEqual(s.status(), "done")
@@ -564,7 +564,7 @@ class OvernightRunTests(unittest.TestCase):
 
     def test_stop_file_written_during_a_task_ends_the_run_after_it(self):
         s = self.scratch(tasks=2)
-        stop = s.root / ".overnight" / "STOP"
+        stop = s.root / ".tkrun" / "STOP"
         stop.parent.mkdir(exist_ok=True)
         code, out = s.run("done", "--hours", "1", STUB_SENTINEL=str(stop))
         self.assertEqual(code, 0)
@@ -574,7 +574,7 @@ class OvernightRunTests(unittest.TestCase):
 
     def test_kill_file_written_during_a_task_ends_the_run_after_it(self):
         s = self.scratch(tasks=2)
-        kill = s.root / ".overnight" / "KILL"
+        kill = s.root / ".tkrun" / "KILL"
         kill.parent.mkdir(exist_ok=True)
         code, out = s.run("done", "--hours", "1", STUB_SENTINEL=str(kill))
         self.assertEqual(code, 0)
@@ -584,7 +584,7 @@ class OvernightRunTests(unittest.TestCase):
 
     def test_a_stale_kill_file_is_ignored_too(self):
         s = self.scratch()
-        kill = s.root / ".overnight" / "KILL"
+        kill = s.root / ".tkrun" / "KILL"
         kill.parent.mkdir(exist_ok=True)
         kill.write_text("kill", encoding="utf-8")
         code, out = s.run("done", "--hours", "1")
@@ -596,27 +596,27 @@ class OvernightRunTests(unittest.TestCase):
         import types
 
         s = self.scratch()
-        code = overnight.cmd_kill(types.SimpleNamespace(todo_file=str(s.todo)))
+        code = tkrun.cmd_kill(types.SimpleNamespace(todo_file=str(s.todo)))
         self.assertEqual(code, 0)
-        self.assertTrue((s.root / ".overnight" / "KILL").exists())
+        self.assertTrue((s.root / ".tkrun" / "KILL").exists())
 
     def test_kill_with_stale_pid_cleans_up(self):
         import types
 
         s = self.scratch()
-        (s.root / ".overnight").mkdir()
-        (s.root / ".overnight" / "pid").write_text("2147483647", encoding="ascii")
-        code = overnight.cmd_kill(types.SimpleNamespace(todo_file=str(s.todo)))
+        (s.root / ".tkrun").mkdir()
+        (s.root / ".tkrun" / "pid").write_text("2147483647", encoding="ascii")
+        code = tkrun.cmd_kill(types.SimpleNamespace(todo_file=str(s.todo)))
         self.assertEqual(code, 0)
-        self.assertTrue((s.root / ".overnight" / "KILL").exists())
-        self.assertFalse((s.root / ".overnight" / "pid").exists())
+        self.assertTrue((s.root / ".tkrun" / "KILL").exists())
+        self.assertFalse((s.root / ".tkrun" / "pid").exists())
 
     def test_dry_run_changes_nothing(self):
         s = self.scratch()
         code, out = s.run("done", "--dry-run")
         self.assertEqual(code, 0)
         self.assertIn("DRY RUN", out)
-        self.assertIn("OVERNIGHT_RESULT", out)
+        self.assertIn("TKRUN_RESULT", out)
         self.assertEqual(_git(s.root, "rev-parse", "--abbrev-ref", "HEAD").strip(), "main")
         self.assertEqual(s.status(), "pending")
 
@@ -636,21 +636,21 @@ class OvernightRunTests(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         link = Path(tmp.name) / "link"
         link.symlink_to(s.root)
-        c = json.loads(json.dumps(overnight.DEFAULTS))
-        r = overnight.Runner(todo=link / s.todo.name, root=link, cfg=c,
+        c = json.loads(json.dumps(tkrun.DEFAULTS))
+        r = tkrun.Runner(todo=link / s.todo.name, root=link, cfg=c,
                              date="2026-01-01", deadline=datetime.now())
         self.assertEqual(r.home, s.root.resolve())
         self.assertEqual(r.todo_rel, s.todo.name)
 
 
-class OvernightUnitTests(unittest.TestCase):
+class TKRunUnitTests(unittest.TestCase):
     def runner(self, **cfg):
-        c = json.loads(json.dumps(overnight.DEFAULTS))
+        c = json.loads(json.dumps(tkrun.DEFAULTS))
         c.update(cfg)
         with TemporaryDirectory() as d:
             root = Path(d)
             (root / "t.json").write_text("{}")
-            return overnight.Runner(todo=root / "t.json", root=root, cfg=c, date="2026-01-01",
+            return tkrun.Runner(todo=root / "t.json", root=root, cfg=c, date="2026-01-01",
                                     deadline=datetime.now())
 
     def test_rate_limit_parsing(self):
@@ -677,15 +677,15 @@ class OvernightUnitTests(unittest.TestCase):
 
             def fake(argv, cwd, stdin=None, timeout=0, env=None, follow=False, prefix="", drop=None):
                 seen["timeout"] = timeout
-                return overnight.Proc(0, "OVERNIGHT_RESULT: DONE", "")
-            with mock.patch.object(overnight, "run_proc", fake),                     mock.patch.object(r, "assert_safe"):
+                return tkrun.Proc(0, "TKRUN_RESULT: DONE", "")
+            with mock.patch.object(tkrun, "run_proc", fake),                     mock.patch.object(r, "assert_safe"):
                 r.run_agent("anthropic", "m", lambda _: "p", "t")
         self.assertEqual(seen["timeout"], 7200)
 
     def test_matches_globs_and_dirs(self):
-        self.assertTrue(overnight.matches("src/a/b.rs", ["src/"]))
-        self.assertTrue(overnight.matches("src/a/b.rs", ["*.rs"]))
-        self.assertFalse(overnight.matches("docs/a.md", ["src/", "*.rs"]))
+        self.assertTrue(tkrun.matches("src/a/b.rs", ["src/"]))
+        self.assertTrue(tkrun.matches("src/a/b.rs", ["*.rs"]))
+        self.assertFalse(tkrun.matches("docs/a.md", ["src/", "*.rs"]))
 
     # ── adjudicator (decision model is stubbed; no live call) ────────────────
     @staticmethod
@@ -717,14 +717,14 @@ class OvernightUnitTests(unittest.TestCase):
         return srv, seen
 
     def test_adjudicator_allows_and_denies(self):
-        adj = {**overnight.ADJUDICATOR_DEFAULTS, "enabled": True}
+        adj = {**tkrun.ADJUDICATOR_DEFAULTS, "enabled": True}
         for choice, want in (("allow", "allow"), ("deny", "deny")):
             srv, seen = self._decision_stub(choice, 0.97)
             try:
                 with mock.patch.dict(os.environ, {"TIDETABLE_DECISION_ENDPOINT": f"http://127.0.0.1:{srv.server_port}/v1/systemone",
                                                   "TIDETABLE_DECISION_API_KEY": "k",
                                                   "TIDETABLE_DECISION_MODEL": "clef-test"}):
-                    v = overnight.decide_command("cargo test", adj)
+                    v = tkrun.decide_command("cargo test", adj)
             finally:
                 srv.shutdown()
                 srv.server_close()
@@ -734,22 +734,22 @@ class OvernightUnitTests(unittest.TestCase):
             self.assertEqual(seen[0]["state"], "cargo test")
 
     def test_adjudicator_fails_closed(self):
-        adj = {**overnight.ADJUDICATOR_DEFAULTS, "enabled": True}
+        adj = {**tkrun.ADJUDICATOR_DEFAULTS, "enabled": True}
         with mock.patch.dict(os.environ, {"TIDETABLE_DECISION_ENDPOINT": "", "TIDETABLE_DECISION_API_KEY": "",
                                           "TIDETABLE_DECISION_MODEL": ""}, clear=False):
-            v = overnight.decide_command("rm -rf /", adj)
+            v = tkrun.decide_command("rm -rf /", adj)
         self.assertEqual(v["decision"], "deny")
         self.assertIn("missing env", v["reason"])
         # disabled is a deny too (never a silent allow)
-        self.assertEqual(overnight.decide_command("ls", {**adj, "enabled": False})["decision"], "deny")
+        self.assertEqual(tkrun.decide_command("ls", {**adj, "enabled": False})["decision"], "deny")
 
     def test_adjudicator_denies_low_confidence_and_ambiguous_allow(self):
-        adj = {**overnight.ADJUDICATOR_DEFAULTS, "enabled": True, "min_confidence": 0.8}
+        adj = {**tkrun.ADJUDICATOR_DEFAULTS, "enabled": True, "min_confidence": 0.8}
         srv, _ = self._decision_stub("allow", 0.5, {"allow": 0.5, "deny": 0.5})
         try:
             with mock.patch.dict(os.environ, {"TIDETABLE_DECISION_ENDPOINT": f"http://127.0.0.1:{srv.server_port}/x",
                                               "TIDETABLE_DECISION_API_KEY": "k", "TIDETABLE_DECISION_MODEL": "m"}):
-                v = overnight.decide_command("maybe", adj)
+                v = tkrun.decide_command("maybe", adj)
         finally:
             srv.shutdown()
             srv.server_close()
@@ -758,12 +758,12 @@ class OvernightUnitTests(unittest.TestCase):
     def test_adjudicator_lists_short_circuit_the_model(self):
         # A listed command must not reach the model: point the endpoint at a dead port and
         # assert the list still decides. Deny wins when a command matches both.
-        adj = {**overnight.ADJUDICATOR_DEFAULTS, "enabled": True}
+        adj = {**tkrun.ADJUDICATOR_DEFAULTS, "enabled": True}
         with mock.patch.dict(os.environ, {"TIDETABLE_DECISION_ENDPOINT": "http://127.0.0.1:9/x",
                                           "TIDETABLE_DECISION_API_KEY": "k", "TIDETABLE_DECISION_MODEL": "m"}):
-            allow = overnight.decide_command("git status", adj, allow=["git status*"], deny=["git push*"])
-            deny = overnight.decide_command("git push origin", adj, allow=["git push*"], deny=["git push*"])
-            gray = overnight.decide_command("frobnicate", adj, allow=["git status*"], deny=["git push*"])
+            allow = tkrun.decide_command("git status", adj, allow=["git status*"], deny=["git push*"])
+            deny = tkrun.decide_command("git push origin", adj, allow=["git push*"], deny=["git push*"])
+            gray = tkrun.decide_command("frobnicate", adj, allow=["git status*"], deny=["git push*"])
         self.assertEqual(allow["decision"], "allow")
         self.assertIn("allow list", allow["reason"])
         self.assertEqual(deny["decision"], "deny")   # a pattern on both lists denies
@@ -783,19 +783,60 @@ class OvernightUnitTests(unittest.TestCase):
         self.assertEqual(on["plugin"], [str(r.root / "integrations" / "opencode" / "tk-adjudicator.ts")])
         self.assertEqual(on["permission"]["bash"]["*"], "allow")
 
+    def test_gray_zone_is_decided_by_the_adjudicator_or_prompted(self):
+        """Adjudicator on -> the hook decides (bash allow); off -> ask, so the person does."""
+        off = json.loads(self.runner().opencode_config())          # enabled: False by default
+        self.assertEqual(off["permission"]["bash"]["*"], "ask")
+        self.assertNotIn("plugin", off)
+        on = json.loads(self.runner(adjudicator={"enabled": True}).opencode_config())
+        self.assertEqual(on["permission"]["bash"]["*"], "allow")
+        self.assertIn("plugin", on)
+
+    def test_claude_prompts_for_the_gray_zone_only_without_the_adjudicator(self):
+        off = self.runner().agent_call("anthropic", "m", "prompt")["argv"]
+        self.assertNotIn("--permission-prompts", off)
+        self.assertIn("default", off)                    # the asking permission mode
+        on = self.runner(adjudicator={"enabled": True}).agent_call("anthropic", "m", "prompt")["argv"]
+        self.assertIn("none", on)                        # decisions are automatic; no prompts
+        self.assertIn("acceptEdits", on)
+
+    def test_legacy_overnight_names_still_resolve(self):
+        """A repo that predates the rename keeps its config and its control directory."""
+        # config: tkrun.json wins, else the old overnight.json is read
+        with TemporaryDirectory() as d:
+            root = Path(d)
+            (root / ".tidetable").mkdir()
+            (root / ".tidetable" / "overnight.json").write_text('{"project": "old"}')
+            cfg, path = tkrun.load_config(root)
+            self.assertEqual(cfg["project"], "old")
+            self.assertEqual(path.name, "overnight.json")
+            (root / ".tidetable" / "tkrun.json").write_text('{"project": "new"}')
+            self.assertEqual(tkrun.load_config(root)[0]["project"], "new")
+        # the compat module is the same object as tkrun, so both names patch one thing
+        from tidetable import overnight as compat
+        self.assertIs(compat, tkrun)
+
+    def test_stop_and_kill_control_a_legacy_overnight_run_dir(self):
+        with TemporaryDirectory() as d:
+            root = Path(d)
+            (root / ".overnight").mkdir()                # only the pre-0.11 dir exists
+            self.assertEqual(tkrun.control_dir(root), root / ".overnight")
+            (root / ".tkrun").mkdir()
+            self.assertEqual(tkrun.control_dir(root), root / ".tkrun")
+
     def test_unknown_config_key_is_rejected(self):
         with TemporaryDirectory() as d:
             root = Path(d)
             (root / ".tidetable").mkdir()
-            (root / ".tidetable" / "overnight.json").write_text('{"gates": []}')
+            (root / ".tidetable" / "tkrun.json").write_text('{"gates": []}')
             with self.assertRaises(ValueError):
-                overnight.load_config(root)
+                tkrun.load_config(root)
 
     def test_stack_detection_gives_zero_config_gate(self):
         with TemporaryDirectory() as d:
             root = Path(d)
             (root / "Cargo.toml").write_text("")
-            cfg, path = overnight.load_config(root)
+            cfg, path = tkrun.load_config(root)
             self.assertIsNone(path)
             self.assertEqual([s["name"] for s in cfg["gate"]], ["clippy", "test"])
             self.assertIn("cargo test*", cfg["shell_allow"])
@@ -819,28 +860,28 @@ class LaneTests(unittest.TestCase):
     def test_window_merges_consecutive_hours_and_ignores_cancelled(self):
         rs = [self.rsv("12:00", "13:00"), self.rsv("13:00", "14:00"),
               self.rsv("14:00", "15:00", cancelled_at="2026-10-06T00:00:00Z"), self.rsv("16:00", "17:00")]
-        s, e = overnight.lane_window(rs, self.NOW)
+        s, e = tkrun.lane_window(rs, self.NOW)
         self.assertEqual((s.hour, e.hour), (12, 14))
 
     def test_window_none_when_gap_or_empty(self):
-        self.assertIsNone(overnight.lane_window([], self.NOW))
-        self.assertIsNone(overnight.lane_window([self.rsv("13:00", "14:00")], self.NOW))
-        self.assertIsNone(overnight.lane_window([self.rsv("11:00", "12:30")], self.NOW))
+        self.assertIsNone(tkrun.lane_window([], self.NOW))
+        self.assertIsNone(tkrun.lane_window([self.rsv("13:00", "14:00")], self.NOW))
+        self.assertIsNone(tkrun.lane_window([self.rsv("11:00", "12:30")], self.NOW))
 
     def runner(self, reservations, margin=20, fallback="opencode-go/muse-spark-1.3-contributor"):
-        c = json.loads(json.dumps(overnight.DEFAULTS))
+        c = json.loads(json.dumps(tkrun.DEFAULTS))
         c["lanes"] = {"singularity": {"margin_minutes": margin, "fallback": fallback}}
         with TemporaryDirectory() as d:
             root = Path(d)
             (root / "t.json").write_text("{}")
-            r = overnight.Runner(todo=root / "t.json", root=root, cfg=c, date="2026-01-01",
+            r = tkrun.Runner(todo=root / "t.json", root=root, cfg=c, date="2026-01-01",
                                  deadline=datetime.now())
         r.lane_reservations = lambda lane: reservations
         return r
 
     def test_route_uses_lane_until_margin_then_falls_back(self):
         model = "deepseek-ai/DeepSeek-V4.1-Flash"
-        with mock.patch.object(overnight, "datetime", wraps=datetime) as dt:
+        with mock.patch.object(tkrun, "datetime", wraps=datetime) as dt:
             dt.now.return_value = self.NOW
             dt.fromisoformat = datetime.fromisoformat
             r = self.runner([self.rsv("12:00", "13:00")], margin=20)       # 30 min left
@@ -911,7 +952,7 @@ class HubModeTests(unittest.TestCase):
     def run_hub(self, mode: str = "done", *extra: str, token: str | None = None) -> tuple[int, str]:
         env = {**self.s.env, "STUB_MODE": mode, "STUB_REVIEW": "PASS", "TK_API_TOKEN": self.TOKEN}
         argv = ["--server", self.url, "--token", self.TOKEN if token is None else token,
-                "overnight", "run", "hub", "--repo", str(self.s.root),
+                "tkrun", "run", "hub", "--repo", str(self.s.root),
                 "--model", "anthropic/stub", *(extra or ("--hours", "1"))]
         buf = io.StringIO()
         with mock.patch.dict(os.environ, env), redirect_stdout(buf):
@@ -941,7 +982,7 @@ class HubModeTests(unittest.TestCase):
         self.run_hub("done")
         events = (Path(str(self.hub_todo) + ".events.jsonl")).read_text(encoding="utf-8")
         owners = {json.loads(l).get("owner") for l in events.splitlines() if l.strip()}
-        self.assertIn(f"overnight-{datetime.now():%Y-%m-%d}@{socket.gethostname()}", owners)
+        self.assertIn(f"tkrun-{datetime.now():%Y-%m-%d}@{socket.gethostname()}", owners)
 
     def test_gate_failure_returns_the_hub_task_to_pending(self):
         s = Scratch(gate_exit=1)
@@ -952,7 +993,7 @@ class HubModeTests(unittest.TestCase):
         self.assertEqual(self.hub_status(), "pending")
         self.assertIn("gate", out)
         # a failed attempt on a hub must not commit "everything" as todo changes
-        self.assertNotIn("chore(overnight)", _git(s.root, "log", s.branch, "--format=%s"))
+        self.assertNotIn("chore(tkrun)", _git(s.root, "log", s.branch, "--format=%s"))
 
     def setUp_hub_for(self, scratch: "Scratch") -> None:
         self.hub_todo.write_text(scratch.todo.read_text(encoding="utf-8"), encoding="utf-8")
@@ -970,7 +1011,7 @@ class HubModeTests(unittest.TestCase):
                "TIDETABLE_SERVER": "http://127.0.0.1:1", "TIDETABLE_TOKEN": "x"}
         buf = io.StringIO()
         with mock.patch.dict(os.environ, env), redirect_stdout(buf):
-            code = cli.main(["--local", "overnight", "run", str(self.s.todo),
+            code = cli.main(["--local", "tkrun", "run", str(self.s.todo),
                              "--model", "anthropic/stub", "--hours", "1"])
         self.assertEqual(code, 0, buf.getvalue())
         self.assertEqual(self.s.status(), "done")

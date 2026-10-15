@@ -60,6 +60,21 @@ function renderPayload(payload) {
   const ph = payload.phase || {};
   const ov = payload.overall || {};
   let html = "";
+  const run = payload.run;
+  if (run && run.status) {
+    const bits = [];
+    if (run.status === "running") {
+      bits.push("► running" + (run.date ? " " + esc(run.date) : ""));
+      if (run.branch) bits.push(esc(run.branch));
+      if (run.deadline) bits.push("deadline " + esc(run.deadline));
+    } else {
+      bits.push("· " + esc(run.status));
+      if (run.date) bits.push(esc(run.date));
+    }
+    let inner = '<p class="tk-run">' + bits.join(" · ") + "</p>";
+    if (run.last) inner += '<p class="tk-dim">' + esc(run.last) + "</p>";
+    html += section("Run", inner, 0);
+  }
   html += section(
     "Current",
     "<ul>" + (cur.tasks || []).map(fmtTask).join("") + "</ul>",
@@ -135,8 +150,9 @@ function activate(ctx) {
       }
       const payload = res.payload || {};
       const count = ((payload.current || {}).tasks || []).length;
+      const live = payload.run && payload.run.status === "running";
       if (els.badge) {
-        els.badge.textContent = count ? String(count) : "";
+        els.badge.textContent = (live ? "►" : "") + (count ? String(count) : "");
       }
       if (els.panel) {
         els.panel.innerHTML = renderPayload(payload);

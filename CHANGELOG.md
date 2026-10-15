@@ -7,7 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0]
+
+### Changed
+
+- **`overnight` is retired as a name; the runner is TKRun.** `tidetable tkrun`
+  is the command and `tidetable/tkrun.py` is the module. The old name still
+  works as a compatibility shim: `tidetable overnight ...` is a subparser alias,
+  `import tidetable.overnight` is the same module object as `tidetable.tkrun`,
+  `TKRUN_*` env vars fall back to `OVERNIGHT_*`, and a repo keeps its legacy
+  `.tidetable/overnight.json` config and `.overnight/` run directory until it
+  writes the new names. New on-disk names: `.tidetable/tkrun.json`, `.tkrun/`,
+  branch prefix `tkrun/<date>`, worktree `<repo>-tkrun-<date>`, owner
+  `tkrun-<date>`, and the agent's `TKRUN_RESULT:`/`TKRUN_SUMMARY:` markers (the
+  parser still accepts the old ones).
+- **A gray-zone command is adjudicated or prompted, never silently run.** With
+  the adjudicator enabled the decision model settles a command on neither list,
+  as before. With it disabled there is no unattended decision-maker, so opencode
+  asks the person (`bash: "*": "ask"`) and `claude -p` drops `--permission-prompts
+  none` and uses the asking permission mode. The static allow/deny lists are
+  unchanged.
+
 ### Added
+
+- **Live run state in the sidebar.** `tidetable sidebar` now reports a `run`
+  section read from the runner's control directory (`.tkrun/`, or a legacy
+  `.overnight/`): status (`running`/`finished`/`stopped`/`killed`/`stale`), the
+  date, pid, branch, deadline and last log line. The new `tidetable/runs.py`
+  owns that read; the opencode, Pi and Paseo sidebars show a run line/badge, and
+  the hub's `GET /api/<slug>/sidebar` includes it too.
 
 - **`tkrun run --task ID`.** Run only the named task or tasks (repeatable);
   the run ends when none of them is left to run. Composes with `--jobs`.

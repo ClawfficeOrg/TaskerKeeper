@@ -285,7 +285,7 @@ tidetable sidebar docs/todo-v7.json --width 80 --height 40 --json
 # over the serve API), paseo (sidebar item + workspace panel via server RPC)
 
 # TKRun: the unattended runner, on a throwaway worktree branch (`overnight` is a kept subcommand alias)
-tidetable tkrun init docs/todo-v7.json              # writes .tidetable/overnight.json
+tidetable tkrun init docs/todo-v7.json              # writes .tidetable/tkrun.json
 tidetable tkrun run  docs/todo-v7.json --dry-run    # preview: routing, gate, command, prompt
 tidetable tkrun run  docs/todo-v7.json --hours 8    # run until done or out of time
 tidetable tkrun run  docs/todo-v7.json --jobs 3     # up to 3 tasks at once, own worktree each
@@ -340,7 +340,7 @@ from `clef` on a Jev endpoint (`POST /v1/systemone`, a `choice` question returni
 model, a network error, a low confidence, or an unexpected verdict all mean deny.
 
 - The agent never sees the credentials: it gets `TIDETABLE_ADJUDICATOR_HOST` /
-  `_PORT` (or the `.overnight/adjudicator.json` discovery file) and asks the
+  `_PORT` (or the `.tkrun/adjudicator.json` discovery file) and asks the
   service. Credentials are env-only (`TIDETABLE_DECISION_ENDPOINT`,
   `TIDETABLE_DECISION_API_KEY`, `TIDETABLE_DECISION_MODEL`), never in the config.
 - Only opencode is wired for the runtime hook today: the generated `opencode.json`

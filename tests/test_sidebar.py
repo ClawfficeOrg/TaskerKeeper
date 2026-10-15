@@ -60,7 +60,8 @@ class PayloadTest(unittest.TestCase):
     def test_sections_present_in_order(self):
         payload = sidebar.sidebar_payload(self.data)
         self.assertEqual(list(payload),
-                         ["current", "concurrent", "upcoming", "phase", "overall"])
+                         ["current", "concurrent", "upcoming", "phase", "overall", "run"])
+        self.assertIsNone(payload["run"])   # no run state passed -> nothing to show
 
     def test_current_carries_claim_and_goal_first_line(self):
         (current,) = sidebar.sidebar_payload(self.data)["current"]["tasks"]
@@ -119,6 +120,32 @@ class RenderTest(unittest.TestCase):
             self.assertIn(title, text)
 
 
+class RunTest(unittest.TestCase):
+    """The live-run banner: present only when a run is recorded."""
+
+    def test_no_run_renders_no_section(self):
+        text = sidebar.render_sidebar(sidebar.sidebar_payload(fixture()))
+        self.assertNotIn("Run\n", text)
+
+    def test_running_banner_shows_branch_and_last_event(self):
+        run = {"status": "running", "date": "2026-10-14", "pid": 42,
+               "branch": "tkrun/2026-10-14", "deadline": "03:05",
+               "last": "START 1.2 'Do work'"}
+        payload = sidebar.sidebar_payload(fixture(), run=run)
+        self.assertEqual(payload["run"]["status"], "running")
+        text = sidebar.render_sidebar(payload, width=60)
+        self.assertIn("Run", text)
+        self.assertIn("tkrun/2026-10-14", text)
+        self.assertIn("START 1.2", text)
+
+    def test_stale_and_finished_render_one_line(self):
+        from tidetable import sidebar as sb
+        stale = sb._run_rows({"status": "stale", "date": "2026-10-13", "pid": 9})
+        self.assertEqual(len(stale), 1)
+        self.assertIn("gone", stale[0])
+        self.assertEqual(sb._run_rows(None), [])
+
+
 class CommandTest(unittest.TestCase):
     def test_sidebar_json_command(self):
         import io
@@ -134,6 +161,29 @@ class CommandTest(unittest.TestCase):
             self.assertEqual(code, 0)
             payload = json.loads(buf.getvalue())
             self.assertIn("concurrent", payload)
+            self.assertIn("run", payload)
+
+    def test_sidebar_picks_up_a_local_run_dir(self):
+        import io
+        from contextlib import redirect_stdout
+        from tempfile import TemporaryDirectory
+        from pathlib import Path
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            path = root / "todo.json"
+            path.write_text(json.dumps(fixture()), encoding="utf-8")
+            (root / ".tkrun").mkdir()
+            (root / ".tkrun" / "log.md").write_text(
+                "# log\n\n## 2026-10-14 run (pid 4242)\n\n"
+                "- 2026-10-14 02:05:06 worktree /x on tkrun/2026-10-14; deadline 03:05\n",
+                encoding="utf-8")
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                code = cli.main(["sidebar", str(path), "--json"])
+            self.assertEqual(code, 0)
+            run = json.loads(buf.getvalue())["run"]
+            self.assertEqual(run["branch"], "tkrun/2026-10-14")
+            self.assertEqual(run["pid"], 4242)
 
 
 if __name__ == "__main__":

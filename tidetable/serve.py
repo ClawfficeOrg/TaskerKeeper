@@ -484,6 +484,9 @@ def handle_get(route: str, slug: str | None, query: Mapping[str, str],
         }
 
     if route == "/api/{slug}/sidebar":
+        from pathlib import Path
+
+        from tidetable import runs
         from tidetable import sidebar as sidebar_mod
 
         def _dim(name: str, default: int) -> int:
@@ -493,7 +496,9 @@ def handle_get(route: str, slug: str | None, query: Mapping[str, str],
                 return default
             return value if value > 0 else default
 
-        return 200, sidebar_mod.sidebar_payload(data, _dim("width", 80), _dim("height", 40))
+        # The hub knows the checkout for this slug, so it can read TKRun state too.
+        run = runs.find_state(Path(todo_path).resolve().parent) if todo_path else None
+        return 200, sidebar_mod.sidebar_payload(data, _dim("width", 80), _dim("height", 40), run)
 
     if route == "/api/{slug}/sessions":
         db = _resolve_sessions_db(registry, sessions_db)

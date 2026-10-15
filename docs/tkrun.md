@@ -1,8 +1,8 @@
-# Overnight runner
+# TKRun
 
 **TKRun.** `tidetable tkrun run <todo.json>` (`overnight run` is a kept alias)
 works through a todo file unattended, one task at a time, inside a **git
-worktree** on a throwaway branch `overnight/<date>` cut from the base branch.
+worktree** on a throwaway branch `tkrun/<date>` cut from the base branch.
 Your own checkout is never edited (dirty, on another branch, open in an editor:
 all fine), and the branch is never merged: you review and merge it in the
 morning. It commits, but never pushes, tags, or touches the base branch.
@@ -10,7 +10,7 @@ morning. It commits, but never pushes, tags, or touches the base branch.
 ## Any repo, three steps
 
 ```bash
-tidetable tkrun init docs/todo.json            # writes .tidetable/overnight.json
+tidetable tkrun init docs/todo.json            # writes .tidetable/tkrun.json
 tidetable tkrun run  docs/todo.json --dry-run  # routing, gate, command, prompt; changes nothing
 tidetable tkrun run  docs/todo.json --hours 8  # go (commit todo.json changes first)
 ```
@@ -24,7 +24,7 @@ run.
 
 ## Per task
 
-1. Claim the first ready pending task (`start --owner overnight-<date> --lease`).
+1. Claim the first ready pending task (`start --owner tkrun-<date> --lease`).
 2. Run the agent its tier resolves to (`tidetable agents show`):
    `anthropic` → `claude -p`, `opencode-go` → `opencode run`, anything else via
    `agent_commands`. No skip-permissions flag: the shell allow/deny lists below
@@ -44,7 +44,7 @@ run.
    |---|---|---|
    | done | DONE, gate passed, required files changed, review PASS | `done --changelog`, commit `<id>: <summary>` |
    | partial | PARTIAL, review FAIL/not run, required file missing | commit `wip(<id>)`, task stays `in_progress` for you |
-   | failed | FAILED, no result line, timeout, gate failed, DONE with no changes | work stashed (`overnight <date> <id> failed`), task back to pending |
+   | failed | FAILED, no result line, timeout, gate failed, DONE with no changes | work stashed (`tkrun <date> <id> failed`), task back to pending |
    | skipped | needs a human and changed nothing; provider out of quota | task back to pending or never claimed |
 
 ## Running one task
@@ -56,7 +56,7 @@ ready (their prerequisites done). The run ends when none of them is left, so
 ## Running tasks in parallel
 
 `--jobs N` (or `parallel.jobs` in the config) runs up to N tasks at once. Each
-gets its own worktree and branch (`overnight/<date>-<id>`) cut from the run
+gets its own worktree and branch (`tkrun/<date>-<id>`) cut from the run
 branch, and is merged back with `--no-ff` as it finishes, one at a time. The
 todo file is only ever written in the run worktree, so jobs never conflict on
 task state.
@@ -90,14 +90,14 @@ Human-check rule: a criterion counts only if a test proves it or it is a
 mechanical fact. Criteria matching `human_check_pattern` (visual words by
 default) are flagged in the prompt; expect those tasks to end PARTIAL.
 
-## `.tidetable/overnight.json`
+## `.tidetable/tkrun.json`
 
 All keys optional; unknown keys are an error.
 
 | Key | Meaning |
 |---|---|
-| `base_branch`, `branch_prefix` | `main`, `overnight` (`--base` overrides the base per run) |
-| `worktree_dir` | where the worktree goes (default `<repo>-overnight-<date>`, beside the repo) |
+| `base_branch`, `branch_prefix` | `main`, `tkrun` (`--base` overrides the base per run) |
+| `worktree_dir` | where the worktree goes (default `<repo>-tkrun-<date>`, beside the repo) |
 | `project` | one line naming the repo, used in the prompt |
 | `prompt_prefix` | text prepended to every prompt (e.g. a terse-output mode) |
 | `rules` | extra hard rules appended to the prompt |
@@ -107,7 +107,7 @@ All keys optional; unknown keys are an error.
 | `external_read` | directories outside the repo the agent may read (`~` and env vars expand) |
 | `gate` | steps, below |
 | `required_changed` | a DONE that did not change these (e.g. `CHANGELOG.md`) becomes PARTIAL |
-| `siblings` | `[{path, scope[]}]` other repos a task may change. Each gets its own worktree `<name>-overnight-<date>` on the same branch name, cut from the branch it is on. In config strings `{sibling:PATH}` is that worktree and `{sibling_home:PATH}` the real checkout (for prebuilt tools) |
+| `siblings` | `[{path, scope[]}]` other repos a task may change. Each gets its own worktree `<name>-tkrun-<date>` on the same branch name, cut from the branch it is on. In config strings `{sibling:PATH}` is that worktree and `{sibling_home:PATH}` the real checkout (for prebuilt tools) |
 | `review` | `{enabled, model, phase: {enabled, model, on_fail}}`. `enabled`/`model` are the per-task review (default Opus, `provider/model`). `phase` is the optional end-of-phase review: off by default, `model` defaults to the task reviewer, `on_fail` is `continue` (default) or `stop`. Flags: `--task-review-model`, `--no-task-review`, `--phase-review-model` (also enables it), `--no-phase-review`; `--review-model` and `--no-review` are the older names for the task review |
 | `parallel` | `{jobs, job_env}`: concurrent tasks (default 1) and extra env for every agent and gate process, see "Running tasks in parallel" |
 | `limits` | `task_minutes` 120, `gate_minutes` 45, `max_consecutive_failures` 2, `lease_minutes` 480 |
@@ -125,14 +125,15 @@ repo (`"."` or a sibling path) has any change; `append_changed` appends the matc
 changed files to `cmd` (e.g. `rustfmt --check` on touched `.rs`);
 `fail_output_regex` fails a zero-exit step whose output matches.
 
-Examples: this repo's `.tidetable/overnight.json` equivalent for a Rust app
+Examples: this repo's `.tidetable/tkrun.json` equivalent for a Rust app
 with a vendored sibling lives in Zoid's `examples/specttyr`.
 
 ## Files and safety
 
-- Log: `.overnight/log.md`; transcripts and gate output: `.overnight/<date>/`;
-  STOP and KILL sentinels and the pid file in `.overnight/`. The runner adds
-  `.overnight/` and `opencode.json` to `.git/info/exclude`.
+- Log: `.tkrun/log.md`; transcripts and gate output: `.tkrun/<date>/`;
+  STOP and KILL sentinels and the pid file in `.tkrun/`. The runner adds
+  `.tkrun/` and `opencode.json` to `.git/info/exclude`. A pre-0.11 checkout's
+  `.overnight/` is read as a fallback (see below).
 - Refuses to start with uncommitted changes to the todo file (the worktree has
   the committed copy), a worktree path already used by another branch, or while
   another run is alive. Each agent call re-checks that the worktree is still on
@@ -154,12 +155,15 @@ with a vendored sibling lives in Zoid's `examples/specttyr`.
   work itself, so the gate and the diff still see it.
 - With `adjudicator.enabled` the runner also starts a loopback decision service
   and gives the agent only its `host:port` (via `TIDETABLE_ADJUDICATOR_HOST`/
-  `_PORT`, or a `.overnight/adjudicator.json` discovery file in the worktree).
+  `_PORT`, or a `.tkrun/adjudicator.json` discovery file in the worktree).
   The generated `opencode.json` registers `integrations/opencode/tk-adjudicator.ts`,
   which asks the service in the `execute.before` hook and blocks on a non-allow
-  answer. Every verdict goes to `.overnight/<date>/adjudicator.jsonl`. It fails
+  answer. Every verdict goes to `.tkrun/<date>/adjudicator.jsonl`. It fails
   closed: a missing endpoint/key/model, a network error or a low-confidence
-  verdict all deny. Credentials never reach the agent.
+  verdict all deny. Credentials never reach the agent. With the adjudicator
+  **off** there is no unattended decision-maker, so a gray-zone command is
+  prompted to the person instead: opencode uses `bash: "*": "ask"` and
+  `claude -p` uses the asking permission mode. See `docs/permissions.md`.
 - A `STOP` or `KILL` file already on disk when a run starts is left over from an
   earlier run: the runner removes it and says so, rather than ending the new run
   before its first task.
@@ -168,10 +172,29 @@ with a vendored sibling lives in Zoid's `examples/specttyr`.
 
 ## Morning
 
-Read `.overnight/log.md` (in your own checkout); `git log --stat <base>..overnight/<date>`; for each
+Read `.tkrun/log.md` (in your own checkout); `git log --stat <base>..tkrun/<date>`; for each
 `wip(<id>)` check the listed criteria then `tidetable done`; look at
 `git stash list` for failed attempts; then merge or cherry-pick, and clean up
-with `git worktree remove <path>` and `git branch -d overnight/<date>`.
+with `git worktree remove <path>` and `git branch -d tkrun/<date>`.
+
+## Compatibility with the old name
+
+The runner was called `overnight` before 0.11. All of it still works:
+
+- `tidetable overnight ...` is a subparser alias for `tidetable tkrun ...`.
+- `import tidetable.overnight` is the same module object as `tidetable.tkrun`,
+  so `isinstance`/monkeypatching against either name affects both.
+- `TKRUN_*` environment variables fall back to `OVERNIGHT_*`
+  (`claude`/`opencode` binaries, `RATE_MARGIN_SEC`, per-tier `MODEL_<TIER>`).
+- A config at `<repo>/.tidetable/overnight.json` is read when there is no
+  `tkrun.json`; the `.overnight/` run directory (log, sentinels, pid) is used
+  when `.tkrun/` is absent, so a run started under the old name is still
+  controllable with `tkrun stop`/`kill`.
+- The agent result markers `TKRUN_RESULT:`/`TKRUN_SUMMARY:` are preferred, and
+  the parser still accepts `OVERNIGHT_RESULT:`/`OVERNIGHT_SUMMARY:`.
+
+New names: `.tidetable/tkrun.json`, `.tkrun/`, branch `tkrun/<date>`, worktree
+`<repo>-tkrun-<date>`, owner `tkrun-<date>`.
 
 ## Known risks
 
@@ -190,7 +213,7 @@ with `git worktree remove <path>` and `git branch -d overnight/<date>`.
 ## Leased lanes (`lanes`)
 
 A provider that only answers inside a reserved window (for example SingularityAPI lanes)
-goes under `lanes` in `.tidetable/overnight.json`, and a tier points at it with
+goes under `lanes` in `.tidetable/tkrun.json`, and a tier points at it with
 `tidetable agents set <tier> --provider singularity --model <id>`:
 
 ```json

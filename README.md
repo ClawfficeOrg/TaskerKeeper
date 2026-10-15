@@ -59,8 +59,8 @@ Without installing, `python -m tidetable <command>` and `python scripts/tidetabl
 | `agents unset <tier>` | Drop a tier, or `--key` one setting, from a scope |
 | `agents path` | Print the config file a scope writes to |
 | `serve [--port 8471] [--bind 127.0.0.1]` | Single-writer core API over HTTP: GET reads, locked POST writes, heartbeats, and an SSE stream — all delegating to the same DAG logic, never a second implementation |
-| `sidebar <file> [--width 80] [--height 40]` | Budgeted sidebar payload for harness panels: current, concurrent (disjoint), upcoming, current-phase tree, overall tree — sections cut to room with `more` counts instead of silent drops |
-| `tkrun run <file> [--hours 8] [--dry-run] [--jobs N] [--task ID] [--follow]` | Unattended runner (**TKRun**; `overnight` is a kept alias): claims each ready task, runs its tier's agent headless in its own git worktree on `overnight/<date>`, gates it with *your* commands, reviews, commits, closes. Commits only there: never merges, pushes, or touches the base branch. `--jobs N` runs up to N tasks at once, one worktree each, only disjoint `touches` together; `--task ID` (repeatable) narrows the run to named tasks; `--follow` echoes output live. `tkrun init` writes `.tidetable/overnight.json` from the detected stack; `tkrun stop` ends a run after the current task; `tkrun kill` hard-stops now (sentinel plus process-tree signal). Leased lanes route a reservation-window provider to a fallback when the window closes. See [docs/overnight.md](docs/overnight.md) |
+| `sidebar <file> [--width 80] [--height 40]` | Budgeted sidebar payload for harness panels: current, concurrent (disjoint), upcoming, current-phase tree, overall tree, and a live `run` section (TKRun status, branch, deadline, last log line) — sections cut to room with `more` counts instead of silent drops |
+| `tkrun run <file> [--hours 8] [--dry-run] [--jobs N] [--task ID] [--follow]` | Unattended runner (**TKRun**; `overnight` is a kept alias): claims each ready task, runs its tier's agent headless in its own git worktree on `tkrun/<date>`, gates it with *your* commands, reviews, commits, closes. Commits only there: never merges, pushes, or touches the base branch. `--jobs N` runs up to N tasks at once, one worktree each, only disjoint `touches` together; `--task ID` (repeatable) narrows the run to named tasks; `--follow` echoes output live. `tkrun init` writes `.tidetable/tkrun.json` from the detected stack; `tkrun stop` ends a run after the current task; `tkrun kill` hard-stops now (sentinel plus process-tree signal). Leased lanes route a reservation-window provider to a fallback when the window closes. See [docs/tkrun.md](docs/tkrun.md) |
 | `integrations list\|install\|uninstall <name\|all>` | Wire `integrations/` (opencode, pi, paseo, openchamber) into the tools that load them: symlinks the Paseo plugin, adds the opencode `tui.json` entry without touching your other plugins, runs `pi install`, prints the OpenChamber folder to paste. Needs a checkout; `--dry-run` previews |
 
 Every read command takes `--json`, so agents parse structured output instead of scraping box-drawing characters:
@@ -135,7 +135,7 @@ endpoint, a network error or a low-confidence verdict all mean deny.
 `tkrun run --jobs N` runs up to N tasks at once, each in its own worktree on its
 own branch, merged back one at a time; only tasks with disjoint `touches` run
 together. `--task ID` narrows a run to named tasks. See
-[docs/overnight.md](docs/overnight.md).
+[docs/tkrun.md](docs/tkrun.md).
 
 ## Self-Hosting the Hub
 
