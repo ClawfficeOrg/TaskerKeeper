@@ -37,6 +37,16 @@ if "strict read-only reviewer" in prompt:
     key = "STUB_PHASE_REVIEW" if phase else "STUB_REVIEW"
     print("REVIEW_RESULT: " + os.environ.get(key, "PASS"))
     sys.exit(0)
+if "cleanup agent" in prompt:
+    if os.environ.get("STUB_LOG"):
+        open(os.environ["STUB_LOG"], "a").write("repair\n")
+    if os.environ.get("STUB_REPAIR") == "fix":
+        open("fixed.txt", "w").write("fixed")
+    if os.environ.get("STUB_REPAIR") == "work":
+        open("work.txt", "w").write("finished by the cleanup crew")
+    print("TKRUN_SUMMARY: repair the gate")
+    print("TKRUN_RESULT: FAILED cannot" if os.environ.get("STUB_REPAIR") == "fail" else "TKRUN_RESULT: DONE")
+    sys.exit(0)
 if mode == "limit":
     print("Claude usage limit reached|%d" % (int(time.time()) + 3600))
     sys.exit(1)
@@ -44,14 +54,6 @@ if mode == "silent":
     print("I did some things")
     sys.exit(0)
 tid = prompt.split("Task: ")[1].split(" ")[0]
-if "cleanup agent" in prompt:
-    if os.environ.get("STUB_LOG"):
-        open(os.environ["STUB_LOG"], "a").write("repair\n")
-    if os.environ.get("STUB_REPAIR") == "fix":
-        open("fixed.txt", "w").write("fixed")
-    print("TKRUN_SUMMARY: repair the gate")
-    print("TKRUN_RESULT: FAILED cannot" if os.environ.get("STUB_REPAIR") == "fail" else "TKRUN_RESULT: DONE")
-    sys.exit(0)
 if os.environ.get("STUB_COMMIT"):
     import subprocess
     subprocess.run(["git", "add", "-A"], check=True)
@@ -86,7 +88,8 @@ def _git(cwd, *args):
 class Scratch:
     """A git repo with a todo file, a tkrun config and a stub agent."""
 
-    def __init__(self, gate_exit: int = 0, tasks: int = 1, review: bool = False):
+    def __init__(self, gate_exit: int = 0, tasks: int = 1, review: bool = False,
+                 repair: bool = False):
         self._tmp = TemporaryDirectory()
         self.root = Path(self._tmp.name) / "repo"
         self.root.mkdir()
@@ -106,7 +109,8 @@ class Scratch:
         self.cfg_path.parent.mkdir()
         self.set_config({"gate": [{"name": "gate", "cmd": [sys.executable, "-c",
                                                            f"raise SystemExit({gate_exit})"]}],
-                         "review": {"enabled": review}})
+                         "review": {"enabled": review},
+                         "repair": {"enabled": repair}})
         stub = Path(self._tmp.name) / "stub.py"
         stub.write_text(STUB, encoding="utf-8")
         self.env = {"TKRUN_CLAUDE": f'"{sys.executable}" "{stub}"',
@@ -364,6 +368,23 @@ class TKRunRunTests(unittest.TestCase):
         code, out = s.run("done", "--hours", "1", STUB_REPAIR="none", STUB_LOG=str(log))
         self.assertEqual(log.read_text().split(), ["repair", "repair"])
         self.assertIn("FAILED 1.1 - gate:", out)
+        self.assertEqual(s.status("1.1"), "pending")
+
+    def test_cleanup_crew_finishes_a_task_whose_agent_did_not(self):
+        for mode in ("failed", "silent", "nochange"):
+            with self.subTest(mode=mode):
+                s = self.scratch(tasks=1, repair=True)
+                log = s.root.parent / "agents.log"
+                code, out = s.run(mode, "--hours", "1", STUB_REPAIR="work", STUB_LOG=str(log))
+                self.assertIn("REPAIRED 1.1 on attempt 1", out)
+                self.assertEqual(s.status("1.1"), "done")
+                self.assertEqual(log.read_text().split(), ["repair"])
+                self.assertEqual((s.work / "work.txt").read_text(), "finished by the cleanup crew")
+
+    def test_cleanup_crew_failing_to_finish_still_parks_the_task(self):
+        s = self.scratch(tasks=1, repair=True)
+        code, out = s.run("failed", "--hours", "1", STUB_REPAIR="fail")
+        self.assertIn("FAILED 1.1 - agent: cannot", out)
         self.assertEqual(s.status("1.1"), "pending")
 
     def test_cleanup_crew_can_be_turned_off(self):

@@ -1402,13 +1402,37 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
             if r.code == 0:
                 self.log(f"NOTE {tid}: the agent committed; folded its commits back into the working tree")
 
-    def build_repair_prompt(self, task: dict, why: str, n: int, attempts: int) -> str:
+    def build_repair_prompt(self, task: dict, why: str, n: int, attempts: int,
+                            transcript: Path | None = None) -> str:
+        """`transcript` set means the task's agent did not finish (failed, timed out, said
+        DONE with nothing changed) and the cleanup agent finishes the task; unset means the
+        agent finished and the gate failed, so the cleanup agent only makes the gate pass."""
         tid = task["id"]
+        unfinished = transcript is not None
         try:
-            tail = (self.run_dir / f"{tid}-gate.txt").read_text(encoding="utf-8", errors="replace")[-6000:]
+            src = transcript if unfinished else self.run_dir / f"{tid}-gate.txt"
+            tail = src.read_text(encoding="utf-8", errors="replace")[-6000:]
         except OSError:
-            tail = "(gate output unavailable)"
+            tail = "(output unavailable)"
         status = git(self.root, "status", "--short", "--untracked-files=all").out.strip() or "(clean)"
+        crit = "".join(f"\n  - {s}" for s in task.get("success", []))
+        if unfinished:
+            situation = (f"The agent assigned to this task did not finish it: {why}\n"
+                         f"Its partial work may already be in the working tree: inspect it and "
+                         f"complete the task rather than starting over.\n"
+                         f"Repair attempt {n} of {attempts}.")
+            tail_title = "Tail of the agent's output"
+            ending = ("TKRUN_RESULT: DONE                       (task complete, gate commands pass)\n"
+                      "TKRUN_RESULT: PARTIAL <criteria needing a human check, ';'-separated>\n"
+                      "TKRUN_RESULT: FAILED <reason>            (could not do it; leave the tree as is)")
+            failure_title = "WHY THE AGENT STOPPED"
+        else:
+            situation = (f"A task's work is in the working tree, but the runner's gate failed. Make "
+                         f"the gate pass; do not start the task over. Repair attempt {n} of {attempts}.")
+            tail_title = "Last gate output"
+            ending = ("TKRUN_RESULT: DONE                       (gate commands now pass)\n"
+                      "TKRUN_RESULT: FAILED <reason>            (could not fix it; leave the tree as is)")
+            failure_title = "GATE FAILURE"
         rules = [
             "Fix the cause, not the symptom. Do not delete, skip, #[ignore] or weaken a test, "
             "loosen a lint, or edit the gate configuration to get a pass.",
@@ -1424,17 +1448,17 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
         ] + list(self.cfg["rules"])
         numbered = "\n".join(f"{i}. {r}" for i, r in enumerate(rules, 1))
         return f"""You are the cleanup agent for {self.cfg['project'] or 'this repository'}. The owner is asleep.
-A task's work is in the working tree, but the runner's gate failed. Make the gate pass; do not
-start the task over. Repair attempt {n} of {attempts}.
+{situation}
 Working directory: {self.root} (absolute), branch {self.branch}. Stay inside it.
 
 Task: {tid} - {task.get('title', '')}
 goal: {task.get('goal', '')}
+Success criteria:{crit or ' (none listed)'}
 
-GATE FAILURE
+{failure_title}
 {why}
 
-Last gate output:
+{tail_title}:
 {tail}
 
 Working tree (git status --short):
@@ -1444,45 +1468,85 @@ RULES (hard)
 {numbered}
 
 FINAL OUTPUT (required, last lines, exact format)
-TKRUN_SUMMARY: <one line, imperative, <= 72 chars: what you fixed>
-TKRUN_RESULT: DONE                       (gate commands now pass)
-TKRUN_RESULT: FAILED <reason>            (could not fix it; leave the tree as is)
+TKRUN_SUMMARY: <one line, imperative, <= 72 chars: what you did>
+{ending}
 """
 
-    def repair_gate(self, task: dict, why: str, head0: str, changed: list[str],
-                    sib_changed: dict) -> tuple[str, list[str], dict]:
-        """The cleanup crew: re-run the gate after a repair agent has had a go, up to
-        `repair.attempts` times. Returns the last gate failure ("" = fixed) and the
-        refreshed changed-path lists."""
-        cfg = {**DEFAULTS["repair"], **(self.cfg.get("repair") or {})}
+    def repair_attempt(self, task: dict, provider: str, model: str, prompt: str, n: int,
+                       attempts: int, head0: str, what: str) -> dict | None:
+        """One cleanup-agent call. Returns its parsed TKRUN_RESULT, or None when the call
+        itself gave no usable answer (limited, stopped, timed out, no result line)."""
         tid = task["id"]
+        self.log(f"REPAIR {tid} {n}/{attempts} agent={provider}/{model} - {what}")
+        run = self.run_agent(provider, model, lambda _resume, p=prompt: p, f"{tid}-repair{n}")
+        self.fold_agent_commits(tid, head0)
+        if run["status"] == "limited":
+            self.exhausted.add(provider)
+            return None
+        if run["status"] != "ok" or run["res"].timed_out:
+            self.log(f"REPAIR {tid} {n}/{attempts}: agent run {run['status']}")
+            return None
+        parsed = self.parse_result(run["res"].out)
+        if not parsed["status"]:
+            self.log(f"REPAIR {tid} {n}/{attempts}: no result line")
+            return None
+        return parsed
+
+    def repair_target(self, task: dict) -> tuple[str, str, int] | None:
+        """(provider, model, attempts) for the cleanup crew, or None when it is off or has
+        no CLI to run."""
+        cfg = {**DEFAULTS["repair"], **(self.cfg.get("repair") or {})}
         attempts = int(cfg["attempts"])
         if not cfg["enabled"] or attempts < 1:
-            return why, changed, sib_changed
+            return None
         if cfg["model"]:
             provider, model = self.split_agent(str(cfg["model"]))
         else:
             provider, model = self.lane_route(*self.resolve_agent(task))
         if provider not in ("anthropic", "opencode-go") and provider not in self.cfg["agent_commands"] \
                 and provider not in self.cfg["lanes"]:
-            return why, changed, sib_changed
+            return None
+        return provider, model, attempts
+
+    def repair_unfinished(self, task: dict, why: str, transcript: Path, head0: str) -> dict | None:
+        """The cleanup crew for a task whose agent did not finish. Returns the repair
+        agent's parsed DONE / PARTIAL result, or None when nothing came of it."""
+        target = self.repair_target(task)
+        if target is None:
+            return None
+        provider, model, attempts = target
         for n in range(1, attempts + 1):
             if provider in self.exhausted or datetime.now() >= self.deadline or self.halt_request():
                 break
-            self.log(f"REPAIR {tid} {n}/{attempts} agent={provider}/{model} - gate: {why}")
+            prompt = self.build_repair_prompt(task, why, n, attempts, transcript)
+            parsed = self.repair_attempt(task, provider, model, prompt, n, attempts, head0, why)
+            if parsed is None:
+                break
+            if parsed["status"] in ("DONE", "PARTIAL"):
+                self.log(f"REPAIRED {task['id']} on attempt {n}: {parsed['summary']}")
+                return parsed
+            why = f"{why}; repair {n} reported FAILED: {parsed['detail']}"
+        return None
+
+    def repair_gate(self, task: dict, why: str, head0: str, changed: list[str],
+                    sib_changed: dict) -> tuple[str, list[str], dict]:
+        """The cleanup crew: re-run the gate after a repair agent has had a go, up to
+        `repair.attempts` times. Returns the last gate failure ("" = fixed) and the
+        refreshed changed-path lists."""
+        target = self.repair_target(task)
+        if target is None:
+            return why, changed, sib_changed
+        provider, model, attempts = target
+        tid = task["id"]
+        for n in range(1, attempts + 1):
+            if provider in self.exhausted or datetime.now() >= self.deadline or self.halt_request():
+                break
             prompt = self.build_repair_prompt(task, why, n, attempts)
-            run = self.run_agent(provider, model, lambda _resume, p=prompt: p, f"{tid}-repair{n}")
-            self.fold_agent_commits(tid, head0)
-            if run["status"] == "limited":
-                self.exhausted.add(provider)
+            parsed = self.repair_attempt(task, provider, model, prompt, n, attempts, head0, f"gate: {why}")
+            if parsed is None:
                 break
-            if run["status"] != "ok" or run["res"].timed_out:
-                self.log(f"REPAIR {tid} {n}/{attempts}: agent run {run['status']}")
-                break
-            parsed = self.parse_result(run["res"].out)
             if parsed["status"] != "DONE":
-                self.log(f"REPAIR {tid} {n}/{attempts}: {parsed['status'] or 'no result'} "
-                         f"{parsed['detail']}".rstrip())
+                self.log(f"REPAIR {tid} {n}/{attempts}: {parsed['status']} {parsed['detail']}".rstrip())
                 break
             changed = [p for p in changed_paths(self.root) if p not in self.todo_paths]
             sib_changed = self.sibling_changes()
@@ -1521,20 +1585,32 @@ TKRUN_RESULT: FAILED <reason>            (could not fix it; leave the tree as is
             self.park_failure(task, f"{provider} usage limit until after the deadline")
             return "limited"
         res = run["res"]
-        if res.timed_out:
-            self.park_failure(task, f"agent run timed out after {run['cap'] // 60} min")
-            return "failed"
         parsed = self.parse_result(res.out)
-        if not parsed["status"]:
+        unfinished = ""
+        if res.timed_out:
+            unfinished = f"agent run timed out after {run['cap'] // 60} min"
+        elif not parsed["status"]:
             rel = run["transcript"].relative_to(self.home).as_posix()
-            self.park_failure(task, f"no TKRUN_RESULT line (exit {res.code}); see {rel}")
-            return "failed"
-        if parsed["status"] == "FAILED":
-            self.park_failure(task, f"agent: {parsed['detail']}")
-            return "failed"
+            unfinished = f"no TKRUN_RESULT line (exit {res.code}); see {rel}"
+        elif parsed["status"] == "FAILED":
+            unfinished = f"agent: {parsed['detail']}"
+        if unfinished:
+            fixed = self.repair_unfinished(task, unfinished, run["transcript"], head0)
+            if fixed is None:
+                self.park_failure(task, unfinished)
+                return "failed"
+            parsed = fixed
 
         changed = [p for p in changed_paths(self.root) if p not in self.todo_paths]
         sib_changed = self.sibling_changes()
+        if not changed and not any(sib_changed.values()) and parsed["status"] == "DONE":
+            # Said DONE, left nothing: the cleanup crew gets one look before it is a failure.
+            fixed = self.repair_unfinished(task, "the agent reported DONE but changed nothing",
+                                           run["transcript"], head0)
+            if fixed is not None:
+                parsed = fixed
+                changed = [p for p in changed_paths(self.root) if p not in self.todo_paths]
+                sib_changed = self.sibling_changes()
         if not changed and not any(sib_changed.values()):
             if parsed["status"] == "PARTIAL":
                 self.tk("reset", self.todo_arg, tid, "--owner", self.owner)
