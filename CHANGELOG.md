@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The test suite ignores the developer's environment.** With
+  `TIDETABLE_SERVER` exported, about a hundred tests sent temp todo paths to the
+  real hub as slugs, and `tkrun kill` tests resolved their repo to the cwd and
+  wrote a live KILL sentinel into the checkout's own `.overnight/`. Every test
+  module now imports `tests/hermetic.py`, which strips the project's env
+  namespaces and gives the run a throwaway `TIDETABLE_CONFIG_HOME`.
+
 ## [0.11.0]
 
 ### Changed

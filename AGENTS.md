@@ -189,6 +189,12 @@ in the same change.
   hints on function signatures.
 - Tests that touch agent config must set `TIDETABLE_CONFIG_HOME` to a temp
   directory. A test that reads the developer's real `~/.config` is a bug.
+- Every test module imports `tests/hermetic.py` first (the `try: from . import
+  hermetic` block at the top). It strips `TIDETABLE_*`, `TASKERKEEPER_*`,
+  `TKRUN_*`, `OVERNIGHT_*` and `TK_*` from the environment and points
+  `TIDETABLE_CONFIG_HOME` at a throwaway directory, so a shell exported at a
+  hub cannot route tests to it. A new test module copies that block; a test
+  that needs one of those variables sets it under `mock.patch.dict`.
 - The only runtime dependency is `jsonschema`. Do not add more without a reason
   that survives "could the stdlib do this".
 - Comments explain *why*, not *what*. The existing ones flag the bug a piece of

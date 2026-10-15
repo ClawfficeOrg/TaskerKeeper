@@ -185,8 +185,8 @@ What changed in one long dogfooding session driving Swaygent with
   syntax, PowerShell wants `/PID`; `cp` is aliased interactive in Git Bash (use
   `cat src > dst` or Python); heredocs with apostrophes or backticks break the
   Bash tool, so write scripts to a file; Git Bash `/tmp` is not visible to
-  Python on Windows; an `env -u TIDETABLE_SERVER` is needed to run the test suite
-  when the shell points at a hub.
+  Python on Windows. (Running the suite from a shell pointed at a hub used to
+  need `env -u TIDETABLE_SERVER`; `tests/hermetic.py` now scrubs it.)
 - **First real `--jobs 2` run (Swaygent, 2026-10-14) and what broke:**
   1.3.1 finished and merged cleanly after 51 minutes while 1.1.6 ran beside it.
   Then (a) the runner's base-branch SAFETY check aborted 1.3.2 because someone

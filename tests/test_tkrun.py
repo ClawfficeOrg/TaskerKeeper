@@ -6,6 +6,11 @@ behaviour STUB_MODE selects.
 
 from __future__ import annotations
 
+try:  # before anything reads the environment; see tests/hermetic.py
+    from . import hermetic  # python -m unittest tests.test_x
+except ImportError:
+    import hermetic  # python -m unittest discover -s tests
+
 import io
 import json
 import os
@@ -596,7 +601,7 @@ class TKRunRunTests(unittest.TestCase):
         import types
 
         s = self.scratch()
-        code = tkrun.cmd_kill(types.SimpleNamespace(todo_file=str(s.todo)))
+        code = tkrun.cmd_kill(types.SimpleNamespace(todo_file=str(s.todo), local=True))
         self.assertEqual(code, 0)
         self.assertTrue((s.root / ".tkrun" / "KILL").exists())
 
@@ -606,7 +611,7 @@ class TKRunRunTests(unittest.TestCase):
         s = self.scratch()
         (s.root / ".tkrun").mkdir()
         (s.root / ".tkrun" / "pid").write_text("2147483647", encoding="ascii")
-        code = tkrun.cmd_kill(types.SimpleNamespace(todo_file=str(s.todo)))
+        code = tkrun.cmd_kill(types.SimpleNamespace(todo_file=str(s.todo), local=True))
         self.assertEqual(code, 0)
         self.assertTrue((s.root / ".tkrun" / "KILL").exists())
         self.assertFalse((s.root / ".tkrun" / "pid").exists())

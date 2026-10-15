@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+try:  # before anything reads the environment; see tests/hermetic.py
+    from . import hermetic  # python -m unittest tests.test_x
+except ImportError:
+    import hermetic  # python -m unittest discover -s tests
+
 import json
 import sqlite3
 import unittest
