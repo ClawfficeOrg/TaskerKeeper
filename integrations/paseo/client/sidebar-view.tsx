@@ -10,9 +10,11 @@ import { useSidebar } from "./data";
 interface Props {
   theme: PluginTheme;
   compact: boolean;
+  // A todo file to read locally; omitted = the one from the plugin settings.
+  todo?: string;
 }
 
-function makeStyles(theme: PluginTheme, compact: boolean) {
+export function makeStyles(theme: PluginTheme, compact: boolean) {
   return {
     root: { flex: 1, backgroundColor: theme.colors.surface0 },
     content: { padding: compact ? 12 : 20, gap: compact ? 12 : 16 },
@@ -26,7 +28,7 @@ function makeStyles(theme: PluginTheme, compact: boolean) {
   };
 }
 
-type Styles = ReturnType<typeof makeStyles>;
+export type Styles = ReturnType<typeof makeStyles>;
 
 function Section({ title, more, styles, children }: { title: string; more?: number; styles: Styles; children: ReactNode }) {
   return (
@@ -115,9 +117,17 @@ export function SidebarSections({ payload, styles }: { payload: SidebarPayload; 
 }
 
 // Every failure renders inside the view; nothing throws into the host.
-export function SidebarView({ theme, compact }: Props) {
+export function SidebarView({ theme, compact, todo }: Props) {
   const styles = useMemo(() => makeStyles(theme, compact), [theme, compact]);
-  const query = useSidebar();
+  return (
+    <ScrollView style={styles.root} contentContainerStyle={styles.content}>
+      <SidebarBody styles={styles} todo={todo} />
+    </ScrollView>
+  );
+}
+
+export function SidebarBody({ styles, todo }: { styles: Styles; todo?: string }) {
+  const query = useSidebar(todo);
   let body: ReactNode;
   if (query.isPending) {
     body = <Text style={styles.dim}>Loading TideTable…</Text>;
@@ -128,9 +138,5 @@ export function SidebarView({ theme, compact }: Props) {
   } else {
     body = <SidebarSections payload={query.data.payload} styles={styles} />;
   }
-  return (
-    <ScrollView style={styles.root} contentContainerStyle={styles.content}>
-      {body}
-    </ScrollView>
-  );
+  return <>{body}</>;
 }

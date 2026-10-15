@@ -1,59 +1,43 @@
-import type {
-  PluginClientContext,
-  PluginScreenProps,
-  PluginSidebarItemProps,
-  PluginWorkspacePanelProps,
-} from "@getpaseo/plugin/client";
-import { SidebarRow } from "@getpaseo/plugin/client/ui";
-import { Text } from "react-native";
-import { useSidebar } from "./client/data";
+import type { PluginClientContext, PluginScreenProps } from "@getpaseo/plugin/client";
 import { SettingsScreen } from "./client/settings";
 import { SidebarView } from "./client/sidebar-view";
+import { WorkspaceTodoPanel } from "./client/workspace-panel";
 
 // "tidetable" was the old addSidebarItem id; reusing it for the screen keeps
 // saved /plugin/paseo-tidetable/tidetable links working.
 const SCREEN = "tidetable";
+const PANEL = "tidetable";
 
+// The todo (or hub project) named in the plugin settings, not tied to a workspace.
 function TideTableScreen({ theme, layout }: PluginScreenProps) {
   return <SidebarView theme={theme} compact={layout.compact} />;
 }
 
-function TideTablePanel({ theme, layout }: PluginWorkspacePanelProps) {
-  return <SidebarView theme={theme} compact={layout.compact} />;
-}
-
-// Badge: in-progress count, prefixed ► while a TKRun is live. Blank on error.
-function TideTableItem({ theme, currentScreen, openScreen }: PluginSidebarItemProps) {
-  const { data } = useSidebar();
-  let badge = "";
-  if (data?.ok) {
-    const count = data.payload.current.tasks.length;
-    badge = (data.payload.run?.status === "running" ? "►" : "") + (count ? String(count) : "");
-  }
-  return (
-    <SidebarRow
-      icon="ListTodo"
-      active={currentScreen?.screenId === SCREEN}
-      onPress={() => openScreen({ screenId: SCREEN })}
-      trailing={badge ? <Text style={{ color: theme.colors.foregroundMuted, fontSize: 12 }}>{badge}</Text> : undefined}
-    />
-  );
-}
-
 export default function contribute(client: PluginClientContext) {
-  client.addScreen({ id: SCREEN, title: "TideTable", Component: TideTableScreen });
-  client.addSidebarHeaderItem({ id: SCREEN, title: "TideTable", Component: TideTableItem });
+  // Explorer is the right sidebar; the panel follows the open workspace and
+  // reads the todo files in its directory.
   client.addWorkspacePanel({
-    id: "tidetable",
+    id: PANEL,
     title: "TideTable",
     icon: "ListTodo",
     context: "workspace",
-    Component: TideTablePanel,
+    locations: ["explorer", "workspace"],
+    Component: WorkspaceTodoPanel,
   });
+  client.addScreen({ id: SCREEN, title: "TideTable", Component: TideTableScreen });
   client.addSettingsScreen({ id: "connection", title: "TideTable", icon: "ListTodo", Component: SettingsScreen });
   client.addCommandCenterItem({
+    id: "show-tidetable",
+    title: "Show TideTable for this project",
+    icon: "ListTodo",
+    context: "workspace",
+    onSelect({ openPanel }) {
+      openPanel(PANEL, { location: "explorer" });
+    },
+  });
+  client.addCommandCenterItem({
     id: "open-tidetable",
-    title: "Open TideTable",
+    title: "Open TideTable (configured todo or hub)",
     icon: "ListTodo",
     context: "global",
     onSelect({ openScreen }) {

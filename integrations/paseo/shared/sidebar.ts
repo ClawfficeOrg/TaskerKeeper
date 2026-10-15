@@ -54,7 +54,9 @@ export type SidebarTask = z.output<typeof task>;
 // not a rejected RPC that lands in the host's error boundary.
 export const sidebarRpc = defineRpc({
   name: "tidetable.sidebar",
-  input: z.object({}),
+  // `todo`: a todo file on the daemon host, read locally (the per-project
+  // panel). Omitted: the file or hub slug from the plugin settings.
+  input: z.object({ todo: z.string().optional() }),
   output: z.discriminatedUnion("ok", [
     z.object({ ok: z.literal(true), payload: sidebarPayload }),
     z.object({ ok: z.literal(false), error: z.string() }),
