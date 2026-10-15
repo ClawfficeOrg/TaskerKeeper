@@ -44,6 +44,14 @@ if mode == "silent":
     print("I did some things")
     sys.exit(0)
 tid = prompt.split("Task: ")[1].split(" ")[0]
+if "cleanup agent" in prompt:
+    if os.environ.get("STUB_LOG"):
+        open(os.environ["STUB_LOG"], "a").write("repair\n")
+    if os.environ.get("STUB_REPAIR") == "fix":
+        open("fixed.txt", "w").write("fixed")
+    print("TKRUN_SUMMARY: repair the gate")
+    print("TKRUN_RESULT: FAILED cannot" if os.environ.get("STUB_REPAIR") == "fail" else "TKRUN_RESULT: DONE")
+    sys.exit(0)
 if os.environ.get("STUB_COMMIT"):
     import subprocess
     subprocess.run(["git", "add", "-A"], check=True)
@@ -334,6 +342,36 @@ class TKRunRunTests(unittest.TestCase):
         statuses = sorted(s.status(t) for t in ("1.1", "1.2"))
         self.assertEqual(statuses, ["done", "pending"])
         self.assertIn(s.branch + "-", _git(s.root, "branch", "--list"))
+
+    def repair_scratch(self, **cfg) -> Scratch:
+        s = self.scratch(tasks=1)
+        gate = "import os, sys; sys.exit(0 if os.path.exists('fixed.txt') else 1)"
+        s.set_config({"gate": [{"name": "gate", "cmd": [sys.executable, "-c", gate]}],
+                      "review": {"enabled": False}, **cfg})
+        return s
+
+    def test_cleanup_crew_fixes_a_failed_gate_and_the_task_closes(self):
+        s = self.repair_scratch()
+        log = s.root.parent / "agents.log"
+        code, out = s.run("done", "--hours", "1", STUB_REPAIR="fix", STUB_LOG=str(log))
+        self.assertIn("REPAIRED 1.1 on attempt 1", out)
+        self.assertEqual(s.status("1.1"), "done")
+        self.assertEqual(log.read_text().split(), ["repair"])
+
+    def test_cleanup_crew_gives_up_after_its_attempts_and_parks_the_task(self):
+        s = self.repair_scratch(repair={"attempts": 2})
+        log = s.root.parent / "agents.log"
+        code, out = s.run("done", "--hours", "1", STUB_REPAIR="none", STUB_LOG=str(log))
+        self.assertEqual(log.read_text().split(), ["repair", "repair"])
+        self.assertIn("FAILED 1.1 - gate:", out)
+        self.assertEqual(s.status("1.1"), "pending")
+
+    def test_cleanup_crew_can_be_turned_off(self):
+        s = self.repair_scratch(repair={"enabled": False})
+        log = s.root.parent / "agents.log"
+        code, out = s.run("done", "--hours", "1", STUB_REPAIR="fix", STUB_LOG=str(log))
+        self.assertFalse(log.exists())
+        self.assertIn("FAILED 1.1 - gate:", out)
 
     def test_merge_resolve_regenerates_a_conflicted_generated_file(self):
         s = self.parallel_scratch([["a/"], ["b/"]])

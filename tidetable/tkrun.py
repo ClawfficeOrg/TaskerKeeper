@@ -162,6 +162,10 @@ DEFAULTS: dict = {
     # Push the run branch (never the base branch) to `origin` when the run ends.
     "push": False,
     "agent_env_drop": [],          # extra env var names (fnmatch) to hide from the agent
+    # Cleanup crew: when the gate fails, a repair agent gets the gate output and the working
+    # tree and fixes it in place (any file, not only the task's) before the task is parked
+    # as failed. `model` is provider/model; empty = the task's own agent.
+    "repair": {"enabled": True, "attempts": 2, "model": ""},
     # Parallel jobs that both touch a generated file would conflict on every merge. A
     # conflict confined to these paths is resolved by running the command (cwd = the run
     # worktree) and committing the merge; any other conflicted path still fails the job.
@@ -1398,6 +1402,96 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
             if r.code == 0:
                 self.log(f"NOTE {tid}: the agent committed; folded its commits back into the working tree")
 
+    def build_repair_prompt(self, task: dict, why: str, n: int, attempts: int) -> str:
+        tid = task["id"]
+        try:
+            tail = (self.run_dir / f"{tid}-gate.txt").read_text(encoding="utf-8", errors="replace")[-6000:]
+        except OSError:
+            tail = "(gate output unavailable)"
+        status = git(self.root, "status", "--short", "--untracked-files=all").out.strip() or "(clean)"
+        rules = [
+            "Fix the cause, not the symptom. Do not delete, skip, #[ignore] or weaken a test, "
+            "loosen a lint, or edit the gate configuration to get a pass.",
+            "You may edit any file the fix needs, including files outside the task's owned paths. "
+            "If the failure comes from the environment or a file the task did not touch (line "
+            "endings, a stale generated file, a lockfile), fix it at the source and say so.",
+            "Do not run git commit/checkout/switch/branch/stash/reset/push/tag or tidetable "
+            "start/done/reset/status. The runner does all of that.",
+            "Do not install anything and do not take screenshots or drive a GUI.",
+            "Never print, echo, cat or otherwise output environment variables, .env files, tokens, "
+            "API keys or credentials.",
+            "Run the gate commands yourself until they pass:\n" + self.gate_commands_text(),
+        ] + list(self.cfg["rules"])
+        numbered = "\n".join(f"{i}. {r}" for i, r in enumerate(rules, 1))
+        return f"""You are the cleanup agent for {self.cfg['project'] or 'this repository'}. The owner is asleep.
+A task's work is in the working tree, but the runner's gate failed. Make the gate pass; do not
+start the task over. Repair attempt {n} of {attempts}.
+Working directory: {self.root} (absolute), branch {self.branch}. Stay inside it.
+
+Task: {tid} - {task.get('title', '')}
+goal: {task.get('goal', '')}
+
+GATE FAILURE
+{why}
+
+Last gate output:
+{tail}
+
+Working tree (git status --short):
+{status}
+
+RULES (hard)
+{numbered}
+
+FINAL OUTPUT (required, last lines, exact format)
+TKRUN_SUMMARY: <one line, imperative, <= 72 chars: what you fixed>
+TKRUN_RESULT: DONE                       (gate commands now pass)
+TKRUN_RESULT: FAILED <reason>            (could not fix it; leave the tree as is)
+"""
+
+    def repair_gate(self, task: dict, why: str, head0: str, changed: list[str],
+                    sib_changed: dict) -> tuple[str, list[str], dict]:
+        """The cleanup crew: re-run the gate after a repair agent has had a go, up to
+        `repair.attempts` times. Returns the last gate failure ("" = fixed) and the
+        refreshed changed-path lists."""
+        cfg = {**DEFAULTS["repair"], **(self.cfg.get("repair") or {})}
+        tid = task["id"]
+        attempts = int(cfg["attempts"])
+        if not cfg["enabled"] or attempts < 1:
+            return why, changed, sib_changed
+        if cfg["model"]:
+            provider, model = self.split_agent(str(cfg["model"]))
+        else:
+            provider, model = self.lane_route(*self.resolve_agent(task))
+        if provider not in ("anthropic", "opencode-go") and provider not in self.cfg["agent_commands"] \
+                and provider not in self.cfg["lanes"]:
+            return why, changed, sib_changed
+        for n in range(1, attempts + 1):
+            if provider in self.exhausted or datetime.now() >= self.deadline or self.halt_request():
+                break
+            self.log(f"REPAIR {tid} {n}/{attempts} agent={provider}/{model} - gate: {why}")
+            prompt = self.build_repair_prompt(task, why, n, attempts)
+            run = self.run_agent(provider, model, lambda _resume, p=prompt: p, f"{tid}-repair{n}")
+            self.fold_agent_commits(tid, head0)
+            if run["status"] == "limited":
+                self.exhausted.add(provider)
+                break
+            if run["status"] != "ok" or run["res"].timed_out:
+                self.log(f"REPAIR {tid} {n}/{attempts}: agent run {run['status']}")
+                break
+            parsed = self.parse_result(run["res"].out)
+            if parsed["status"] != "DONE":
+                self.log(f"REPAIR {tid} {n}/{attempts}: {parsed['status'] or 'no result'} "
+                         f"{parsed['detail']}".rstrip())
+                break
+            changed = [p for p in changed_paths(self.root) if p not in self.todo_paths]
+            sib_changed = self.sibling_changes()
+            why = self.gate(tid, changed, sib_changed)
+            if not why:
+                self.log(f"REPAIRED {tid} on attempt {n}: {parsed['summary']}")
+                break
+        return why, changed, sib_changed
+
     # ── one task end to end → done | partial | skipped | failed | limited | stop
     def run_task(self, task: dict) -> str:
         tid = task["id"]
@@ -1454,10 +1548,12 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
 
         why = self.gate(tid, changed, sib_changed)
         if why:
+            why, changed, sib_changed = self.repair_gate(task, why, head0, changed, sib_changed)
+        if why:
             self.park_failure(task, f"gate: {why}")
             return "failed"
 
-        missing = [p for p in self.cfg["required_changed"] if p not in changed]
+        missing =[p for p in self.cfg["required_changed"] if p not in changed]
         if parsed["status"] == "DONE" and missing:
             parsed.update(status="PARTIAL", detail=f"no change to {', '.join(missing)}")
 

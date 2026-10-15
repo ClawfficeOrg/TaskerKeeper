@@ -16,6 +16,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   never prompts, and it fails closed. Claude's requests are judged against
   claude's own (stricter) deny list. Previously the claude gray zone fell back to
   the static lists, so the decision model was never consulted for those tiers.
+- **Cleanup crew: a failed gate gets repaired instead of parked.** When a task's
+  gate fails, a repair agent (`repair.model`, default the task's own agent) gets
+  the gate output and the working tree and fixes it in place, up to
+  `repair.attempts` times (default 2), then the gate re-runs. Only a failure that
+  survives the repair counts toward `max_consecutive_failures`. The prompt forbids
+  deleting or weakening tests to get a pass. `repair.enabled: false` restores the
+  old behaviour.
 - **`merge_resolve`: parallel jobs no longer conflict on generated files.** A job
   merge whose only conflicted paths are listed here (default `Cargo.lock` →
   `cargo update --workspace`) takes the run branch's copy, runs the command and
