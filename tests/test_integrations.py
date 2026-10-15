@@ -10,10 +10,12 @@ except ImportError:
 import io
 import json
 import os
+import subprocess
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest import mock
 
 from tidetable import cli, integrations
 
@@ -34,7 +36,11 @@ class IntegrationsTests(unittest.TestCase):
         for n in integrations.NAMES:
             (self.src / n).mkdir(parents=True)
         (self.src / "opencode" / "tk-sidebar.ts").write_text("//")
-        (self.src / "paseo" / "server.js").write_text("//")
+        (self.src / "paseo" / "paseo-plugin.json").write_text("{}")
+        # Never reach the developer's real Paseo daemon from a test.
+        patcher = mock.patch.object(integrations, "paseo_cli", return_value=None)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.cfg = self.tmp / "cfg" / "tui.json"
         self.base = ["--source", str(self.src), "--opencode-config", str(self.cfg)]
 
@@ -80,14 +86,36 @@ class IntegrationsTests(unittest.TestCase):
         self.assertIn("would write", out)
         self.assertFalse(self.cfg.exists())
 
-    def test_paseo_needs_dir_then_copies_and_uninstall_refuses_a_copy(self):
+    def test_paseo_without_cli_prints_the_install_command(self):
         code, out = run("integrations", "install", "paseo", *self.base)
-        self.assertEqual(code, 1)
-        self.assertIn("--paseo-dir", out)
+        self.assertEqual(code, 0, out)
+        self.assertIn("paseo CLI not found; run: paseo plugin install " + str(self.src / "paseo"), out)
+        code, out = run("integrations", "uninstall", "paseo", *self.base)
+        self.assertIn("paseo plugin remove paseo-tidetable", out)
+
+    def test_paseo_runs_the_cli_and_list_reads_its_json(self):
+        calls = []
+
+        def fake(argv, **kw):
+            calls.append(argv[1:])
+            out = json.dumps([{"id": "paseo-tidetable", "status": "running"}]) if argv[1:3] == ["plugin", "ls"] else ""
+            return subprocess.CompletedProcess(argv, 0, out, "")
+
+        with mock.patch.object(integrations, "paseo_cli", return_value="paseo"),                 mock.patch.object(integrations.subprocess, "run", side_effect=fake):
+            code, out = run("integrations", "install", "paseo", *self.base)
+            self.assertEqual(code, 0, out)
+            code, out = run("integrations", "list", "--json", *self.base)
+            rows = {r["name"]: r for r in json.loads(out)["integrations"]}
+            code, _ = run("integrations", "uninstall", "paseo", *self.base)
+        self.assertEqual(calls, [["plugin", "install", str(self.src / "paseo")], ["plugin", "ls", "--json"],
+                                 ["plugin", "remove", "paseo-tidetable"]])
+        self.assertEqual(rows["paseo"]["state"], "installed (running)")
+
+    def test_paseo_dir_copies_and_uninstall_refuses_a_copy(self):
         plugins = self.tmp / "plugins"
         code, out = run("integrations", "install", "paseo", "--copy", "--paseo-dir", str(plugins), *self.base)
         self.assertEqual(code, 0, out)
-        self.assertTrue((plugins / "paseo-tidetable" / "server.js").exists())
+        self.assertTrue((plugins / "paseo-tidetable" / "paseo-plugin.json").exists())
         code, out = run("integrations", "uninstall", "paseo", "--paseo-dir", str(plugins), *self.base)
         self.assertEqual(code, 1)           # a copy is never deleted for you
         self.assertTrue((plugins / "paseo-tidetable").exists())
@@ -104,7 +132,7 @@ class IntegrationsTests(unittest.TestCase):
         code, _ = run("integrations", "uninstall", "paseo", "--paseo-dir", str(plugins), *self.base)
         self.assertEqual(code, 0)
         self.assertFalse(dst.exists() or dst.is_symlink())
-        self.assertTrue((self.src / "paseo" / "server.js").exists())   # source untouched
+        self.assertTrue((self.src / "paseo" / "paseo-plugin.json").exists())   # source untouched
 
     def test_list_json_and_openchamber_is_manual(self):
         code, out = run("integrations", "list", "--json", *self.base)

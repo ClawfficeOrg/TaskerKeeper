@@ -19,6 +19,7 @@ from pathlib import Path
 
 NAMES = ("opencode", "pi", "paseo", "openchamber")
 OPENCODE_ENTRY = "tk-sidebar.ts"
+PASEO_ID = "paseo-tidetable"     # paseo-plugin.json `id`
 
 
 def find_source(explicit: str | None = None) -> Path:
@@ -70,6 +71,24 @@ def _write_json(path: Path, data: dict) -> None:
     os.replace(tmp, target)
 
 
+def paseo_cli() -> str | None:
+    """The `paseo` CLI. The desktop app ships one but does not put it on PATH."""
+    found = shutil.which("paseo")
+    if found:
+        return found
+    for candidate in (
+        Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Paseo" / "resources" / "bin" / "paseo.cmd",
+        Path("/Applications/Paseo.app/Contents/Resources/bin/paseo"),
+    ):
+        if candidate.is_file():
+            return str(candidate)
+    return None
+
+
+def _paseo(cli: str, *argv: str) -> subprocess.CompletedProcess:
+    return subprocess.run([cli, *argv], capture_output=True, text=True, encoding="utf-8", errors="replace")
+
+
 def link_dir(src: Path, dst: Path, copy: bool = False) -> str:
     """Symlink dst -> src; copy when asked or when symlinks are not permitted. Returns 'link'|'copy'."""
     dst.parent.mkdir(parents=True, exist_ok=True)
@@ -102,10 +121,20 @@ def status(name: str, src: Path, args) -> dict:
         except ValueError as e:
             return {"name": name, "target": str(cfg), "state": f"unreadable: {e}"}
     if name == "paseo":
-        if not args.paseo_dir:
-            return {"name": name, "target": "(pass --paseo-dir)", "state": "unknown"}
-        dst = Path(args.paseo_dir) / "paseo-tidetable"
-        return {"name": name, "target": str(dst), "state": dir_state(src / "paseo", dst)}
+        if args.paseo_dir:      # legacy: a plugins directory some older host scanned
+            dst = Path(args.paseo_dir) / PASEO_ID
+            return {"name": name, "target": str(dst), "state": dir_state(src / "paseo", dst)}
+        target = "paseo plugin install " + str(src / "paseo")
+        cli = paseo_cli()
+        if not cli:
+            return {"name": name, "target": target, "state": "paseo not on PATH"}
+        r = _paseo(cli, "plugin", "ls", "--json")
+        try:
+            mine = [p for p in json.loads(r.stdout) if p.get("id") == PASEO_ID]
+        except (json.JSONDecodeError, AttributeError, TypeError):
+            return {"name": name, "target": target, "state": "unknown (daemon not reachable?)"}
+        state = f"installed ({mine[0].get('status', '?')})" if mine else "not installed"
+        return {"name": name, "target": target, "state": state}
     if name == "pi":
         return {"name": name, "target": "pi install " + str(src / "pi"),
                 "state": "managed by pi" if shutil.which("pi") else "pi not on PATH"}
@@ -127,10 +156,20 @@ def install_one(name: str, src: Path, args) -> str:
             return f"would write {cfg}: plugin += {json.dumps(entry)}"
         _write_json(cfg, data)
         return f"wrote {cfg} (restart opencode; a .bak of the old file is kept)"
+    if name == "paseo" and not args.paseo_dir:
+        # Paseo >= 0.8 reads a directory source in place, so `git pull` plus
+        # `paseo plugin reload paseo-tidetable` updates it; nothing is copied.
+        cli = paseo_cli()
+        cmd = ["paseo", "plugin", "install", str(src / "paseo")]
+        if args.dry_run or not cli:
+            return ("would run: " if args.dry_run else "paseo CLI not found; run: ") + " ".join(cmd)
+        r = _paseo(cli, *cmd[1:])
+        if r.returncode:
+            raise ValueError(f"`{' '.join(cmd)}` failed: {r.stdout}{r.stderr}".strip())
+        return ("ran " + " ".join(cmd) + ". Set Todo under Settings -> Plugins -> paseo-tidetable, "
+                "or TIDETABLE_TODO in the daemon's environment")
     if name == "paseo":
-        if not args.paseo_dir:
-            raise ValueError("paseo needs --paseo-dir <your Paseo plugins directory>")
-        dst = Path(args.paseo_dir) / "paseo-tidetable"
+        dst = Path(args.paseo_dir) / PASEO_ID
         if dst.exists() or dst.is_symlink():
             if dir_state(src / "paseo", dst) == "linked":
                 return f"already linked: {dst}"
@@ -138,8 +177,8 @@ def install_one(name: str, src: Path, args) -> str:
         if args.dry_run:
             return f"would {'copy' if args.copy else 'symlink'} {src / 'paseo'} -> {dst}"
         how = link_dir(src / "paseo", dst, args.copy)
-        return (f"{how}ed {dst}; enable the paseo-tidetable plugin and restart Paseo. "
-                "Set its todo in the plugin settings or via TIDETABLE_TODO")
+        return (f"{how}ed {dst}. Paseo >= 0.8 loads plugins with `paseo plugin install <dir>`, "
+                "not from a scanned directory; point that at this path")
     if name == "pi":
         cmd = ["pi", "install", str(src / "pi")]
         if args.dry_run or not shutil.which("pi"):
@@ -165,10 +204,17 @@ def uninstall_one(name: str, src: Path, args) -> str:
             return f"would remove the tk-sidebar entry from {cfg}"
         _write_json(cfg, data)
         return f"removed the tk-sidebar entry from {cfg}"
+    if name == "paseo" and not args.paseo_dir:
+        cli = paseo_cli()
+        cmd = ["paseo", "plugin", "remove", PASEO_ID]
+        if args.dry_run or not cli:
+            return ("would run: " if args.dry_run else "paseo CLI not found; run: ") + " ".join(cmd)
+        r = _paseo(cli, *cmd[1:])
+        if r.returncode:
+            raise ValueError(f"`{' '.join(cmd)}` failed: {r.stdout}{r.stderr}".strip())
+        return "ran " + " ".join(cmd) + " (a directory source keeps its files)"
     if name == "paseo":
-        if not args.paseo_dir:
-            raise ValueError("paseo needs --paseo-dir <your Paseo plugins directory>")
-        dst = Path(args.paseo_dir) / "paseo-tidetable"
+        dst = Path(args.paseo_dir) / PASEO_ID
         state = dir_state(src / "paseo", dst)
         if state == "not installed":
             return "not installed"
@@ -220,7 +266,8 @@ def add_parser(sub) -> None:
         c.add_argument("--source", help="Path to a checkout's integrations/ directory")
         c.add_argument("--opencode-config", metavar="FILE",
                        help="opencode tui.json (default: $OPENCODE_CONFIG_DIR or ~/.config/opencode/tui.json)")
-        c.add_argument("--paseo-dir", metavar="DIR", help="Your Paseo plugins directory")
+        c.add_argument("--paseo-dir", metavar="DIR",
+                       help="Legacy: link into this directory instead of running `paseo plugin install`")
         c.set_defaults(func=cmd_integrations)
 
     ls = inner.add_parser("list", help="Where each integration installs and whether it is")
@@ -233,7 +280,7 @@ def add_parser(sub) -> None:
         c.add_argument("--dry-run", action="store_true", help="Show what would change; change nothing")
         if verb == "install":
             c.add_argument("--todo", metavar="FILE", help="Todo file the opencode sidebar reads")
-            c.add_argument("--copy", action="store_true", help="Copy instead of symlink (paseo)")
+            c.add_argument("--copy", action="store_true", help="Copy instead of symlink (paseo --paseo-dir)")
         else:
             c.set_defaults(todo=None, copy=False)
         common(c)

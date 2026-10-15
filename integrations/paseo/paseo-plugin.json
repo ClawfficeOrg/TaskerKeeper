@@ -1,0 +1,7 @@
+{
+  "id": "paseo-tidetable",
+  "description": "Read-only TideTable sidebar: current, concurrent, upcoming, phase tree, overall tree.",
+  "requirements": {
+    "paseo": ">=0.11.0"
+  }
+}

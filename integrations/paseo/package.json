@@ -1,49 +1,29 @@
 {
   "name": "paseo-tidetable",
-  "version": "0.1.0",
+  "private": true,
+  "version": "0.2.0",
   "description": "TideTable sidebar and workspace panel for Paseo, driven by `tidetable sidebar --json`, from a local todo file or a TideTable hub.",
   "license": "MIT",
-  "main": "server.js",
   "files": [
-    "server.js",
-    "client.js",
+    "paseo-plugin.json",
     "README.md",
-    "package.json"
+    "index.client.tsx",
+    "index.server.ts",
+    "client/",
+    "server/",
+    "shared/"
   ],
   "scripts": {
-    "check": "node --check server.js && node --check client.js"
+    "typecheck": "tsc --noEmit"
   },
-  "paseo": {
-    "displayName": "TideTable",
-    "description": "Read-only TideTable sidebar: current, concurrent, upcoming, phase tree, overall tree.",
-    "client": "./client.js",
-    "server": "./server.js",
-    "settings": {
-      "todo": {
-        "type": "string",
-        "description": "Path to the TideTable todo file, or the project slug when a server is set (falls back to TIDETABLE_TODO env).",
-        "default": ""
-      },
-      "server": {
-        "type": "string",
-        "description": "Base URL of a `tidetable serve` hub, e.g. https://tidetable.example.com. Empty = read the local todo file (falls back to TIDETABLE_SERVER env).",
-        "default": ""
-      },
-      "token": {
-        "type": "string",
-        "description": "Bearer token for the hub (falls back to TIDETABLE_TOKEN env). Prefer the env var on shared machines.",
-        "default": ""
-      },
-      "width": {
-        "type": "number",
-        "description": "Sidebar line-width budget passed as --width.",
-        "default": 80
-      },
-      "height": {
-        "type": "number",
-        "description": "Sidebar line-height budget passed as --height.",
-        "default": 40
-      }
-    }
+  "devDependencies": {
+    "@getpaseo/plugin": "0.11.2",
+    "@tanstack/react-query": "^5.90.11",
+    "@types/node": "^20.9.0",
+    "@types/react": "~19.2.0",
+    "react": "19.1.0",
+    "react-native": "0.81.5",
+    "typescript": "^5.9.3",
+    "zod": "^4.4.3"
   }
 }

@@ -1325,6 +1325,16 @@ class TestTaskerKeeperCompat(unittest.TestCase):
             capture_output=True, text=True, cwd=REPO_ROOT)
         self.assertEqual(r.returncode, 0, r.stderr)
 
+    def test_module_entry_point_exits_nonzero_on_error(self):
+        # main() returned 1 on handled errors without exiting, so `python -m`
+        # (and the Paseo sidebar's fallback) saw exit 0 beside "Error: ...".
+        for module in ("tidetable", "taskerkeeper"):
+            r = subprocess.run(
+                [os.sys.executable, "-m", module, "--local", "list", "no-such-todo.json"],
+                capture_output=True, text=True, cwd=REPO_ROOT)
+            self.assertEqual(r.returncode, 1, module)
+            self.assertIn("not found", r.stdout)
+
 
 class TestRemoteClient(unittest.TestCase):
     """`--server` runs a command against a `tidetable serve` hub."""

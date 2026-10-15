@@ -306,7 +306,7 @@ absolute path leaks into a shared sidebar. Thin adapters under
 | OpenCode | `integrations/opencode/` | TUI plugin, `sidebar_content` slot |
 | Pi | `integrations/pi/` | Extension panel + `/tk-sidebar`; also loads under oh-my-pi `omp` |
 | OpenChamber | `integrations/openchamber/` | Rail panel over the serve API, task attach |
-| Paseo | `integrations/paseo/` | Sidebar item + workspace panel via server RPC |
+| Paseo | `integrations/paseo/` | Paseo ≥ 0.11 plugin: sidebar header item + screen + workspace panel (React Native), typed server RPC; `paseo plugin install integrations/paseo` |
 
 ```bash
 tidetable sidebar docs/todo-v7.json --width 80 --height 40
