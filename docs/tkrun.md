@@ -115,6 +115,7 @@ All keys optional; unknown keys are an error.
 | `opencode_extra` | merged over the generated `opencode.json`. The generated file only restricts bash and edit; MCP servers from your global opencode config stay reachable, so disable the ones an agent should not use, e.g. `{"mcp": {"blender": {"enabled": false}}}` |
 | `adjudicator` | `{enabled, min_confidence, timeout_seconds, endpoint_env, key_env, model_env, instructions, criteria}`. With `enabled`, a command on neither the allow nor the deny list goes to a decision model (clef on a Jev endpoint); see below and `docs/permissions.md`. Credentials are env-only. `--adjudicate`/`--no-adjudicate` overrides `enabled` per run |
 | `push` | `true` pushes the run branch (never the base branch) to `origin` when the run ends. Default `false`; the agent itself is never allowed to push |
+| `merge_resolve` | map of repo-relative path → regenerate command (list). When a parallel job's merge conflicts only in these paths, the runner keeps the run branch's copy, runs the command in the run worktree, and commits the merge. Default `{"Cargo.lock": ["cargo", "update", "--workspace"]}`; any other conflicted path still fails the job and keeps its branch |
 | `agent_env_drop` | extra environment variable names (fnmatch patterns) to hide from the agent. The runner's own `TIDETABLE_TOKEN`, `TIDETABLE_SERVER`, `TASKERKEEPER_TOKEN` and `TK_API_TOKEN` are always hidden |
 | `human_check_pattern`, `human_check_exempt` | regexes for criteria that need a person |
 

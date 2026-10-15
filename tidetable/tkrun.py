@@ -162,6 +162,10 @@ DEFAULTS: dict = {
     # Push the run branch (never the base branch) to `origin` when the run ends.
     "push": False,
     "agent_env_drop": [],          # extra env var names (fnmatch) to hide from the agent
+    # Parallel jobs that both touch a generated file would conflict on every merge. A
+    # conflict confined to these paths is resolved by running the command (cwd = the run
+    # worktree) and committing the merge; any other conflicted path still fails the job.
+    "merge_resolve": {"Cargo.lock": ["cargo", "update", "--workspace"]},
     # Merged over the generated opencode.json (dicts merge, other values replace). The
     # generated file only restricts bash/edit; MCP servers from the user's global opencode
     # config stay reachable, so disable the ones an agent has no business with here, e.g.
@@ -1265,6 +1269,11 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
             r = git(cwd, "add", "-A", "--", *paths)
             if r.code:
                 raise RuntimeError(f"git add failed in {cwd}: {r.out}{r.err}")
+            # `git status` can list a path as modified when nothing real changed (an
+            # autocrlf worktree, a touched mtime); committing that errors. Nothing staged
+            # means nothing to record, not a crash.
+            if git(cwd, "diff", "--cached", "--quiet", "--", *paths).code == 0:
+                return False
             r = git(cwd, "commit", "--no-verify", "-F", str(msg), "--", *paths)
             if r.code:
                 raise RuntimeError(f"git commit failed in {cwd}: {r.out}{r.err}")
@@ -1653,6 +1662,33 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
         job.follow_prefix = f"[{tid}] "
         return job
 
+    def resolve_lockfile_conflicts(self, tid: str) -> bool:
+        """Finish a conflicted merge when every conflicted path is a generated file.
+
+        `merge_resolve` maps a repo-relative path to the command that regenerates it
+        (Cargo.lock by default). The run branch's copy is taken, the command rebuilds it
+        from the merged manifests, and the merge is committed. Any other conflicted path
+        means a human has to look, so nothing is touched and the caller aborts as before.
+        """
+        rules = self.cfg.get("merge_resolve") or {}
+        conflicted = [p for p in git(self.root, "diff", "--name-only", "-z", "--diff-filter=U")
+                      .out.split("\0") if p]
+        if not conflicted or any(p not in rules for p in conflicted):
+            return False
+        for p in conflicted:
+            if git(self.root, "checkout", "--ours", "--", p).code:
+                return False
+            r = run_proc(list(rules[p]), self.root, timeout=600)
+            if r.code:
+                self.log(f"WARN {tid}: regenerating {p} failed: {(r.out + r.err).strip()[-200:]}")
+                return False
+            if git(self.root, "add", "--", p).code:
+                return False
+        if git(self.root, "commit", "--no-edit", "--no-verify").code:
+            return False
+        self.log(f"MERGE {tid}: regenerated {', '.join(conflicted)} instead of conflicting")
+        return True
+
     def integrate(self, task: dict, job: "Runner", outcome: str, crashed: bool = False) -> str:
         """Merge a finished job back onto the run branch and drop its worktree.
 
@@ -1667,6 +1703,8 @@ REVIEW_RESULT: FAIL <short reasons, ';'-separated>
         with self.merge_lock:
             if outcome in ("done", "partial"):
                 r = git(self.root, "merge", "--no-ff", "-m", f"merge: {tid} ({outcome})", job.branch)
+                if r.code and self.resolve_lockfile_conflicts(tid):
+                    r = Proc(0, "", "")
                 if r.code:
                     git(self.root, "merge", "--abort")
                     self.log(f"MERGE CONFLICT {tid}: kept {job.branch} at {job.root}; "

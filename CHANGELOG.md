@@ -16,6 +16,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   never prompts, and it fails closed. Claude's requests are judged against
   claude's own (stricter) deny list. Previously the claude gray zone fell back to
   the static lists, so the decision model was never consulted for those tiers.
+- **`merge_resolve`: parallel jobs no longer conflict on generated files.** A job
+  merge whose only conflicted paths are listed here (default `Cargo.lock` →
+  `cargo update --workspace`) takes the run branch's copy, runs the command and
+  commits the merge instead of failing the task.
+
+### Fixed
+
+- **An empty commit is not a crash.** `git status` can list a path as modified
+  when nothing real changed (autocrlf worktrees), and `git commit -- <path>` then
+  failed with "nothing to commit", marking a finished task `ERROR`. A path with
+  nothing staged is now skipped.
+- **`write_json` retries a Windows sharing violation.** `os.replace` onto a file
+  another process held open raised `PermissionError` (WinError 5) and failed the
+  claim; it is now retried a few times with a short back-off.
 
 ### Changed
 
@@ -28,6 +42,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `tidetable sidebar --json`), with code under `client/`, `server/`, `shared/`.
   Settings moved from `package.json` to a host settings document edited under
   Settings → Plugins; the `TIDETABLE_*` env fallbacks are unchanged.
+- **The Paseo panel lives in the right sidebar and follows the project.** It
+  is an Explorer panel that finds the TideTable todo files in the open
+  workspace's directory (JSON with the schema's `schema_version`, `project`
+  and `phases`) and reads them locally, with a chip per file when there are
+  several. The left-sidebar row is gone; the settings-driven view (a fixed todo
+  or a hub project) stays as a screen in the Command Center.
 - **`integrations install paseo` runs `paseo plugin install <checkout>/integrations/paseo`.**
   Paseo ≥ 0.8 does not scan a plugins directory, so the old symlink loaded
   nothing. `uninstall` runs `paseo plugin remove paseo-tidetable`, and `list`

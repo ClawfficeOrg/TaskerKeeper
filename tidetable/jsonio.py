@@ -190,6 +190,23 @@ def read_json(path: str | Path) -> dict:
         return json.load(f)
 
 
+def _replace_with_retry(tmp: str, target: Path, attempts: int = 8, delay: float = 0.05) -> None:
+    """os.replace, retried on Windows sharing violations.
+
+    Windows refuses to replace a file another process has open (a reader, an editor,
+    antivirus) with WinError 5 / 32. Those clear in milliseconds. A real permission
+    problem still surfaces after the last attempt, about a second later.
+    """
+    for i in range(attempts):
+        try:
+            os.replace(tmp, target)
+            return
+        except PermissionError:
+            if i == attempts - 1:
+                raise
+            time.sleep(delay * (2 ** min(i, 4)))
+
+
 def write_json(data: dict, path: str | Path) -> None:
     """Write JSON atomically: temp file in the same dir, then rename."""
     target = Path(path)
@@ -199,7 +216,7 @@ def write_json(data: dict, path: str | Path) -> None:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
             f.write("\n")
-        os.replace(tmp, target)
+        _replace_with_retry(tmp, target)
     except BaseException:
         try:
             os.unlink(tmp)

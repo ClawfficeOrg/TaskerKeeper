@@ -335,6 +335,52 @@ class TKRunRunTests(unittest.TestCase):
         self.assertEqual(statuses, ["done", "pending"])
         self.assertIn(s.branch + "-", _git(s.root, "branch", "--list"))
 
+    def test_merge_resolve_regenerates_a_conflicted_generated_file(self):
+        s = self.parallel_scratch([["a/"], ["b/"]])
+        regen = "open('work.txt','w').write('regenerated\\n')"
+        s.set_config({"gate": [{"cmd": [sys.executable, "-c", "pass"]}],
+                      "review": {"enabled": False},
+                      "merge_resolve": {"work.txt": [sys.executable, "-c", regen]}})
+        track = s.root.parent / "track.log"
+        code, out = s.run("done", "--hours", "1", "--jobs", "2", STUB_TRACK=str(track), STUB_SLEEP="2.5")
+        self.assertNotIn("MERGE CONFLICT", out)
+        self.assertIn("regenerated work.txt", out)
+        self.assertEqual(sorted(s.status(t) for t in ("1.1", "1.2")), ["done", "done"])
+        self.assertEqual((s.work / "work.txt").read_text().strip(), "regenerated")
+
+    def test_write_json_retries_a_windows_sharing_violation(self):
+        from tidetable import jsonio
+        real, calls = os.replace, []
+
+        def flaky(src, dst):
+            calls.append(src)
+            if len(calls) < 3:
+                raise PermissionError(5, "Access is denied")
+            real(src, dst)
+
+        with TemporaryDirectory() as d, mock.patch.object(jsonio.os, "replace", flaky), \
+                mock.patch.object(jsonio.time, "sleep"):
+            target = Path(d) / "todo.json"
+            jsonio.write_json({"a": 1}, target)
+            self.assertEqual(json.loads(target.read_text()), {"a": 1})
+            self.assertEqual(len(calls), 3)
+            self.assertEqual([p.name for p in Path(d).iterdir()], ["todo.json"])
+
+    def test_commit_paths_tolerates_a_path_with_nothing_to_commit(self):
+        import types
+        with TemporaryDirectory() as d:
+            repo = Path(d)
+            _git(repo, "init", "-b", "main")
+            _git(repo, "config", "user.email", "t@example.com")
+            _git(repo, "config", "user.name", "T")
+            (repo / "a.txt").write_text("x\n")
+            _git(repo, "add", "-A")
+            _git(repo, "commit", "-q", "-m", "init")
+            r = types.SimpleNamespace(run_dir=repo / ".run")
+            r.run_dir.mkdir()
+            self.assertFalse(tkrun.Runner.commit_paths(r, repo, ["a.txt"], "no-op"))
+            self.assertEqual(_git(repo, "rev-list", "--count", "HEAD").strip(), "1")
+
     def test_jobs_flag_defaults_to_config(self):
         s = self.parallel_scratch([["a/"], ["b/"]])
         s.set_config({"gate": [{"cmd": [sys.executable, "-c", "pass"]}],
