@@ -276,6 +276,11 @@ What changed in one long dogfooding session driving Swaygent with
   editing different functions in one file might be fine, and it cannot see a
   file a task forgot to declare.
 - The event log has no rotation or compaction.
+- `test_jobs_serialise_tasks_with_overlapping_or_missing_touches` is flaky: it
+  failed roughly one run in five of the full suite under load, while passing in
+  isolation and in ten full-suite runs on `main`. Timing-sensitive (the stub
+  agent sleeps 2.5s and the tasks must serialise on overlapping `touches`); the
+  parallel scheduler or the test's timing assumption needs the real fix.
 - The leased-lane reader has no booking and no renewal: if a provider changes its
   reservations API shape, `lane_window` silently sees no window and every task
   falls back. There is no test against a live API, only a stub.
