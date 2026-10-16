@@ -1166,7 +1166,8 @@ def cmd_done(args) -> int:
 
 def look_queue(data: dict) -> list[dict]:
     return [{"id": t["id"], "title": t.get("title", ""), "phase": p["id"],
-             "note": t.get("human_look", "")}
+             "note": t.get("human_look", ""), "goal": t.get("goal", ""),
+             "success": list(t.get("success") or [])}
             for p in data.get("phases", []) for t in p.get("tasks", [])
             if t.get("status") == LOOK]
 
@@ -1207,7 +1208,16 @@ def cmd_look_queue(args) -> int:
     print("=" * 50)
     for q in queue:
         print(f"  {q['id']} - {q['title']}")
-        if q["note"]:
+        if args.verbose:
+            # An agent's note that only points at the criteria ("see the task's
+            # success criteria") is noise once the criteria are printed below it.
+            pointer = len(q["note"]) < 80 and "success criteria" in q["note"].lower()
+            if q["note"] and not pointer:
+                print(f"      check: {q['note']}")
+            for c in q["success"]:
+                print(f"      [ ] {c}")
+            print()
+        elif q["note"]:
             print(f"      check: {q['note']}")
     print(f"\nClear one: tidetable look-clear {args.todo_file} <id>")
     return 0
@@ -1802,6 +1812,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_look_defer)
 
     p = add_command("look-queue", "Tasks waiting for a human look", json_out=True)
+    p.add_argument("-v", "--verbose", action="store_true",
+                   help="List each task's success criteria as a checklist")
     p.set_defaults(func=cmd_look_queue)
 
     p = add_owner(add_command("look-clear", "A human looked: task -> done", task_id=True))

@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`look-queue -v`.** Prints each queued task's success criteria as a `[ ]`
+  checklist and drops a note that only points at them, so a human can read every
+  pending check in one list. `--json` entries gain `goal` and `success`.
 - **Default todo file.** `todo_file` is optional on every command and on
   `tkrun run|init|stop|kill|adjudicate`. Omitted, TideTable uses the `todo*.json`
   in the first of `.`, `docs/`, `.tidetable/` that has one, prints

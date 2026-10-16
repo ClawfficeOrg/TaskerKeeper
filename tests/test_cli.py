@@ -224,6 +224,20 @@ class MutationTest(unittest.TestCase):
             self.assertEqual(reload(path)["phases"][0]["tasks"][0]["status"], "done")
             self.assertIn("empty", run("look-queue", path)[1])
 
+    def test_look_queue_verbose_lists_success_criteria(self):
+        t = task("1.0.1", "needs_human_look", human_look="See the task's success criteria",
+                 success=["divider is 1px", "drag resizes"])
+        with TempTodo(todo(phase("1.0", t))) as path:
+            _, plain = run("look-queue", path)
+            self.assertIn("success criteria", plain)
+            self.assertNotIn("divider is 1px", plain)
+            _, out = run("look-queue", path, "-v")
+            self.assertIn("[ ] divider is 1px", out)
+            self.assertIn("[ ] drag resizes", out)
+            self.assertNotIn("success criteria", out.lower())
+            queue = json.loads(run("look-queue", path, "--json")[1])["queue"]
+            self.assertEqual(queue[0]["success"], ["divider is 1px", "drag resizes"])
+
     def test_look_clear_reject_returns_to_pending(self):
         with TempTodo(todo(phase("1.0", task("1.0.1", "needs_human_look")))) as path:
             self.assertEqual(run("look-clear", path, "1.0.1", "--reject")[0], 0)
