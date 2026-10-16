@@ -231,6 +231,11 @@ tidetable release docs/todo-v7.json 7.1 --tag  # create it
 
 ## CLI Usage
 
+The todo file argument is optional: omitted, the CLI uses the single `todo*.json`
+found in `.`, then `docs/`, then `.tidetable/` (first directory with any wins).
+Two or more in that directory is an error; none found prompts on a terminal and
+errors otherwise. Not defaulted with `--server`.
+
 ```bash
 # Validate: JSON Schema plus semantic checks (dangling prereqs, cycles, dupes)
 tidetable validate docs/todo-v7.json

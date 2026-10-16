@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Default todo file.** `todo_file` is optional on every command and on
+  `tkrun run|init|stop|kill|adjudicate`. Omitted, TideTable uses the `todo*.json`
+  in the first of `.`, `docs/`, `.tidetable/` that has one, prints
+  `Using <path>` to stderr, and errors if that directory holds more than one.
+  With nothing found it prompts on a terminal and errors otherwise, so agents
+  never block on input. Not applied with `--server`, where the argument is a slug.
 - **Claude Code agents are adjudicated too.** With `adjudicator.enabled`, a
   `claude -p` dev agent now gets a `PreToolUse` hook (`tidetable/claude_hook.py`,
   passed with `--settings`) that sends every Bash command to the runner's

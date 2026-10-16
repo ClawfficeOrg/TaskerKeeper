@@ -35,6 +35,13 @@ HTTPS with the bearer token — the API is never exposed unauthenticated.
 
 TideTable works as a standalone tool. No frameworks or platforms required.
 
+Every command (including `tkrun run|init|stop|kill|adjudicate`) takes the todo
+file as an optional argument. Omitted, it uses the one `todo*.json` in `.`,
+`docs/` or `.tidetable/` (searched in that order, first directory with a match
+wins), asks for a path on a terminal when none exists, and errors when stdin is
+not a terminal. Several matches in one directory is an error until multi-file
+phases exist.
+
 ### Quick Start
 
 ```bash

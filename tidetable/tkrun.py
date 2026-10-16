@@ -2216,7 +2216,7 @@ def add_parser(sub) -> None:
     inner = p.add_subparsers(dest="tkrun_command", required=True)
 
     run = inner.add_parser("run", help="Work through ready tasks until done, stopped or out of time")
-    run.add_argument("todo_file", help="Path to todo JSON file (project slug with --server)")
+    run.add_argument("todo_file", nargs="?", help="Path to todo JSON file (project slug with --server)")
     run.add_argument("--hours", type=float, default=None, help="Time budget (default 8; 0 with --minutes)")
     run.add_argument("--minutes", type=float, default=0, help="Added to --hours (alone = minutes only)")
     run.add_argument("--dry-run", action="store_true", help="Show routing, command and prompt; change nothing")
@@ -2247,26 +2247,26 @@ def add_parser(sub) -> None:
     run.set_defaults(func=cmd_run)
 
     init = inner.add_parser("init", help="Write a starter .tidetable/tkrun.json for this repo")
-    init.add_argument("todo_file", help="Path to todo JSON file (locates the repo)")
+    init.add_argument("todo_file", nargs="?", help="Path to todo JSON file (locates the repo)")
     init.add_argument("--force", action="store_true", help="Overwrite an existing config")
     init.add_argument("--repo", metavar="PATH",
                       help="With a hub (--server): the git checkout to work in (default: cwd)")
     init.set_defaults(func=cmd_init)
 
     stop = inner.add_parser("stop", help="Ask a running TKRun to stop after the current task")
-    stop.add_argument("todo_file", help="Path to todo JSON file (locates the repo)")
+    stop.add_argument("todo_file", nargs="?", help="Path to todo JSON file (locates the repo)")
     stop.add_argument("--repo", metavar="PATH",
                       help="With a hub (--server): the git checkout to work in (default: cwd)")
     stop.set_defaults(func=cmd_stop)
 
     kill = inner.add_parser("kill", help="Hard-stop a running TKRun: signal its process tree now")
-    kill.add_argument("todo_file", help="Path to todo JSON file (locates the repo)")
+    kill.add_argument("todo_file", nargs="?", help="Path to todo JSON file (locates the repo)")
     kill.add_argument("--repo", metavar="PATH",
                       help="With a hub (--server): the git checkout to work in (default: cwd)")
     kill.set_defaults(func=cmd_kill)
 
     adj = inner.add_parser("adjudicate", help="Ask the decision model about one command (no run)")
-    adj.add_argument("todo_file", help="Path to todo JSON file (locates the repo/config)")
+    adj.add_argument("todo_file", nargs="?", help="Path to todo JSON file (locates the repo/config)")
     adj.add_argument("command", help="The shell command to judge")
     adj.add_argument("--repo", metavar="PATH",
                      help="With a hub (--server): the git checkout to work in (default: cwd)")

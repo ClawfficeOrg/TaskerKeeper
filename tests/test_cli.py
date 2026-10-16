@@ -1354,6 +1354,88 @@ class TestTaskerKeeperCompat(unittest.TestCase):
             self.assertIn("not found", r.stdout)
 
 
+class DefaultTodoTest(unittest.TestCase):
+    """`todo_file` is optional: ., docs/, .tidetable/ are searched in that order."""
+
+    def setUp(self):
+        tmp = TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.dir = Path(tmp.name)
+        old = os.getcwd()
+        os.chdir(self.dir)
+        self.addCleanup(os.chdir, old)
+
+    def put(self, rel: str) -> None:
+        path = self.dir / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(todo(phase("1.0", task("1.0.1")))), encoding="utf-8")
+
+    def run_noninteractive(self, *argv: str) -> tuple[int, str]:
+        with mock.patch.object(cli.sys.stdin, "isatty", return_value=False):
+            return run(*argv)
+
+    def test_single_file_in_cwd_is_used(self):
+        self.put("todo.json")
+        code, out = self.run_noninteractive("ready", "--json")
+        self.assertEqual(code, 0, out)
+        self.assertIn("1.0.1", out)
+
+    def test_search_order_is_cwd_then_docs_then_tidetable(self):
+        self.put(".tidetable/todo-c.json")
+        self.assertEqual([p.name for p in cli.find_default_todos(self.dir)], ["todo-c.json"])
+        self.put("docs/todo-b.json")
+        self.assertEqual([p.name for p in cli.find_default_todos(self.dir)], ["todo-b.json"])
+        self.put("todo-a.json")
+        self.assertEqual([p.name for p in cli.find_default_todos(self.dir)], ["todo-a.json"])
+
+    def test_task_id_alone_is_not_mistaken_for_the_todo_file(self):
+        self.put("docs/todo-v1.json")
+        code, out = self.run_noninteractive("start", "1.0.1", "--owner", "me")
+        self.assertEqual(code, 0, out)
+        data = reload(str(self.dir / "docs" / "todo-v1.json"))
+        self.assertEqual(data["phases"][0]["tasks"][0]["status"], "in_progress")
+
+    def test_explicit_path_still_wins(self):
+        self.put("todo.json")
+        self.put("other/mine.json")
+        code, out = self.run_noninteractive("ready", "other/mine.json", "--json")
+        self.assertEqual(code, 0, out)
+
+    def test_several_files_in_one_directory_is_an_error(self):
+        self.put("todo-v1.json")
+        self.put("todo-v2.json")
+        code, out = self.run_noninteractive("ready")
+        self.assertEqual(code, 1)
+        self.assertIn("more than one todo file", out)
+        self.assertIn("todo-v1.json", out)
+
+    def test_nothing_found_without_a_terminal_errors_instead_of_prompting(self):
+        with mock.patch("builtins.input", side_effect=AssertionError("prompted")):
+            code, out = self.run_noninteractive("ready")
+        self.assertEqual(code, 1)
+        self.assertIn("no todo*.json found", out)
+
+    def test_nothing_found_on_a_terminal_asks_for_a_path(self):
+        self.put("elsewhere/plan.json")
+        with mock.patch.object(cli.sys.stdin, "isatty", return_value=True), \
+                mock.patch("builtins.input", return_value="elsewhere/plan.json"):
+            code, out = run("ready", "--json")
+        self.assertEqual(code, 0, out)
+
+    def test_hub_mode_does_not_default_the_slug(self):
+        self.put("todo.json")
+        code, out = self.run_noninteractive("--server", "http://127.0.0.1:1", "ready")
+        self.assertEqual(code, 1)
+        self.assertIn("project slug", out)
+
+    def test_tkrun_subcommands_accept_no_todo_file(self):
+        args = cli.build_parser().parse_args(["tkrun", "run", "--dry-run"])
+        self.assertIsNone(args.todo_file)
+        args = cli.build_parser().parse_args(["tkrun", "adjudicate", "rm -rf x"])
+        self.assertIsNone(args.todo_file)
+        self.assertEqual(args.command, "rm -rf x")
+
+
 class TestRemoteClient(unittest.TestCase):
     """`--server` runs a command against a `tidetable serve` hub."""
 

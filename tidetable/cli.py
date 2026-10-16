@@ -1686,6 +1686,56 @@ def cmd_serve(args) -> int:
 # ---------------------------------------------------------------------------
 
 
+TODO_SEARCH_DIRS = (".", "docs", ".tidetable")
+TODO_FILE_HELP = ("Path to todo JSON file (default: the todo*.json found in ., docs/ "
+                  "or .tidetable/, first directory wins)")
+
+
+def find_default_todos(cwd: Path | None = None) -> list[Path]:
+    """todo*.json files in the first search directory that has any, sorted by name.
+
+    First directory wins rather than merging all three: a stray docs/todo-old.json
+    must not make a project root's todo.json ambiguous.
+    """
+    base = cwd or Path.cwd()
+    for sub in TODO_SEARCH_DIRS:
+        found = sorted(p for p in (base / sub).glob("todo*.json") if p.is_file())
+        if found:
+            return found
+    return []
+
+
+def resolve_default_todo(args) -> str | None:
+    """Fill a missing `todo_file`; return an error message when that is impossible.
+
+    Never prompts when stdin is not a terminal: an agent or CI job waiting on
+    input forever is worse than a clear error.
+    """
+    if getattr(args, "todo_file", "unset") is not None:
+        return None
+    from tidetable import remote
+    if remote.server_url(args) and not getattr(args, "local", False):
+        return "with --server the todo_file argument is the project slug and cannot be defaulted"
+    found = find_default_todos()
+    searched = ", ".join(TODO_SEARCH_DIRS)
+    if len(found) == 1:
+        args.todo_file = os.path.relpath(found[0])
+        print(f"Using {args.todo_file}", file=sys.stderr)
+        return None
+    if len(found) > 1:
+        names = ", ".join(os.path.relpath(p) for p in found)
+        return f"more than one todo file found ({names}); name the one to use"
+    if sys.stdin.isatty():
+        try:
+            answer = input(f"No todo*.json found in {searched}. Path to a todo file: ").strip()
+        except EOFError:
+            answer = ""
+        if answer:
+            args.todo_file = answer
+            return None
+    return f"no todo file given and no todo*.json found in {searched}"
+
+
 def build_parser() -> argparse.ArgumentParser:
     from tidetable import __version__
 
@@ -1702,7 +1752,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     def add_command(name, help_text, *, task_id=False, json_out=False):
         p = sub.add_parser(name, help=help_text)
-        p.add_argument("todo_file", help="Path to todo JSON file")
+        p.add_argument("todo_file", nargs="?", help=TODO_FILE_HELP)
         if task_id:
             p.add_argument("task_id", help="Task ID")
         if json_out:
@@ -1889,7 +1939,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         from tidetable import remote
-        refusal = remote.reject_if_local_only(args)
+        refusal = remote.reject_if_local_only(args) or resolve_default_todo(args)
         if refusal:
             print(f"Error: {refusal}")
             code = 1

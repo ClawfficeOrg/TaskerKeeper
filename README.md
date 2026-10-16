@@ -35,6 +35,12 @@ Without installing, `python -m tidetable <command>` and `python scripts/tidetabl
 
 ## Commands
 
+The todo file is optional on every command. Leave it out and TideTable uses the
+`todo*.json` in the first of `.`, `docs/`, `.tidetable/` that has one. Several
+files in that directory is an error (name one); none found asks on a terminal
+and errors when there is none. With `--server` the argument is the project slug
+and is never defaulted.
+
 | Command | What it does |
 |---------|--------------|
 | `validate <file>` | JSON Schema check **plus** semantic checks: duplicate IDs, dangling prerequisites, cycles, task/phase ID mismatches |
