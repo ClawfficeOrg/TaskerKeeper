@@ -70,14 +70,19 @@ except ImportError:
     HAS_JSONSCHEMA = False
 
 #: Statuses that mean the task will not be worked on again.
-TERMINAL_STATUSES = frozenset({"done", "cancelled", "moved"})
+#: Done as far as the task graph goes, but a human still has to look at the running
+#: app. Unblocks dependents like done; waits in the queue `tidetable look-queue` lists.
+LOOK = "needs_human_look"
+
+TERMINAL_STATUSES = frozenset({"done", LOOK, "cancelled", "moved"})
 
 #: Statuses the schema allows.
-VALID_STATUSES = ("pending", "in_progress", "done", "cancelled", "moved")
+VALID_STATUSES = ("pending", "in_progress", "done", LOOK, "cancelled", "moved")
 
 STATUS_ICONS = {
     "done": "✓",
     "in_progress": "►",
+    LOOK: "◐",
     "pending": "·",
     "cancelled": "✗",
     "moved": "→",
@@ -315,7 +320,7 @@ def id_key(task_id: str):
 
 
 def done_task_ids(data: dict) -> set[str]:
-    return {t["id"] for t in all_tasks(data) if t.get("status") == "done"}
+    return {t["id"] for t in all_tasks(data) if t.get("status") in ("done", LOOK)}
 
 
 def phase_is_complete(phase: dict) -> bool:
@@ -1159,6 +1164,79 @@ def cmd_done(args) -> int:
     return 0
 
 
+def look_queue(data: dict) -> list[dict]:
+    return [{"id": t["id"], "title": t.get("title", ""), "phase": p["id"],
+             "note": t.get("human_look", "")}
+            for p in data.get("phases", []) for t in p.get("tasks", [])
+            if t.get("status") == LOOK]
+
+
+def cmd_look_defer(args) -> int:
+    """Park a finished-but-unverified task in the human queue (counts as done for deps)."""
+    lock = FileLock(args.todo_file)
+    with lock:
+        report_lock(lock)
+        data = load_todo(args.todo_file)
+        _, task = find_task(data, args.task_id)
+        if task is None:
+            print(f"Error: task {args.task_id} not found")
+            return 1
+        previous = task.get("status")
+        if previous == "done":
+            print(f"Task {args.task_id} is already done.")
+            return 0
+        set_status(data, args.task_id, LOOK)
+        task["human_look"] = args.note or task.get("human_look", "")
+        save_todo(data, args.todo_file)
+        record_event(args.todo_file, "look_defer", task=args.task_id,
+                     owner=args.owner or default_owner(),
+                     **{"from": previous, "to": LOOK}, note=args.note)
+    print(f"{STATUS_ICONS[LOOK]} Task {args.task_id} queued for a human look (was {previous}).")
+    return 0
+
+
+def cmd_look_queue(args) -> int:
+    queue = look_queue(load_todo(args.todo_file))
+    if args.json:
+        emit_json({"queue": queue})
+        return 0
+    if not queue:
+        print("Human look queue is empty.")
+        return 0
+    print(f"Needs a human look ({len(queue)})")
+    print("=" * 50)
+    for q in queue:
+        print(f"  {q['id']} - {q['title']}")
+        if q["note"]:
+            print(f"      check: {q['note']}")
+    print(f"\nClear one: tidetable look-clear {args.todo_file} <id>")
+    return 0
+
+
+def cmd_look_clear(args) -> int:
+    """A human has looked: the task becomes plain done (or back to pending with --reject)."""
+    lock = FileLock(args.todo_file)
+    with lock:
+        report_lock(lock)
+        data = load_todo(args.todo_file)
+        _, task = find_task(data, args.task_id)
+        if task is None:
+            print(f"Error: task {args.task_id} not found")
+            return 1
+        if task.get("status") != LOOK:
+            print(f"Error: task {args.task_id} is {task.get('status')}, not {LOOK}")
+            return 1
+        target = "pending" if args.reject else "done"
+        set_status(data, args.task_id, target)
+        task.pop("human_look", None)
+        save_todo(data, args.todo_file)
+        record_event(args.todo_file, "look_clear", task=args.task_id,
+                     owner=args.owner or default_owner(),
+                     **{"from": LOOK, "to": target})
+    print(f"{STATUS_ICONS[target]} Task {args.task_id} cleared: {target}.")
+    return 0
+
+
 def cmd_reset(args) -> int:
     lock = FileLock(args.todo_file)
     with lock:
@@ -1667,6 +1745,18 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Finish despite unmet prerequisites or someone else's claim")
     p.add_argument("--changelog", help="Changelog line for this task")
     p.set_defaults(func=cmd_done)
+
+    p = add_owner(add_command("look-defer", "Queue a task for a human look (counts as done)",
+                              task_id=True))
+    p.add_argument("--note", help="What the human should check")
+    p.set_defaults(func=cmd_look_defer)
+
+    p = add_command("look-queue", "Tasks waiting for a human look", json_out=True)
+    p.set_defaults(func=cmd_look_queue)
+
+    p = add_owner(add_command("look-clear", "A human looked: task -> done", task_id=True))
+    p.add_argument("--reject", action="store_true", help="The check failed: back to pending")
+    p.set_defaults(func=cmd_look_clear)
 
     p = add_owner(add_command("reset", "Return a task to pending", task_id=True))
     p.set_defaults(func=cmd_reset)

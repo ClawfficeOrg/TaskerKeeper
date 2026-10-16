@@ -211,6 +211,24 @@ class MutationTest(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertEqual(reload(path)["phases"][0]["tasks"][0]["status"], "pending")
 
+    def test_look_defer_unblocks_dependents_and_queues(self):
+        with TempTodo(todo(phase("1.0", task("1.0.1", "in_progress"), task("1.0.2", prerequisites=["1.0.1"])))) as path:
+            self.assertEqual(run("look-defer", path, "1.0.1", "--note", "eyeball the divider")[0], 0)
+            self.assertEqual(reload(path)["phases"][0]["tasks"][0]["status"], "needs_human_look")
+            self.assertEqual(run("validate", path)[0], 0)
+            self.assertIn("1.0.2", run("ready", path)[1])
+            code, out = run("look-queue", path)
+            self.assertIn("1.0.1", out)
+            self.assertIn("eyeball the divider", out)
+            self.assertEqual(run("look-clear", path, "1.0.1")[0], 0)
+            self.assertEqual(reload(path)["phases"][0]["tasks"][0]["status"], "done")
+            self.assertIn("empty", run("look-queue", path)[1])
+
+    def test_look_clear_reject_returns_to_pending(self):
+        with TempTodo(todo(phase("1.0", task("1.0.1", "needs_human_look")))) as path:
+            self.assertEqual(run("look-clear", path, "1.0.1", "--reject")[0], 0)
+            self.assertEqual(reload(path)["phases"][0]["tasks"][0]["status"], "pending")
+
     def test_done_refuses_unmet_prerequisites(self):
         with TempTodo(todo(phase("1.0", task("1.0.1"), task("1.0.2", prerequisites=["1.0.1"])))) as path:
             code, out = run("done", path, "1.0.2")

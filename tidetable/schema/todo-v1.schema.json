@@ -114,7 +114,7 @@
         "title": { "type": "string" },
         "status": {
           "type": "string",
-          "enum": ["pending", "in_progress", "done", "cancelled", "moved"],
+          "enum": ["pending", "in_progress", "done", "needs_human_look", "cancelled", "moved"],
           "default": "pending"
         },
         "goal": { "type": "string", "description": "Detailed implementation description" },
@@ -169,6 +169,7 @@
           "format": "date-time",
           "description": "When the claim lapses. Past this, another agent may take the task - which is how work orphaned by a crashed session is recovered without a human editing the file."
         },
+        "human_look": { "type": "string", "description": "What a human must check; set while status is needs_human_look." },
         "changelog": {
           "type": ["string", "null"],
           "description": "One-line changelog entry, collected into the phase release.changelog_entries when the task is marked done. Null means no entry."

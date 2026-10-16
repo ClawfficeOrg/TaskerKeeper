@@ -188,10 +188,10 @@ class TKRunRunTests(unittest.TestCase):
                 s.run(mode)
                 self.assertEqual(s.status(), "pending")
 
-    def test_partial_commits_wip_and_leaves_in_progress(self):
+    def test_partial_commits_wip_and_queues_a_human_look(self):
         s = self.scratch()
         s.run("partial")
-        self.assertEqual(s.status(), "in_progress")
+        self.assertEqual(s.status(), "needs_human_look")
         self.assertIn("wip(1.1)", _git(s.root, "log", s.branch, "--format=%s"))
 
     def test_done_with_no_changes_is_a_failure(self):

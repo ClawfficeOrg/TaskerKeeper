@@ -1633,6 +1633,7 @@ TKRUN_SUMMARY: <one line, imperative, <= 72 chars: what you did>
             self.park_failure(task, f"gate: {why}")
             return "failed"
 
+        agent_partial = parsed["status"] == "PARTIAL"  # the agent itself needs a human look
         missing =[p for p in self.cfg["required_changed"] if p not in changed]
         if parsed["status"] == "DONE" and missing:
             parsed.update(status="PARTIAL", detail=f"no change to {', '.join(missing)}")
@@ -1665,6 +1666,15 @@ TKRUN_SUMMARY: <one line, imperative, <= 72 chars: what you did>
             self.commit_task(task, spec, parsed, "done", sib_changed)
             self.log(f"DONE {tid} - {parsed['summary']}")
             return "done"
+        if agent_partial and parsed["status"] == "PARTIAL" and parsed.get("detail"):
+            # Gate passed; only a human check is outstanding. Count it done for the graph
+            # (dependents unblock) and queue the check instead of stalling the run.
+            r = self.tk("look-defer", self.todo_arg, tid, "--owner", self.owner,
+                        "--note", parsed["detail"])
+            if not r.code:
+                self.commit_task(task, spec, parsed, "partial", sib_changed)
+                self.log(f"LOOK {tid} - committed, queued for a human look: {parsed['detail']}")
+                return "partial"
         self.commit_task(task, spec, parsed, "partial", sib_changed)
         self.log(f"PARTIAL {tid} - committed, left in_progress (lease {self.lease}m). Needs human: {parsed['detail']}")
         return "partial"
