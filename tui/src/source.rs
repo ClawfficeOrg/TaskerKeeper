@@ -299,7 +299,12 @@ impl<R: Runner> LocalSource<R> {
         // --local: an exported TIDETABLE_SERVER must not reroute a local read to a hub.
         let mut args: Vec<String> = vec!["--local".into(), cmd.into(), file.into()];
         args.extend(flags.iter().map(|s| s.to_string()));
-        let out = self.runner.run(&args).map_err(SourceError::Cli)?;
+        let out = match self.runner.run(&args) {
+            Ok(o) => o,
+            // `ready` exits 1 when nothing is ready (all done, or all blocked); the JSON is still the answer.
+            Err(e) if cmd == "ready" && serde_json::from_str::<Value>(&e).is_ok() => e,
+            Err(e) => return Err(SourceError::Cli(e)),
+        };
         serde_json::from_str(&out).map_err(|e| SourceError::Parse(format!("{cmd}: {e}")))
     }
 }
@@ -545,6 +550,34 @@ mod tests {
         fn post(&self, _: &str, _: &Value) -> Result<Value, String> {
             Err("read-only fixture".into())
         }
+    }
+
+    /// `tidetable ready` exits 1 when nothing is ready; stdout is still the JSON answer.
+    struct ExitOneOnEmptyReady;
+
+    impl Runner for ExitOneOnEmptyReady {
+        fn run(&self, args: &[String]) -> Result<String, String> {
+            match args.get(1).map(String::as_str) {
+                Some("ready") => {
+                    Err(r#"{"ready":[],"disjoint":false,"in_progress":[],"blocked":[]}"#.into())
+                }
+                _ => Fake {
+                    calls: RefCell::new(vec![]),
+                }
+                .run(args),
+            }
+        }
+    }
+
+    #[test]
+    fn nothing_ready_is_a_state_not_an_error() {
+        let base = tmp("empty-ready");
+        std::fs::write(base.join("todo-x.json"), "{}").unwrap();
+        let mut src = LocalSource::new(ExitOneOnEmptyReady, base);
+        let snap = src
+            .snapshot()
+            .expect("exit 1 with JSON must not fail the snapshot");
+        assert!(snap.ready.is_empty());
     }
 
     #[test]
