@@ -1,2 +1,10 @@
 {"at": "2026-10-17T06:29:33Z", "event": "start", "task": "3.0.1", "owner": "Morrissey5070Ti:53660", "from": "pending", "to": "in_progress", "lease_expires_at": "2026-10-17T07:29:33Z"}
 {"at": "2026-10-17T06:36:19Z", "event": "done", "task": "3.0.1", "owner": "Morrissey5070Ti:53660", "from": "in_progress", "to": "done", "changelog": "tui/ crate: Source trait, Snapshot, LocalSource over the CLI (ratatui 0.30.2)"}
+{"at": "2026-10-17T07:17:38Z", "event": "start", "task": "3.0.2", "owner": "Morrissey5070Ti:67856", "from": "pending", "to": "in_progress", "lease_expires_at": "2026-10-17T08:17:38Z"}
+{"at": "2026-10-17T07:21:15Z", "event": "done", "task": "3.0.2", "owner": "Morrissey5070Ti:67856", "from": "in_progress", "to": "done", "changelog": "Theme: 5 vendored palettes, 256/mono fallbacks, status glyphs", "phase_complete": true}
+{"at": "2026-10-17T07:22:33Z", "event": "start", "task": "3.1.1", "owner": "Morrissey5070Ti:65784", "from": "pending", "to": "in_progress", "lease_expires_at": "2026-10-17T08:22:33Z"}
+{"at": "2026-10-17T07:27:07Z", "event": "status", "task": "3.1.1", "owner": "Morrissey5070Ti:65680", "from": "in_progress", "to": "pending"}
+{"at": "2026-10-17T07:27:07Z", "event": "start", "task": "3.1.1", "owner": "tui-agent", "from": "pending", "to": "in_progress", "lease_expires_at": "2026-10-17T08:27:07Z"}
+{"at": "2026-10-17T07:27:08Z", "event": "done", "task": "3.1.1", "owner": "tui-agent", "from": "in_progress", "to": "done", "changelog": "Layout modes standard/side/bottom with auto reflow"}
+{"at": "2026-10-17T07:27:08Z", "event": "done", "task": "3.1.2", "owner": "tui-agent", "from": "pending", "to": "done", "changelog": "Now/Upcoming/Done views, detail pane, mouse+keys"}
+{"at": "2026-10-17T07:27:08Z", "event": "done", "task": "3.1.3", "owner": "tui-agent", "from": "pending", "to": "done", "changelog": "Review checklist with local ticks sidecar", "phase_complete": true}
