@@ -182,6 +182,30 @@ mod tests {
     }
 
     #[test]
+    fn the_fade_recolours_only_the_queued_row() {
+        let t0 = Instant::now();
+        let area = Rect::new(0, 0, 10, 3);
+        let mut buf = Buffer::empty(area);
+        for y in 0..3 {
+            buf.set_string(0, y, "abc", ratatui::style::Style::new().fg(Color::White));
+        }
+        let rows = vec![(Rect::new(0, 1, 10, 1), "1.1".to_string())];
+        let mut m = Motion::default();
+        m.queue(HashSet::from(["1.1".to_string()]));
+        m.run(&mut buf, area, &rows, Color::Red, t0);
+        m.run(
+            &mut buf,
+            area,
+            &rows,
+            Color::Red,
+            t0 + Duration::from_millis(100),
+        );
+        assert_ne!(buf[(0, 1)].fg, Color::White, "queued row tinted mid-fade");
+        assert_eq!(buf[(0, 0)].fg, Color::White);
+        assert_eq!(buf[(0, 2)].fg, Color::White);
+    }
+
+    #[test]
     fn an_id_that_is_off_screen_owes_nothing() {
         let area = Rect::new(0, 0, 20, 3);
         let mut buf = Buffer::empty(area);
