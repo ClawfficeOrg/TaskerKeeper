@@ -22,6 +22,8 @@ tidetable/integrations.py           `integrations list|install|uninstall` for th
 tidetable/tkrun.py                  Unattended runner TKRun (`tkrun run|init|stop|kill`, `overnight` alias), the one supervisor
 tidetable/runs.py                   Live run state (pid / STOP / KILL / log) read by the sidebar
 tidetable/remote.py                 `--server` client: argv -> hub HTTP route, no logic
+tidetable/tui.py                    `tidetable tui`: finds tidetable-tui, builds the (tmux) command line, no logic
+tui/                                tidetable-tui, the ratatui front end (Rust, not in the wheel; `cd tui && cargo test`)
 tidetable/jsonio.py                 Atomic writes, the file lock, the event log
 tidetable/__main__.py               python -m tidetable
 taskerkeeper/                          Pre-0.9 name: aliases every tidetable module, no logic
@@ -29,7 +31,7 @@ tidetable/schema/todo-v1.schema.json  JSON Schema (draft 2020-12), package data
 scripts/tidetable.py                Forwarding shim, no logic (scripts/taskerkeeper.py is the legacy twin)
 ralph/ralph-json.sh                    Thin wrapper that execs the CLI, no logic
 skills/tidetable/SKILL.md           Hermes skill describing the format
-tests/test_cli.py                      stdlib unittest suite
+tests/test_cli.py                      stdlib unittest suite (tests/test_tui.py covers `tidetable tui`)
 examples/                              simple-project, zoidmatter-v7
 docs/                                  philosophy, integration-guide, memory, module-plan, notes
 ```
@@ -41,6 +43,7 @@ python -m unittest discover -s tests -v     # the whole suite, under a second
 tidetable agents show                    # resolved tier -> provider/model
 tidetable validate examples/simple-project.json
 pip install .                               # non-editable install must keep working
+(cd tui && cargo test && cargo clippy --all-targets -- -D warnings)   # when tui/ changed
 ```
 
 Run both before claiming any change works. `pip install .` matters because the
@@ -180,6 +183,11 @@ not exist. If you add, rename, or remove a command, update `README.md`,
 `skills/tidetable/SKILL.md`, `docs/integration-guide.md`, and `CHANGELOG.md`
 in the same change.
 
+**The TUI never writes a todo file.** `tui/` reads through the `tidetable` CLI (local) or the
+hub (`--server`) and acts through the same two doors; the only file it writes is the
+review-tick sidecar. A test greps the data layer for write APIs. A new hub read goes in
+`remote.ROUTES` and `serve.ROUTES` with a `TestRemoteClient` test.
+
 **Every behavior change gets a test.** `tests/test_cli.py` is stdlib
 `unittest`, so it runs with no dev dependencies. Keep it that way.
 
@@ -204,6 +212,11 @@ in the same change.
   `tidetable/__init__.py` together, and add a `CHANGELOG.md` entry.
 
 ## Working on a TideTable todo file
+
+One project, one todo file (`docs/todo.json` here). Add new work as a phase in
+that file; never split by size or topic, because separate files overlap and make
+the bare `tidetable ready` refuse ("more than one todo file found"). Size costs
+nothing: query with `tidetable ready|list` or `jq`, don't read the whole file.
 
 When driving a project's roadmap (this repo's own, or another's):
 

@@ -1,0 +1,36 @@
+{
+  "name": "Deep Tide",
+  "scheme": "dark",
+  "status": "alternate",
+  "summary": "Navy ink, claw orange primary, spectre cyan second. The first scaffold.",
+  "neutral": {
+    "ink-950": "#07111C",
+    "ink-900": "#0B1A2A",
+    "ink-800": "#11263B",
+    "ink-700": "#1A3550",
+    "ink-600": "#2A4A6B",
+    "mist-400": "#7F97B0",
+    "mist-300": "#9DB1C6",
+    "mist-200": "#C6D4E3",
+    "mist-50": "#EEF4FA"
+  },
+  "role": {
+    "window-background": "#0B1A2A",
+    "surface": "#11263B",
+    "terminal-background": "#07111C",
+    "border": "#1A3550",
+    "border-strong": "#2A4A6B",
+    "text": "#C6D4E3",
+    "text-muted": "#7F97B0",
+    "text-strong": "#EEF4FA",
+    "primary": "#F26B21",
+    "primary-text": "#0B1A2A",
+    "second": "#3FD0E8"
+  },
+  "status-color": {
+    "success": "#4CC38A",
+    "warning": "#F2B441",
+    "danger": "#EF5B5B",
+    "info": "#4A9FE0"
+  }
+}

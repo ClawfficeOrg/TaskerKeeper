@@ -1899,6 +1899,8 @@ def build_parser() -> argparse.ArgumentParser:
     tkrun.add_parser(sub)
     from tidetable import integrations
     integrations.add_parser(sub)
+    from tidetable import tui
+    tui.add_parser(sub)
     return parser
 
 

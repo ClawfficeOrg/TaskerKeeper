@@ -1,0 +1,25 @@
+{
+  "name": "Phosphor",
+  "scheme": "dark",
+  "status": "alternate",
+  "summary": "CRT black, phosphor lime primary, lobster red second.",
+  "role": {
+    "window-background": "#0A0C0A",
+    "surface": "#131713",
+    "terminal-background": "#050605",
+    "border": "#263026",
+    "border-strong": "#3D4D3D",
+    "text": "#B9C7B4",
+    "text-muted": "#7D8C78",
+    "text-strong": "#EAF5E4",
+    "primary": "#C6F24E",
+    "primary-text": "#0A0C0A",
+    "second": "#FF5A36"
+  },
+  "status-color": {
+    "success": "#6EE7A0",
+    "warning": "#FFB000",
+    "danger": "#FF6B6B",
+    "info": "#5CE1E6"
+  }
+}

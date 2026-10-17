@@ -1,0 +1,36 @@
+{
+  "name": "Biolume",
+  "scheme": "dark",
+  "status": "default",
+  "summary": "Deep-sea ink, phosphor lime primary, claw orange second.",
+  "neutral": {
+    "ink-950": "#030C11",
+    "ink-900": "#06141B",
+    "ink-800": "#0C2029",
+    "ink-700": "#16343F",
+    "ink-600": "#24505E",
+    "mist-400": "#759695",
+    "mist-300": "#9BB8B6",
+    "mist-200": "#BFD6D6",
+    "mist-50": "#E9FBF6"
+  },
+  "role": {
+    "window-background": "#06141B",
+    "surface": "#0C2029",
+    "terminal-background": "#030C11",
+    "border": "#16343F",
+    "border-strong": "#24505E",
+    "text": "#BFD6D6",
+    "text-muted": "#759695",
+    "text-strong": "#E9FBF6",
+    "primary": "#C6F24E",
+    "primary-text": "#06141B",
+    "second": "#F26B21"
+  },
+  "status-color": {
+    "success": "#4CC38A",
+    "warning": "#F2B441",
+    "danger": "#EF5B5B",
+    "info": "#4A9FE0"
+  }
+}

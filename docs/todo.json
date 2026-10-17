@@ -1,0 +1,853 @@
+{
+  "schema_version": "1.0.0",
+  "project": {
+    "name": "TideTable",
+    "version": {
+      "milestone": "tui-remote",
+      "release_version": "0.13.0"
+    },
+    "description": "TideTable roadmap in one file: VPS hub (1.x), harness sidebars (2.x), TUI and TUI remote mode (3.x, 4.x). Query with tidetable or jq; do not split by size."
+  },
+  "phases": [
+    {
+      "id": "1.0",
+      "title": "Foundation",
+      "goal": "Registry, compose topology, and SQL v1 so later tasks have paths and tables to build against.",
+      "tasks": [
+        {
+          "id": "1.0.1",
+          "title": "Registry and compose topology",
+          "status": "done",
+          "goal": "Write deploy/registry.json (slug, repo_url, todo_path) and deploy/compose.yml (core, postgres, dashboard) with Traefik labels for tk.example.com and /api bypass of forwardAuth.",
+          "touches": [
+            "deploy/registry.json",
+            "deploy/compose.yml"
+          ],
+          "success": [
+            "registry.json parses and lists one sample slug",
+            "compose.yml defines core, postgres, dashboard with Traefik labels"
+          ],
+          "tests": "python -c json.load registry; docker compose -f deploy/compose.yml config",
+          "complexity": "Medium",
+          "agent": "mid_dev_agent",
+          "created_at": "2026-09-22T00:00:00Z",
+          "updated_at": "2026-09-22T02:03:09Z",
+          "changelog": "Added VPS hub registry and compose topology"
+        },
+        {
+          "id": "1.0.2",
+          "title": "SQL migration v1",
+          "status": "done",
+          "goal": "Write deploy/migrations/001_init.sql with projects, tasks_snap, events, sessions, machine_tokens tables plus indexes. Projection only, never scheduling.",
+          "touches": [
+            "deploy/migrations/001_init.sql"
+          ],
+          "success": [
+            "SQL applies cleanly on fresh postgres",
+            "tables match spec from plan"
+          ],
+          "tests": "postgres apply migration in CI or psql -f",
+          "complexity": "Low",
+          "agent": "basic_dev_agent",
+          "created_at": "2026-09-22T00:00:00Z",
+          "updated_at": "2026-09-22T02:03:04Z",
+          "changelog": "Added Postgres projection schema v1"
+        },
+        {
+          "id": "1.0.3",
+          "title": "Serve scaffold with route table",
+          "status": "done",
+          "goal": "Create tidetable/serve.py with stdlib http.server, route table for GET reads and POST writes delegating to cli.py functions, bearer-token check stub reading TK_API_TOKEN.",
+          "touches": [
+            "tidetable/serve.py"
+          ],
+          "success": [
+            "python -m tidetable serve --help works",
+            "no DAG logic duplicated, imports from cli"
+          ],
+          "tests": "python -m unittest discover -s tests",
+          "complexity": "High",
+          "agent": "pro_dev_agent",
+          "created_at": "2026-09-22T00:00:00Z",
+          "updated_at": "2026-09-22T02:03:38Z",
+          "changelog": "Added serve scaffold delegating to cli"
+        }
+      ]
+    },
+    {
+      "id": "1.1",
+      "title": "Core API",
+      "goal": "Remote reads and locked writes plus agent heartbeats, preserving claim semantics.",
+      "prerequisites": [
+        "1.0"
+      ],
+      "tasks": [
+        {
+          "id": "1.1.1",
+          "title": "GET reads proxy",
+          "status": "done",
+          "goal": "Serve projects, ready, next, list, deps, history, validate, parallel by calling existing cli functions and returning current --json shapes.",
+          "touches": [
+            "tidetable/serve.py"
+          ],
+          "success": [
+            "GET /api/<slug>/ready matches local ready --json"
+          ],
+          "tests": "curl GET vs local CLI diff",
+          "prerequisites": [
+            "1.0.3"
+          ],
+          "complexity": "Medium",
+          "agent": "mid_dev_agent",
+          "created_at": "2026-09-22T00:00:00Z",
+          "updated_at": "2026-09-22T02:06:16Z",
+          "changelog": "Added GET read proxy handlers"
+        },
+        {
+          "id": "1.1.2",
+          "title": "POST writes under lock",
+          "status": "done",
+          "goal": "Serve start, done, reset, status, add via FileLock reload-mutate-write_json-append_event with threading.Lock. Enforce claimable_by server-side.",
+          "touches": [
+            "tidetable/serve.py"
+          ],
+          "success": [
+            "concurrent starts on same task refuse second claim",
+            "events.jsonl gains repo/branch/agent fields"
+          ],
+          "tests": "python -m unittest discover -s tests plus dual-claim script",
+          "prerequisites": [
+            "1.1.1"
+          ],
+          "complexity": "High",
+          "agent": "pro_dev_agent",
+          "created_at": "2026-09-22T00:00:00Z",
+          "updated_at": "2026-09-22T02:09:38Z",
+          "changelog": "Added locked POST write handlers"
+        },
+        {
+          "id": "1.1.3",
+          "title": "Heartbeat and sessions",
+          "status": "done",
+          "goal": "POST heartbeat upserts sessions table; start auto-heartbeats; done/reset clears task_id. Stale after 180s.",
+          "touches": [
+            "tidetable/sessions.py"
+          ],
+          "success": [
+            "agent appears in sessions within one heartbeat",
+            "stale agent greys out after timeout"
+          ],
+          "tests": "heartbeat script then query sessions",
+          "prerequisites": [
+            "1.1.2"
+          ],
+          "complexity": "Medium",
+          "agent": "mid_dev_agent",
+          "created_at": "2026-09-22T00:00:00Z",
+          "updated_at": "2026-09-22T02:13:57Z",
+          "changelog": "Added heartbeat and sessions"
+        }
+      ]
+    },
+    {
+      "id": "1.2",
+      "title": "Projection and live stream",
+      "goal": "Postgres mirrors JSON for fast multi-project reads and SSE fanout.",
+      "prerequisites": [
+        "1.1"
+      ],
+      "tasks": [
+        {
+          "id": "1.2.1",
+          "title": "Projector events to postgres",
+          "status": "done",
+          "goal": "Tail *.events.jsonl plus full load_todo resnap into tasks_snap and events tables. Best-effort, never blocks writes.",
+          "touches": [
+            "tidetable/projector.py"
+          ],
+          "success": [
+            "local done triggers row update within seconds"
+          ],
+          "tests": "write then query tasks_snap",
+          "prerequisites": [
+            "1.0.2",
+            "1.1.2"
+          ],
+          "complexity": "High",
+          "agent": "pro_dev_agent",
+          "created_at": "2026-09-22T00:00:00Z",
+          "updated_at": "2026-09-22T02:16:07Z",
+          "changelog": "Added projector resnap and ingest"
+        },
+        {
+          "id": "1.2.2",
+          "title": "SSE stream endpoint",
+          "status": "done",
+          "goal": "GET /api/stream using Postgres LISTEN/NOTIFY with --since replay. Traefik buffering off.",
+          "touches": [
+            "tidetable/serve.py"
+          ],
+          "success": [
+            "browser EventSource receives task update live"
+          ],
+          "tests": "curl -N stream while POST done",
+          "prerequisites": [
+            "1.2.1"
+          ],
+          "complexity": "Medium",
+          "agent": "mid_dev_agent",
+          "created_at": "2026-09-22T00:00:00Z",
+          "updated_at": "2026-09-22T02:22:11Z",
+          "changelog": "Added SSE live stream"
+        }
+      ]
+    },
+    {
+      "id": "1.3",
+      "title": "Dashboard",
+      "goal": "SvelteKit read-only live wall: fleet, project, agents. BetterAuth OIDC to Authentik.",
+      "prerequisites": [
+        "1.2"
+      ],
+      "tasks": [
+        {
+          "id": "1.3.1",
+          "title": "SvelteKit shell and fleet view",
+          "status": "done",
+          "goal": "Scaffold web/ with BetterAuth OIDC, fleet page polling core API, phase bars, release_ready badges.",
+          "touches": [
+            "web/src/routes/+page.svelte",
+            "web/src/lib/api.ts"
+          ],
+          "success": [
+            "fleet page renders all slugs from registry",
+            "login flows through Authentik"
+          ],
+          "tests": "npm run build in web/",
+          "prerequisites": [
+            "1.2.2"
+          ],
+          "complexity": "High",
+          "agent": "pro_dev_agent",
+          "created_at": "2026-09-22T00:00:00Z",
+          "updated_at": "2026-09-22T02:25:47Z",
+          "changelog": "Added dashboard shell and fleet view"
+        },
+        {
+          "id": "1.3.2",
+          "title": "Agents wall and project view",
+          "status": "done",
+          "goal": "Add agents page (repo@branch, claim age, touches, staleness) and project page (tasks, blockers, deferred warnings, event tail) over shared EventSource store.",
+          "touches": [
+            "web/src/routes/agents/+page.svelte",
+            "web/src/routes/p/[slug]/+page.svelte"
+          ],
+          "success": [
+            "stale agents grey out",
+            "disjoint deferred collisions display"
+          ],
+          "tests": "npm run build in web/",
+          "prerequisites": [
+            "1.3.1"
+          ],
+          "complexity": "Medium",
+          "agent": "mid_dev_agent",
+          "created_at": "2026-09-22T00:00:00Z",
+          "updated_at": "2026-09-22T02:28:41Z",
+          "changelog": "Added agents wall and project view"
+        }
+      ]
+    },
+    {
+      "id": "1.4",
+      "title": "Machine tokens",
+      "goal": "Shared bearer now, mintable per-machine per-project tokens with scopes next.",
+      "prerequisites": [
+        "1.3"
+      ],
+      "tasks": [
+        {
+          "id": "1.4.1",
+          "title": "Mint and verify project tokens",
+          "status": "done",
+          "goal": "Add tk mint command writing hashed machine_tokens rows with slugs, scopes, expiry. Middleware swaps constant compare for prefix-hash check. Revoke flag.",
+          "touches": [
+            "tidetable/tokens.py"
+          ],
+          "success": [
+            "minted token starts/dones only its slug and scope",
+            "revoked token refused"
+          ],
+          "tests": "python -m unittest discover -s tests",
+          "prerequisites": [
+            "1.1.3"
+          ],
+          "complexity": "Medium",
+          "agent": "mid_dev_agent",
+          "created_at": "2026-09-22T00:00:00Z",
+          "updated_at": "2026-09-22T02:32:15Z",
+          "changelog": "Added per-project machine tokens"
+        }
+      ]
+    },
+    {
+      "id": "2.0",
+      "title": "Shared core",
+      "goal": "One budgeted payload builder plus a sidebar CLI command so every harness adapter shells out to the same source instead of reimplementing the DAG.",
+      "tasks": [
+        {
+          "id": "2.0.1",
+          "title": "Sidebar payload builder and CLI command",
+          "status": "done",
+          "goal": "Create tidetable/sidebar.py with sidebar_payload() (current in_progress with claim age and goal, concurrent disjoint set, upcoming ready plus top blocked, current-phase tree, overall phase tree, all truncated to width/height with more-counts) and render_sidebar() text form. Wire tidetable sidebar <file> [--json] [--width] [--height] in cli.py. All scheduling calls delegate to existing cli functions.",
+          "touches": [
+            "tidetable/sidebar.py"
+          ],
+          "success": [
+            "sidebar --json returns current, concurrent, upcoming, phase_tree, overall sections",
+            "text render fits width and height budgets with more-counts",
+            "107+ existing tests still pass"
+          ],
+          "tests": "python -m unittest discover -s tests",
+          "complexity": "High",
+          "agent": "pro_dev_agent",
+          "created_at": "2026-09-23T00:00:00Z",
+          "updated_at": "2026-09-23T14:29:08Z",
+          "changelog": "Added budgeted sidebar payload and CLI command"
+        }
+      ]
+    },
+    {
+      "id": "2.1",
+      "title": "Harness adapters",
+      "goal": "Thin sidebar panels for each harness, all consuming the sidebar command output. Read-only, privacy-safe (no secrets, no absolute paths).",
+      "prerequisites": [
+        "2.0"
+      ],
+      "tasks": [
+        {
+          "id": "2.1.1",
+          "title": "OpenCode TUI sidebar plugin",
+          "status": "done",
+          "goal": "Create integrations/opencode/ TUI plugin registering sidebar_content slot in the public TUI plugin style (opencode-harness-panel pattern): collapsible TideTable block rendering current, concurrent, upcoming, phase tree, overall tree from tidetable sidebar output polled on render. Read-only, basename paths only.",
+          "touches": [
+            "integrations/opencode/"
+          ],
+          "success": [
+            "plugin loads via tui.json tuple form",
+            "renders all five sections with more-counts when tight"
+          ],
+          "tests": "tsc --noEmit or documented manual load",
+          "prerequisites": [
+            "2.0.1"
+          ],
+          "complexity": "Medium",
+          "agent": "mid_dev_agent",
+          "created_at": "2026-09-23T00:00:00Z",
+          "updated_at": "2026-09-23T14:35:10Z",
+          "changelog": "Added OpenCode TUI sidebar plugin"
+        },
+        {
+          "id": "2.1.2",
+          "title": "Pi extension sidebar panel",
+          "status": "done",
+          "goal": "Create integrations/pi/ extension in pi-sidebar-tui style (pi manifest field, event hooks, panels/tidetable panel, /tk-sidebar toggle): same five sections from sidebar command output. Must also load under oh-my-pi omp, which shares the Pi extension API.",
+          "touches": [
+            "integrations/pi/"
+          ],
+          "success": [
+            "extension registers via pi package field",
+            "toggle command works, panel renders five sections"
+          ],
+          "tests": "documented manual load in pi and omp",
+          "prerequisites": [
+            "2.0.1"
+          ],
+          "complexity": "Medium",
+          "agent": "mid_dev_agent",
+          "created_at": "2026-09-23T00:00:00Z",
+          "updated_at": "2026-09-23T14:33:49Z",
+          "changelog": "Added Pi sidebar extension (omp compatible)"
+        },
+        {
+          "id": "2.1.3",
+          "title": "OpenChamber rail extension",
+          "status": "done",
+          "goal": "Create integrations/openchamber/ extension (package.json openchamber manifest, panel/index.html, panel/main.js IIFE built for sandbox iframe via openchamber-guest-bundle): rail panel with current, concurrent, upcoming, phase tree, overall tree plus attach support for tasks. Reads TideTable serve API through an integration apiOrigin; panel-only reading needs no capability.",
+          "touches": [
+            "integrations/openchamber/"
+          ],
+          "success": [
+            "manifest validates against OpenChamber extension shape",
+            "panel builds to single IIFE, renders five sections from serve API"
+          ],
+          "tests": "bundle build passes",
+          "prerequisites": [
+            "2.0.1"
+          ],
+          "complexity": "High",
+          "agent": "pro_dev_agent",
+          "created_at": "2026-09-23T00:00:00Z",
+          "updated_at": "2026-09-23T14:32:26Z",
+          "changelog": "Added OpenChamber rail extension"
+        },
+        {
+          "id": "2.1.4",
+          "title": "Paseo plugin sidebar and panel",
+          "status": "done",
+          "goal": "Create integrations/paseo/ plugin (addSidebarItem nav entry plus addWorkspacePanel tab, server handle RPC spawning the sidebar command): same five sections, working across Paseo clients.",
+          "touches": [
+            "integrations/paseo/"
+          ],
+          "success": [
+            "sidebar item and workspace panel register",
+            "panel renders five sections via server RPC"
+          ],
+          "tests": "documented manual load via paseo plugin scaffold shape",
+          "prerequisites": [
+            "2.0.1"
+          ],
+          "complexity": "High",
+          "agent": "pro_dev_agent",
+          "created_at": "2026-09-23T00:00:00Z",
+          "updated_at": "2026-09-23T14:35:02Z",
+          "changelog": "Added Paseo sidebar and workspace panel"
+        }
+      ]
+    },
+    {
+      "id": "2.2",
+      "title": "Docs and release",
+      "goal": "Document the sidebar command and all four integrations, bump to 0.7.0.",
+      "prerequisites": [
+        "2.1"
+      ],
+      "tasks": [
+        {
+          "id": "2.2.1",
+          "title": "Docs sync and 0.7.0 release",
+          "status": "done",
+          "goal": "Add sidebar row to README commands table, SKILL.md usage, integration-guide harness section, CHANGELOG 0.7.0 entry, bump pyproject and __init__ versions together.",
+          "touches": [
+            "README.md",
+            "CHANGELOG.md"
+          ],
+          "success": [
+            "every new command and integration path documented",
+            "pip install . works, suite green"
+          ],
+          "tests": "python -m unittest discover -s tests",
+          "prerequisites": [
+            "2.1.1",
+            "2.1.2",
+            "2.1.3",
+            "2.1.4"
+          ],
+          "complexity": "Low",
+          "agent": "basic_dev_agent",
+          "created_at": "2026-09-23T00:00:00Z",
+          "updated_at": "2026-09-23T14:36:13Z",
+          "changelog": "Added harness sidebars and 0.7.0 docs"
+        }
+      ]
+    },
+    {
+      "id": "3.0",
+      "title": "Foundation",
+      "goal": "A Rust crate that reads a todo through one data trait and renders it with the suite theme. No UI chrome yet.",
+      "tasks": [
+        {
+          "id": "3.0.1",
+          "title": "tidetable-tui crate and data layer",
+          "status": "done",
+          "goal": "Create tui/ as a standalone Cargo crate (bin tidetable-tui, not part of the pip package) with ratatui 0.30, crossterm 0.29, serde_json and a small blocking HTTP client only; each crate beyond ratatui/crossterm is named and justified in the commit. Define a Source trait returning a Snapshot (project, in_progress with claim owner and age, ready, blocked with the blocking ids, recently done, human look queue with goal and success criteria, phase progress). LocalSource shells out to `tidetable --local <cmd> --json` (list, ready, look-queue -v --json) and resolves the todo file with the same ., docs/, .tidetable/ chain as the CLI, never prompting (the TUI shows a picker state instead). The crate never writes a todo file itself: AGENTS.md single-writer rule, every mutation goes through the CLI or the hub.",
+          "touches": [
+            "tui/"
+          ],
+          "success": [
+            "cargo build, clippy and test pass in tui/",
+            "Snapshot built from a fixture todo via a fake CLI runner in tests",
+            "no code path opens a todo file for writing",
+            "cargo tree -i ratatui shows one copy"
+          ],
+          "tests": "cd tui && cargo test && cargo clippy -- -D warnings",
+          "complexity": "High",
+          "created_at": "2026-10-16T00:00:00Z",
+          "updated_at": "2026-10-17T06:36:19Z",
+          "changelog": "tui/ crate: Source trait, Snapshot, LocalSource over the CLI (ratatui 0.30.2)"
+        },
+        {
+          "id": "3.0.2",
+          "title": "Theme from clawffice-design tokens",
+          "status": "done",
+          "goal": "Add a Theme struct of true-colour tokens (bg, surface, surface_raised, border, border_focus, text, text_dim, text_strong, accent = Tidetable product hue tide-300 (dark #8CC4F0, light #2F6FA8), second = Claw orange, success, warn, danger, info) loaded from vendored copies of the five clawffice-design palettes (biolume default, deep-tide, sea-glass, phosphor, boiled) embedded with include_str!. --palette and TIDETABLE_PALETTE select one; the palette scheme picks the dark or light product hue. Provide a 256-colour fallback and a monochrome theme for NO_COLOR and TERM=dumb. Every render goes through the theme. State is never colour alone (suite rule 8): define a status glyph set (icon plus word) for pending, in progress, done, needs look, blocked, claimed, stale lease, matching the CLI's glyph habits. Follow the ratatui-modern-ui skill (clawffice-design/skills/ratatui-modern-ui/SKILL.md) and the Clawffice suite rules in clawffice-design/README.md.",
+          "touches": [
+            "tui/src/theme.rs",
+            "tui/assets/"
+          ],
+          "success": [
+            "all five palettes load and body and muted text meet 4.5:1 against window-background",
+            "NO_COLOR yields a theme with no Rgb colours",
+            "every status renders icon and word"
+          ],
+          "tests": "cd tui && cargo test theme",
+          "complexity": "Medium",
+          "created_at": "2026-10-16T00:00:00Z",
+          "updated_at": "2026-10-17T07:21:15Z",
+          "prerequisites": [
+            "3.0.1"
+          ],
+          "changelog": "Theme: 5 vendored palettes, 256/mono fallbacks, status glyphs"
+        }
+      ]
+    },
+    {
+      "id": "3.1",
+      "title": "Layouts and views",
+      "goal": "The three launch modes and the four views, all rendering headless-testable frames.",
+      "prerequisites": [
+        "3.0"
+      ],
+      "tasks": [
+        {
+          "id": "3.1.1",
+          "title": "Layout modes: standard, side, bottom",
+          "status": "done",
+          "goal": "Add --mode standard|side|bottom|auto (default auto). auto picks side for a tall narrow pane (width < 60 and height > width/2), bottom for a short wide pane (height <= 14 and width >= 80), else standard, and re-evaluates on resize so a tmux pane resize reflows live. side: one column of stacked sections (current, review, upcoming, then a phase bar) cut to room with `+N more` counts, no tab bar, designed for roughly 28-48 columns. bottom: a 1-3 row band (current | review count | next up | progress gauge) with a detail row on selection, designed for 6-14 rows. standard: header with the clock-crab cell sprite (tokens/cells.json, 12x6 half-blocks) and project and phase, tabs for Now, Upcoming, Review, Done, a detail pane beside the list, key hint footer. Surfaces use bg/surface rather than a border on every region; only the focused pane gets border_focus. Follow the ratatui-modern-ui skill (clawffice-design/skills/ratatui-modern-ui/SKILL.md) and the Clawffice suite rules in clawffice-design/README.md.",
+          "touches": [
+            "tui/src/layout.rs",
+            "tui/src/app.rs"
+          ],
+          "success": [
+            "TestBackend frames asserted at 28x40, 40x24, 80x24, 120x8 and 200x50",
+            "resize between modes reflows without losing the selection",
+            "no region overflows or panics at 20x6"
+          ],
+          "tests": "cd tui && cargo test layout",
+          "complexity": "High",
+          "created_at": "2026-10-16T00:00:00Z",
+          "updated_at": "2026-10-17T07:27:08Z",
+          "prerequisites": [
+            "3.0.2"
+          ],
+          "changelog": "Layout modes standard/side/bottom with auto reflow"
+        },
+        {
+          "id": "3.1.2",
+          "title": "Now, Upcoming and Done views",
+          "status": "done",
+          "goal": "Now lists in_progress tasks with owner, claim age, lease state (stale shown with icon and word) and goal. Upcoming shows ready tasks first, then blocked ones with what blocks them, grouped by phase, with disjoint-safe tasks marked. Done shows the last N finished tasks with changelog lines. Selecting a row fills the detail pane (standard) or the detail row (bottom) with goal, touches, prerequisites and success criteria. Empty, loading and error states each have copy. Scroll with Scrollbar; j/k, arrows, g/G, mouse wheel and click via hit-testing stored Rects.",
+          "touches": [
+            "tui/src/views/"
+          ],
+          "success": [
+            "each view renders at standard, side and bottom sizes",
+            "empty and error states tested",
+            "click and wheel hit-test tests against stored Rects"
+          ],
+          "tests": "cd tui && cargo test views",
+          "complexity": "High",
+          "created_at": "2026-10-16T00:00:00Z",
+          "updated_at": "2026-10-17T07:27:08Z",
+          "prerequisites": [
+            "3.1.1"
+          ],
+          "changelog": "Now/Upcoming/Done views, detail pane, mouse+keys"
+        },
+        {
+          "id": "3.1.3",
+          "title": "Human review checklist view",
+          "status": "done",
+          "goal": "Review lists the needs_human_look queue as a checklist: each item shows id, title and its success criteria as [ ] / [x] boxes the human ticks locally (space), with the task note under it unless it only points at the criteria (same rule as `look-queue -v`). Items sort oldest first; a count badge appears in side, bottom and the tab bar so pending checks are never hidden. Ticks are a local aid that persists per task in a sidecar file under .tidetable/ (never the todo); an item whose every box is ticked is highlighted as ready to clear. Clearing is an action (3.2.1), not implied by the ticks.",
+          "touches": [
+            "tui/src/views/review.rs"
+          ],
+          "success": [
+            "checklist matches `tidetable look-queue -v` content for a fixture",
+            "ticks persist across restart through the sidecar",
+            "count badge visible in all three modes"
+          ],
+          "tests": "cd tui && cargo test review",
+          "complexity": "Medium",
+          "created_at": "2026-10-16T00:00:00Z",
+          "updated_at": "2026-10-17T07:27:08Z",
+          "prerequisites": [
+            "3.1.1"
+          ],
+          "changelog": "Review checklist with local ticks sidecar"
+        }
+      ]
+    },
+    {
+      "id": "3.2",
+      "title": "Actions, sources and launch",
+      "goal": "Mark work done from the TUI, work against a hub or local files, and open it in a tmux pane.",
+      "prerequisites": [
+        "3.1"
+      ],
+      "tasks": [
+        {
+          "id": "3.2.1",
+          "title": "Actions: done, clear, reject, defer",
+          "status": "done",
+          "goal": "From a selected task: `d` marks an in_progress task done (optional changelog line), `c` clears a needs_human_look task to done (look-clear), `x` rejects it back to pending (look-clear --reject), `l` defers an in_progress task to the human queue with a note (look-defer). Each action shows a confirm dialog sized to content, anchored near the row and leaving the list visible, runs through the Source (CLI locally, hub route with --server), reports the CLI's own refusal text in a toast on failure, and refreshes. `--read-only` disables all of them. Owner defaults to the same identity the CLI uses.",
+          "touches": [
+            "tui/src/actions.rs",
+            "tui/src/dialog.rs"
+          ],
+          "success": [
+            "each action invokes exactly the expected CLI argv in tests via the fake runner",
+            "a refused action surfaces the message and leaves state unchanged",
+            "--read-only removes the action keys from the hints"
+          ],
+          "tests": "cd tui && cargo test actions",
+          "complexity": "High",
+          "created_at": "2026-10-16T00:00:00Z",
+          "updated_at": "2026-10-17T07:40:55Z",
+          "prerequisites": [
+            "3.1.2",
+            "3.1.3"
+          ],
+          "changelog": "TUI actions: d/l on Now, c/x on Review via confirm dialog and toast; --read-only and --owner"
+        },
+        {
+          "id": "3.2.2",
+          "title": "Hub connection and live refresh",
+          "status": "done",
+          "goal": "HubSource talks to a TideTable hub: --server URL, --token, $TIDETABLE_SERVER and $TIDETABLE_TOKEN, project slug as the argument, mapped to the same serve routes remote.py uses (add a row to remote.ROUTES with a TestRemoteClient test only if a needed read is missing). Refresh by the hub's event stream when available, else poll every 2 s. Local mode refreshes when the todo file or its .events.jsonl mtime changes, else every 5 s. A visible connection state (live, polling, offline with retry countdown) lives in the header or footer. Tokens are never printed or written to disk, and an offline hub keeps the last snapshot on screen, dimmed and labelled.",
+          "touches": [
+            "tui/src/source/",
+            "tidetable/remote.py",
+            "tests/test_cli.py"
+          ],
+          "success": [
+            "hub and local sources yield identical Snapshots for the same fixture",
+            "offline state keeps stale data visible and labelled",
+            "the token never appears in any rendered frame or log"
+          ],
+          "tests": "cd tui && cargo test source; python -m unittest tests.test_cli",
+          "complexity": "High",
+          "created_at": "2026-10-16T00:00:00Z",
+          "updated_at": "2026-10-17T07:55:38Z",
+          "prerequisites": [
+            "3.0.1"
+          ],
+          "changelog": "TUI hub source (--server/--token/slug), look-queue hub route, stream/poll refresh, offline dim+label"
+        },
+        {
+          "id": "3.2.3",
+          "title": "tmux launcher and motion polish",
+          "status": "done",
+          "goal": "Add `tidetable tui [--mode side|bottom|standard] [--tmux]` (Python, forwards to the tidetable-tui binary, with a clear error naming how to build it when missing). With --tmux inside a tmux session it runs split-window for side (-h, 40 columns) or bottom (-v, 10 rows) and runs the TUI there; outside tmux it runs in place. Add restrained motion via tachyonfx only if the crate is proposed and justified in the commit: fade-in on open, short pulse on a task that just changed, spinner on in-progress rows, all <= 600 ms, scoped to small Rects, disabled by TIDETABLE_REDUCE_MOTION and NO_COLOR, and the loop blocks on input when idle.",
+          "touches": [
+            "tui/src/motion.rs",
+            "tidetable/tui.py",
+            "tidetable/cli.py"
+          ],
+          "success": [
+            "`tidetable tui --tmux --mode side` issues the expected split-window argv (tested by capturing the command)",
+            "reduced motion adds no effects",
+            "the idle loop does not redraw without events"
+          ],
+          "tests": "python -m unittest discover -s tests; cd tui && cargo test",
+          "complexity": "Medium",
+          "created_at": "2026-10-16T00:00:00Z",
+          "updated_at": "2026-10-17T08:07:30Z",
+          "prerequisites": [
+            "3.2.1",
+            "3.2.2"
+          ],
+          "changelog": "tidetable tui command, tmux split, calm id pulse (no new crate), event-driven repaint"
+        }
+      ]
+    },
+    {
+      "id": "3.3",
+      "title": "Docs and release",
+      "goal": "Document the TUI and ship it as 0.12.0.",
+      "prerequisites": [
+        "3.2"
+      ],
+      "tasks": [
+        {
+          "id": "3.3.1",
+          "title": "Docs, packaging and 0.12.0",
+          "status": "done",
+          "goal": "Document modes, keys, hub use, palettes, the tmux recipe and how to build tidetable-tui in README.md, skills/tidetable/SKILL.md, docs/integration-guide.md and AGENTS.md (layout table, plus the rule that the TUI never writes a todo). Record what was not visually verified and the exact things a person should look at (colours, motion timing, reflow on a tmux resize), since PTY output may screenshot blank. CHANGELOG entry, bump pyproject and __init__ together to 0.12.0, and confirm `pip install .` still works with tui/ excluded from the wheel.",
+          "touches": [
+            "README.md",
+            "CHANGELOG.md",
+            "AGENTS.md",
+            "docs/integration-guide.md",
+            "skills/tidetable/SKILL.md",
+            "pyproject.toml",
+            "tidetable/__init__.py"
+          ],
+          "success": [
+            "every new command and flag documented",
+            "the wheel contains no tui/ sources",
+            "python -m unittest discover -s tests and cargo test are both green"
+          ],
+          "tests": "python -m unittest discover -s tests; pip install .",
+          "complexity": "Low",
+          "created_at": "2026-10-16T00:00:00Z",
+          "updated_at": "2026-10-17T08:15:14Z",
+          "prerequisites": [
+            "3.2.3"
+          ],
+          "changelog": "TUI docs, 0.12.0 bump, wheel excludes tui/"
+        }
+      ]
+    },
+    {
+      "id": "4.0",
+      "title": "Remote mode",
+      "goal": "Hub mode does everything local mode does, finds its project without a typed slug, and says plainly who holds what.",
+      "tasks": [
+        {
+          "id": "4.0.1",
+          "title": "Hub routes for look-defer and look-clear",
+          "status": "pending",
+          "goal": "Add POST /api/<slug>/look-defer and POST /api/<slug>/look-clear (with a reject flag) to tidetable/serve.py, mapped to the existing cmd_look_defer / cmd_look_clear handlers, and the matching commands in tidetable/remote.py so `tidetable look-defer SLUG ID` works against a hub. Same auth, slug scope, owner and host handling as the done route. A refusal keeps the CLI's own wording in the JSON error body.",
+          "touches": [
+            "tidetable/serve.py",
+            "tidetable/remote.py",
+            "tests/"
+          ],
+          "success": [
+            "look-defer, look-clear and look-clear --reject over HTTP change the todo exactly as the local CLI does (parity test)",
+            "a token without the slug gets 403; no token gets 401",
+            "the refusal text for a task that is not in the queue matches the local CLI",
+            "docs/integration-guide.md lists the new routes"
+          ],
+          "tests": "python -m pytest tests/test_cli.py tests/test_serve.py -q",
+          "complexity": "Medium",
+          "created_at": "2026-10-17T00:00:00Z",
+          "updated_at": "2026-10-17T00:00:00Z"
+        },
+        {
+          "id": "4.0.2",
+          "title": "TUI defer, clear and reject over the hub",
+          "status": "pending",
+          "goal": "Wire Action::Defer, Clear and Reject in tui/src/hub.rs to the new routes so every action works in hub mode, and drop the 'the hub has no route' error. Keep the single-owner rule: the same owner string for start, done and these actions. The HubFake in the tests asserts the exact POST path and body for each action.",
+          "touches": [
+            "tui/src/hub.rs",
+            "tui/src/source.rs",
+            "tui/tests/"
+          ],
+          "success": [
+            "each of start, done, defer, clear, reject has a hub test with the exact route and body",
+            "hub and local actions produce the same toast wording",
+            "no code path in the TUI writes a todo file",
+            "cargo tree -i ratatui shows one copy"
+          ],
+          "tests": "cd tui && cargo test && cargo clippy --all-targets -- -D warnings",
+          "complexity": "Medium",
+          "created_at": "2026-10-17T00:00:00Z",
+          "updated_at": "2026-10-17T00:00:00Z",
+          "prerequisites": [
+            "4.0.1"
+          ]
+        },
+        {
+          "id": "4.0.3",
+          "title": "Project slug resolution",
+          "status": "pending",
+          "goal": "`tidetable tui` in hub mode must not stop at 'hub mode needs a project slug'. Resolve the slug in this order: argument, $TIDETABLE_PROJECT, a `slug` key in a `.tidetable/config.json` at the repo root, and if none, the picker from 4.0.4. Do not read git remotes: the suite is not tied to one host. Document the order.",
+          "touches": [
+            "tui/src/main.rs",
+            "tidetable/tui.py",
+            "tests/test_tui.py",
+            "docs/integration-guide.md"
+          ],
+          "success": [
+            "argument beats env beats config file, covered by a test for each pair",
+            "a missing slug with a reachable hub opens the picker instead of exiting",
+            "no code path runs git or reads .git/config"
+          ],
+          "tests": "cd tui && cargo test && cargo clippy --all-targets -- -D warnings && python -m pytest tests/test_tui.py -q",
+          "complexity": "Medium",
+          "created_at": "2026-10-17T00:00:00Z",
+          "updated_at": "2026-10-17T00:00:00Z"
+        },
+        {
+          "id": "4.0.4",
+          "title": "Hub project list and TUI project picker",
+          "status": "pending",
+          "goal": "Add GET /api/projects returning the slugs and titles the calling token may see (never a slug it cannot access), and a picker state in the TUI that lists them, with j/k and Enter, when hub mode has no slug. The picker lives in the same view system as the todo-file picker.",
+          "touches": [
+            "tidetable/serve.py",
+            "tidetable/remote.py",
+            "tui/src/",
+            "tests/"
+          ],
+          "success": [
+            "a scoped token sees only its slugs; the full-access token sees all",
+            "the TUI picker selects a project and the list loads without restarting",
+            "an empty list shows copy that says what to do, not a blank screen"
+          ],
+          "tests": "cd tui && cargo test && cargo clippy --all-targets -- -D warnings && python -m pytest tests/test_cli.py tests/test_serve.py -q",
+          "complexity": "Medium",
+          "created_at": "2026-10-17T00:00:00Z",
+          "updated_at": "2026-10-17T00:00:00Z",
+          "prerequisites": [
+            "4.0.3"
+          ]
+        },
+        {
+          "id": "4.0.5",
+          "title": "Remote claim details and auth errors",
+          "status": "pending",
+          "goal": "Show the claim owner and lease time left on in-progress rows in hub mode, so a task held by someone else reads as such before you press d. Separate 'cannot reach the hub' (offline, dimmed last snapshot) from 'token rejected' (401) and 'no access to this project' (403): the latter two say what to change and never keep retrying. The token never appears in a frame, an error or a log.",
+          "touches": [
+            "tui/src/refresh.rs",
+            "tui/src/hub.rs",
+            "tui/src/ui.rs",
+            "tui/tests/"
+          ],
+          "success": [
+            "401 and 403 each show their own message and stop the backoff loop",
+            "an in-progress row shows owner and lease left; an expired lease reads as stale",
+            "token-never-in-a-frame test covers the new states"
+          ],
+          "tests": "cd tui && cargo test && cargo clippy --all-targets -- -D warnings",
+          "complexity": "Medium",
+          "created_at": "2026-10-17T00:00:00Z",
+          "updated_at": "2026-10-17T00:00:00Z",
+          "prerequisites": [
+            "4.0.2"
+          ]
+        },
+        {
+          "id": "4.0.6",
+          "title": "Remote-mode docs, version and release",
+          "status": "pending",
+          "goal": "Update README, docs/integration-guide.md (the local-or-hub table now says every action works in both), skills/tidetable/SKILL.md and AGENTS.md; add a CHANGELOG entry and bump to 0.13.0 in pyproject.toml and tidetable/__init__.py. List what a person must still check by eye against a real hub.",
+          "touches": [
+            "README.md",
+            "docs/",
+            "skills/tidetable/SKILL.md",
+            "AGENTS.md",
+            "CHANGELOG.md",
+            "pyproject.toml",
+            "tidetable/__init__.py"
+          ],
+          "success": [
+            "docs no longer say the hub lacks routes for any TUI action",
+            "version is 0.13.0 in pyproject.toml, __init__.py and the todo release_version",
+            "full python suite and cargo test pass"
+          ],
+          "tests": "python -m pytest -q && cd tui && cargo test",
+          "complexity": "Medium",
+          "created_at": "2026-10-17T00:00:00Z",
+          "updated_at": "2026-10-17T00:00:00Z",
+          "prerequisites": [
+            "4.0.2",
+            "4.0.4",
+            "4.0.5"
+          ]
+        }
+      ]
+    }
+  ]
+}

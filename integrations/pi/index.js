@@ -17,7 +17,7 @@
 const { spawnSync } = require("node:child_process");
 const { renderPanel, unavailableLine } = require("./panels/tidetable");
 
-const DEFAULT_TODO = "docs/todo-sidebars.json";
+const DEFAULT_TODO = "docs/todo.json";
 const DEFAULT_WIDTH = 45;
 const DEFAULT_HEIGHT = 40;
 

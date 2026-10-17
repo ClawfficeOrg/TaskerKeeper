@@ -7,7 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] — 2026-10-17
+
 ### Added
+
+- TUI reuses the ratatui ecosystem instead of hand-rolled pieces: `tachyonfx` for the row-change fade, `tui-input` for the dialog text field, ratatui `Tabs` for the tab bar (same stack as the other clawffice apps).
+- **`tidetable tui` and the `tidetable-tui` binary (`tui/`).** A ratatui front end:
+  Now / Upcoming / Done / Review views, standard, side and bottom layouts that follow
+  the pane shape, five vendored palettes (`--palette`, `$TIDETABLE_PALETTE`), a review
+  checklist with local ticks, confirm-dialog actions (`s` start, `d` done, `l` defer, `c` clear,
+  `x` reject; `--read-only` removes them) and a hub mode (`--server URL SLUG`,
+  `$TIDETABLE_TOKEN`) that refreshes on the event stream, else polls, and keeps stale
+  data dimmed and labelled when the hub is offline. `--tmux` splits a 40-column (side)
+  or 10-row (bottom) pane. It never writes a todo file. Not part of the wheel; build
+  with `cargo build --release --manifest-path tui/Cargo.toml`.
+- **`GET /api/<slug>/look-queue`** on the hub (and `look-queue` in `tidetable --server`),
+  the same JSON as `look-queue --json`.
 
 - **`look-queue -v`.** Prints each queued task's success criteria as a `[ ]`
   checklist and drops a note that only points at them, so a human can read every
