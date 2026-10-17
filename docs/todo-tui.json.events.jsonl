@@ -13,3 +13,5 @@
 {"at": "2026-10-17T07:41:02Z", "event": "start", "task": "3.2.2", "owner": "tui-agent", "from": "pending", "to": "in_progress", "lease_expires_at": "2026-10-17T08:41:02Z"}
 {"at": "2026-10-17T07:55:38Z", "event": "done", "task": "3.2.2", "owner": "tui-agent", "from": "in_progress", "to": "done", "changelog": "TUI hub source (--server/--token/slug), look-queue hub route, stream/poll refresh, offline dim+label"}
 {"at": "2026-10-17T07:56:08Z", "event": "start", "task": "3.2.3", "owner": "tui-agent", "from": "pending", "to": "in_progress", "lease_expires_at": "2026-10-17T08:56:08Z"}
+{"at": "2026-10-17T08:07:30Z", "event": "done", "task": "3.2.3", "owner": "tui-agent", "from": "in_progress", "to": "done", "changelog": "tidetable tui command, tmux split, calm id pulse (no new crate), event-driven repaint", "phase_complete": true}
+{"at": "2026-10-17T08:08:06Z", "event": "start", "task": "3.3.1", "owner": "tui-agent", "from": "pending", "to": "in_progress", "lease_expires_at": "2026-10-17T09:08:06Z"}

@@ -308,6 +308,15 @@ tidetable agents use opencode-go            # switch every tier at once
 tidetable agents set pro_dev_agent --model claude-opus-5 --scope repo
 ```
 
+## Terminal UI
+
+`tidetable tui [--mode auto|standard|side|bottom] [--tmux] [-- TUI_ARGS]` launches the
+`tidetable-tui` binary (build: `cargo build --release --manifest-path tui/Cargo.toml`). It
+shows Now / Upcoming / Done / Review for a todo file or hub project (`--server URL SLUG`,
+token from `$TIDETABLE_TOKEN`). Humans use it; agents keep using the CLI. It never writes a
+todo file: `d` done, `l` defer, `c` clear and `x` reject all run the CLI (`--read-only`
+disables them). Details: `docs/integration-guide.md`.
+
 ## Attended and unattended runs
 
 TideTable has two run modes, and they differ only in who approves a shell

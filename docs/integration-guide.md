@@ -282,7 +282,7 @@ with `TIDETABLE_EVENTS=0`.
 
 `tidetable serve` exposes the same DAG logic over HTTP for remote workers
 and the read-only dashboard. It is the single writer: GET routes
-(`ready`, `next`, `list`, `deps`, `history`, `validate`, `parallel`) call the
+(`ready`, `next`, `list`, `deps`, `history`, `look-queue`, `validate`, `parallel`) call the
 CLI functions and return the `--json` shapes; POST routes (`start`, `done`,
 `reset`, `status`, `add`) hold a server lock plus `FileLock`, reload inside
 the lock, and enforce claim leases. `POST /api/<slug>/heartbeat` records agent
@@ -296,6 +296,72 @@ is a read projection tailed by `tidetable/projector.py`, never a scheduler.
 TK_API_TOKEN=... tidetable serve --port 8471 --registry deploy/registry.json
 curl -H "Authorization: Bearer $TK_API_TOKEN" localhost:8471/api/tidetable/ready
 ```
+
+## Terminal UI (`tidetable-tui`)
+
+A ratatui front end for one todo file or one hub project: what is running, what is
+ready, what is done, and the human-look checklist. It is a separate Rust binary in
+`tui/`; the Python wheel does not ship it. **The TUI never writes a todo file.** Every
+change goes through the `tidetable` CLI (local) or the hub (`POST /api/<slug>/done`);
+the only file it writes is the review-tick sidecar `.tidetable/review-ticks.json`.
+
+Build and launch (Rust 1.88+):
+
+```bash
+cargo build --release --manifest-path tui/Cargo.toml
+export PATH="$PWD/tui/target/release:$PATH"      # or: export TIDETABLE_TUI=/path/to/tidetable-tui
+tidetable tui                                     # todo*.json from ., docs/, .tidetable/
+tidetable tui -- docs/todo.json --read-only       # everything after -- goes to the binary
+```
+
+`tidetable tui [--mode auto|standard|side|bottom] [--tmux] [-- TUI_ARGS]` finds the
+binary (`$TIDETABLE_TUI`, then `PATH`, then `tui/target/{release,debug}`) and prints the
+build command if it is missing. `tidetable-tui` itself takes
+`[TODO_FILE | SLUG] [--mode ...] [--palette NAME] [--read-only] [--owner NAME]
+[--server URL] [--token TOKEN] [--local]`.
+
+**Modes.** `auto` follows the pane shape: a tall narrow pane is `side`; a wide pane at
+most 14 rows tall is `bottom` (a one-glance status strip); anything else is `standard`
+(tabs, list and detail). The view reflows live on resize and keeps the selection.
+
+**Views** (`1`-`4`, `Tab`): Now (claims with owner, age and lease state), Upcoming (ready
+first, then blocked with the reason, grouped by phase), Done (latest with changelog), and
+Review (needs-a-human-look items as a checklist; a count badge shows in every mode).
+
+**Keys.** `j`/`k` or arrows move, `g`/`G` top and bottom, `Tab`/`Right` next view,
+`h`/`Left`/`Shift-Tab` previous, `1`-`4` jump, `Space` tick a review criterion, `r`
+refresh, `q` quit. Actions (confirm dialog, `Enter` runs, `Esc` cancels; the CLI's own
+refusal text appears as a toast): on Now `d` done (optional changelog) and `l` defer to a
+human look (with a note); on Review `c` clear and `x` reject. `--read-only` removes the
+action keys and their hints. The mouse selects rows and tabs and scrolls. Ticks are your
+notes only; `c` is what clears an item.
+
+**Hub.** `tidetable-tui --server URL SLUG` (or `$TIDETABLE_SERVER` and `$TIDETABLE_TOKEN`;
+prefer the environment, since `--token` shows in process listings; `--local` ignores an
+exported server) reads the same routes as `tidetable --server`, plus
+`GET /api/<slug>/look-queue`. It refreshes on the hub's `/api/stream` events, else polls
+every 2 s, and the footer shows `✓ live` or `· polling`. If the hub drops, the last data
+stays on screen dimmed with `⊘ offline · retry Ns · data Nm old`, and retries back off
+2, 4, 8, 16, 30 s. The token only travels in the `Authorization` header and is never shown,
+logged or stored. Over the hub only `d` is available; clear, reject and defer have no hub
+route yet. Local mode refreshes when the todo or its `.events.jsonl` changes, else every 5 s.
+
+**Palettes.** `--palette NAME` or `$TIDETABLE_PALETTE`: `biolume` (default), `deep-tide`,
+`sea-glass`, `phosphor`, `boiled`, vendored from clawffice-design. Colour depth falls
+back from truecolor to 256 to monochrome; `NO_COLOR` or `TERM=dumb` gives monochrome, where
+state is still an icon plus a word. `NO_COLOR` and `TIDETABLE_REDUCE_MOTION=1` also turn off
+the one animation (a 600 ms pulse on the id of a row whose status just changed).
+
+**tmux.** Inside tmux, `tidetable tui --tmux --mode side` runs
+`tmux split-window -h -l 40 tidetable-tui --mode side`, and `--mode bottom` runs
+`split-window -v -l 10`. Without `--mode`, `--tmux` means side. Outside tmux it runs in place.
+
+**Not visually verified.** The tests drive the UI headlessly (ratatui `TestBackend`:
+layout, text, keys, hit-testing, states). GPU/terminal pixels were not captured, so a
+person should look at: colours of each palette on a real terminal (contrast of dim text and
+of the selected row), the 600 ms pulse timing, the dimmed offline look, reflow when a tmux
+pane is resized between side, standard and bottom, the clock-crab header on a tall pane,
+and the confirm dialog placement near the selected row.
 
 ## Harness Sidebars
 

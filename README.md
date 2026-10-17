@@ -268,6 +268,24 @@ so a lock left behind by a crashed agent is broken automatically — when its
 holder is confirmed gone, or after five minutes when the holder cannot be
 checked at all.
 
+## Terminal UI
+
+`tidetable tui` opens a ratatui front end (Now / Upcoming / Done / Review) for a todo file
+or a hub project. It is a separate binary, not part of the wheel, and it never writes a todo
+file: actions go through the CLI or the hub.
+
+```bash
+cargo build --release --manifest-path tui/Cargo.toml     # Rust 1.88+
+tidetable tui [--mode auto|standard|side|bottom] [--tmux] [-- docs/todo.json --read-only]
+tidetable-tui --server https://hub.example myproj        # token from $TIDETABLE_TOKEN
+```
+
+Keys: `j`/`k` move, `Tab`/`1`-`4` views, `Space` tick a review criterion, `d` done, `l` defer,
+`c` clear, `x` reject, `r` refresh, `q` quit. `--read-only` removes the action keys.
+Palettes: `--palette biolume|deep-tide|sea-glass|phosphor|boiled`. In tmux,
+`--tmux --mode side` splits a 40-column pane (`bottom` a 10-row one). Full reference in
+[docs/integration-guide.md](docs/integration-guide.md#terminal-ui-tidetable-tui).
+
 ## Features
 
 | Feature | Markdown | TideTable JSON |
