@@ -350,7 +350,7 @@ route yet. Local mode refreshes when the todo or its `.events.jsonl` changes, el
 `sea-glass`, `phosphor`, `boiled`, vendored from clawffice-design. Colour depth falls
 back from truecolor to 256 to monochrome; `NO_COLOR` or `TERM=dumb` gives monochrome, where
 state is still an icon plus a word. `NO_COLOR` and `TIDETABLE_REDUCE_MOTION=1` also turn off
-the one animation (a 600 ms pulse on the id of a row whose status just changed).
+the one animation (a 600 ms tachyonfx colour fade on the row whose status just changed).
 
 **tmux.** Inside tmux, `tidetable tui --tmux --mode side` runs
 `tmux split-window -h -l 40 tidetable-tui --mode side`, and `--mode bottom` runs

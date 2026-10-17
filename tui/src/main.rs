@@ -108,6 +108,16 @@ fn refresh(app: &mut App, source: &mut Backend) -> bool {
     }
 }
 
+/// Widgets first, then tachyonfx over the finished buffer.
+fn draw(f: &mut ratatui::Frame, app: &mut App) {
+    ui::draw(f, app);
+    let rows = app.row_rects();
+    let area = f.area();
+    let accent = app.theme.accent;
+    app.fx
+        .run(f.buffer_mut(), area, &rows, accent, Instant::now());
+}
+
 fn main() {
     let args = match parse_args() {
         Ok(a) => a,
@@ -170,7 +180,7 @@ fn main() {
     // ratatui::init installs a panic hook that restores the terminal.
     let mut terminal = ratatui::init();
     let _ = crossterm::execute!(std::io::stdout(), crossterm::event::EnableMouseCapture);
-    let _ = terminal.draw(|f| ui::draw(f, &mut app));
+    let _ = terminal.draw(|f| draw(f, &mut app));
     let mut refresher = Refresher::new(hub, Instant::now());
     refresher.record(refresh(&mut app, &mut source) || !hub, Instant::now());
     let mut watcher = Watcher::default();
@@ -178,16 +188,12 @@ fn main() {
 
     while !app.quit {
         // Repaint only when something changed: an idle TUI costs no frames.
-        if dirty && terminal.draw(|f| ui::draw(f, &mut app)).is_err() {
+        if dirty && terminal.draw(|f| draw(f, &mut app)).is_err() {
             break;
         }
         dirty = false;
         // Fast wake-ups only while a pulse is live; otherwise block for the housekeeping tick.
-        let wait = if app.pulses.live(Instant::now()) {
-            50
-        } else {
-            250
-        };
+        let wait = if app.fx.live() { 50 } else { 250 };
         match event::poll(Duration::from_millis(wait)) {
             Ok(true) => {
                 match event::read() {
@@ -203,7 +209,7 @@ fn main() {
         }
 
         let now = Instant::now();
-        if app.pulses.live(now) || app.pulses.expire(now) {
+        if app.fx.live() {
             dirty = true;
         }
         let mut pushed = false;

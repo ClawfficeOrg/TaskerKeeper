@@ -5,9 +5,9 @@ use std::collections::HashMap;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
 
-use std::time::Instant;
+use tui_input::backend::crossterm::EventHandler;
 
-use crate::motion::{self, Pulses};
+use crate::motion::{self, Motion};
 use crate::refresh::Conn;
 use crate::review::Ticks;
 use crate::source::{phase_of, Action, Snapshot, Source};
@@ -183,7 +183,7 @@ pub struct App {
     pub conn: Conn,
     /// Motion on/off (see motion.rs); off by default so tests and NO_COLOR stay still.
     pub motion: bool,
-    pub pulses: Pulses,
+    pub fx: Motion,
     /// Epoch seconds of the last successful snapshot, for the offline label.
     pub last_ok: Option<i64>,
     pub dialog: Option<Dialog>,
@@ -196,12 +196,12 @@ pub struct App {
 }
 
 /// A confirm box for one [`Action`]; `input` is the optional changelog / note line.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct Dialog {
     pub action: Action,
     pub title: String,
     pub body: String,
-    pub input: Option<(String, String)>,
+    pub input: Option<(String, tui_input::Input)>,
 }
 
 /// An agent note that only points at the criteria is noise once the criteria are listed
@@ -228,7 +228,7 @@ impl App {
             read_only: false,
             conn: Conn::Local,
             motion: false,
-            pulses: Pulses::default(),
+            fx: Motion::default(),
             last_ok: None,
             dialog: None,
             pending: None,
@@ -240,14 +240,30 @@ impl App {
     pub fn set_snapshot(&mut self, snap: Snapshot) {
         if self.motion && self.load == Load::Ready {
             let before = motion::lanes(&self.snap);
-            self.pulses
-                .start(motion::changed(&before, &snap), Instant::now());
+            self.fx.queue(motion::changed(&before, &snap));
         }
         self.snap = snap;
         self.load = Load::Ready;
         for t in Tab::ALL {
             self.clamp(t);
         }
+    }
+
+    /// Screen rect of each visible task row with its id, from the last render.
+    pub fn row_rects(&self) -> Vec<(Rect, String)> {
+        let ids: Vec<String> = self
+            .entries(self.tab)
+            .into_iter()
+            .filter(Entry::selectable)
+            .map(|e| e.id)
+            .collect();
+        self.hits
+            .iter()
+            .filter_map(|(r, h)| match h {
+                Hit::Row(i) => ids.get(*i).map(|id| (*r, id.clone())),
+                Hit::Tab(_) => None,
+            })
+            .collect()
     }
 
     pub fn review_count(&self) -> usize {
@@ -468,7 +484,7 @@ impl App {
             action,
             title: format!("{title} {}", e.id),
             body: format!("{body}\n{}", e.title),
-            input: input.map(|l| (l.to_string(), String::new())),
+            input: input.map(|l| (l.to_string(), tui_input::Input::default())),
         });
     }
 
@@ -482,7 +498,7 @@ impl App {
                 let text = d
                     .input
                     .as_ref()
-                    .map(|(_, v)| v.trim().to_string())
+                    .map(|(_, v)| v.value().trim().to_string())
                     .unwrap_or_default();
                 let action = match d.action.clone() {
                     Action::Done { id, .. } => Action::Done {
@@ -495,17 +511,11 @@ impl App {
                 self.pending = Some(action);
                 self.dialog = None;
             }
-            KeyCode::Backspace => {
+            _ => {
                 if let Some((_, v)) = d.input.as_mut() {
-                    v.pop();
+                    v.handle_event(&crossterm::event::Event::Key(k));
                 }
             }
-            KeyCode::Char(c) if !k.modifiers.contains(KeyModifiers::CONTROL) => {
-                if let Some((_, v)) = d.input.as_mut() {
-                    v.push(c);
-                }
-            }
-            _ => {}
         }
     }
 

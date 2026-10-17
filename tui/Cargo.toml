@@ -14,3 +14,5 @@ serde_json = "1"
 serde = { version = "1", features = ["derive"] }
 # ureq: small blocking HTTP client for the hub source (3.2.2); no async runtime.
 ureq = { version = "2", features = ["json"] }
+tachyonfx = "0.25.2"
+tui-input = "0.15.5"

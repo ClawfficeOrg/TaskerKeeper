@@ -1,11 +1,16 @@
 //! Restrained motion: one short pulse on the id of a row whose status just changed.
 //!
-//! No animation crate (tachyonfx was considered and not added: a 600 ms colour pulse on one
-//! span does not justify a dependency). Off under `TIDETABLE_REDUCE_MOTION` and `NO_COLOR`;
-//! the main loop only wakes faster while a pulse is live, so an idle TUI draws nothing.
+//! Built on tachyonfx (shared with the other clawffice apps): a colour fade on the row whose
+//! lane just changed. Off under `TIDETABLE_REDUCE_MOTION` and `NO_COLOR`; the main loop only
+//! wakes faster while an effect is live, so an idle TUI draws nothing.
 
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
+
+use ratatui::buffer::Buffer;
+use ratatui::layout::Rect;
+use ratatui::style::Color;
+use tachyonfx::{fx, EffectManager, Interpolation};
 
 use crate::source::Snapshot;
 
@@ -48,39 +53,63 @@ pub fn changed(before: &HashMap<String, &'static str>, after: &Snapshot) -> Hash
         .collect()
 }
 
-#[derive(Debug, Default)]
-pub struct Pulses {
-    ids: HashSet<String>,
-    until: Option<Instant>,
+/// Motion engine: a tachyonfx [`EffectManager`] run over the frame buffer after the widgets
+/// are drawn. Idle means no effects, so `live()` is false and the loop blocks.
+#[derive(Default)]
+pub struct Motion {
+    mgr: EffectManager<String>,
+    queued: HashSet<String>,
+    last: Option<Instant>,
 }
 
-impl Pulses {
-    pub fn start(&mut self, ids: HashSet<String>, now: Instant) {
-        if !ids.is_empty() {
-            self.ids = ids;
-            self.until = Some(now + PULSE);
-        }
+impl std::fmt::Debug for Motion {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Motion")
+            .field("queued", &self.queued)
+            .field("live", &self.live())
+            .finish()
+    }
+}
+
+impl Motion {
+    /// Ids whose row should flash on the next frame.
+    pub fn queue(&mut self, ids: HashSet<String>) {
+        self.queued.extend(ids);
     }
 
-    pub fn active(&self, id: &str, now: Instant) -> bool {
-        self.until.is_some_and(|u| now < u) && self.ids.contains(id)
+    pub fn pending(&self) -> bool {
+        !self.queued.is_empty()
     }
 
     /// True while a frame is still owed; the main loop uses this to wake faster, then stop.
-    pub fn live(&self, now: Instant) -> bool {
-        self.until.is_some_and(|u| now < u)
+    pub fn live(&self) -> bool {
+        self.pending() || self.mgr.is_running()
     }
 
-    /// One more repaint is owed after the pulse ends, to clear it.
-    pub fn expire(&mut self, now: Instant) -> bool {
-        match self.until {
-            Some(u) if now >= u => {
-                self.until = None;
-                self.ids.clear();
-                true
+    /// Start effects for queued ids that are on screen (`rows`), then advance all effects.
+    pub fn run(
+        &mut self,
+        buf: &mut Buffer,
+        area: Rect,
+        rows: &[(Rect, String)],
+        accent: Color,
+        now: Instant,
+    ) {
+        for (rect, id) in rows {
+            if self.queued.remove(id) {
+                let fx =
+                    fx::fade_from_fg(accent, (PULSE.as_millis() as u32, Interpolation::QuadOut))
+                        .with_area(*rect);
+                self.mgr.add_unique_effect(id.clone(), fx);
             }
-            _ => false,
         }
+        // Whatever is off screen has nothing to flash.
+        self.queued.clear();
+        let dt = self
+            .last
+            .map_or(Duration::ZERO, |l| now.saturating_duration_since(l));
+        self.mgr.process_effects(dt.into(), buf, area);
+        self.last = self.mgr.is_running().then_some(now);
     }
 }
 
@@ -131,18 +160,34 @@ mod tests {
     }
 
     #[test]
-    fn a_pulse_lasts_600ms_then_clears_once() {
+    fn a_queued_id_runs_one_effect_that_ends_within_the_pulse() {
         let t0 = Instant::now();
-        let mut p = Pulses::default();
-        p.start(HashSet::from(["1.1".to_string()]), t0);
-        assert!(p.active("1.1", t0 + Duration::from_millis(599)) && !p.active("1.2", t0));
-        assert!(!p.active("1.1", t0 + PULSE) && !p.live(t0 + PULSE));
-        assert!(
-            p.expire(t0 + PULSE) && !p.expire(t0 + PULSE),
-            "exactly one clearing repaint"
+        let area = Rect::new(0, 0, 20, 3);
+        let mut buf = Buffer::empty(area);
+        let rows = vec![(Rect::new(0, 1, 20, 1), "1.1".to_string())];
+        let mut m = Motion::default();
+        assert!(!m.live());
+        m.queue(HashSet::from(["1.1".to_string()]));
+        assert!(m.live());
+        m.run(&mut buf, area, &rows, Color::Red, t0);
+        assert!(m.live(), "effect started");
+        m.run(
+            &mut buf,
+            area,
+            &rows,
+            Color::Red,
+            t0 + PULSE + Duration::from_millis(50),
         );
-        let mut q = Pulses::default();
-        q.start(HashSet::new(), t0);
-        assert!(!q.live(t0), "nothing to pulse, nothing to wake for");
+        assert!(!m.live(), "effect ended, loop may block again");
+    }
+
+    #[test]
+    fn an_id_that_is_off_screen_owes_nothing() {
+        let area = Rect::new(0, 0, 20, 3);
+        let mut buf = Buffer::empty(area);
+        let mut m = Motion::default();
+        m.queue(HashSet::from(["9.9".to_string()]));
+        m.run(&mut buf, area, &[], Color::Red, Instant::now());
+        assert!(!m.live());
     }
 }

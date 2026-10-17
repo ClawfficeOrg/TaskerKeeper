@@ -8,7 +8,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{
     Block, BorderType, Clear, Padding, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState,
-    Wrap,
+    Tabs, Wrap,
 };
 use ratatui::Frame;
 
@@ -157,16 +157,11 @@ fn draw_dialog(f: &mut Frame, app: &App, area: Rect) {
             trunc(&format!("{label}:"), inner),
             app.theme.dim(),
         )));
-        let tail: String = v
-            .chars()
-            .rev()
-            .take(inner.saturating_sub(3))
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .collect();
+        let width = inner.saturating_sub(3);
+        let scroll = v.visual_scroll(width);
+        let shown: String = v.value().chars().skip(scroll).take(width).collect();
         lines.push(Line::from(vec![
-            Span::styled(format!("> {tail}"), app.theme.strong()),
+            Span::styled(format!("> {shown}"), app.theme.strong()),
             Span::styled("▏", app.theme.accent_style()),
         ]));
     }
@@ -355,27 +350,42 @@ fn tab_label(app: &App, tab: Tab) -> String {
 
 fn draw_tabs(f: &mut Frame, app: &mut App, area: Rect) {
     let mut x = area.x;
-    let mut spans = vec![];
+    let mut titles = vec![];
     for tab in Tab::ALL {
         let label = tab_label(app, tab);
         let w = label.chars().count() as u16;
-        let style = if tab == app.tab {
-            app.theme.selected()
-        } else if tab == Tab::Review && app.review_count() > 0 {
-            Style::new()
-                .fg(app.theme.second)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            app.theme.dim()
-        };
         if x + w <= area.x + area.width {
             app.hits.push((Rect::new(x, area.y, w, 1), Hit::Tab(tab)));
         }
-        spans.push(Span::styled(label, style));
-        spans.push(Span::raw(" "));
         x += w + 1;
+        titles.push(Line::from(label));
     }
-    f.render_widget(Paragraph::new(Line::from(spans)), area);
+    let review_hot = app.review_count() > 0;
+    let styled: Vec<Line> = Tab::ALL
+        .iter()
+        .zip(titles)
+        .map(|(tab, l)| {
+            if *tab == Tab::Review && *tab != app.tab && review_hot {
+                l.style(
+                    Style::new()
+                        .fg(app.theme.second)
+                        .add_modifier(Modifier::BOLD),
+                )
+            } else {
+                l
+            }
+        })
+        .collect();
+    let at = Tab::ALL.iter().position(|t| *t == app.tab).unwrap_or(0);
+    f.render_widget(
+        Tabs::new(styled)
+            .select(at)
+            .style(app.theme.dim())
+            .highlight_style(app.theme.selected())
+            .divider(" ")
+            .padding("", ""),
+        area,
+    );
 }
 
 // ---------------------------------------------------------------- list
@@ -465,15 +475,7 @@ fn entry_lines(app: &App, e: &Entry, selected: bool, width: usize) -> Vec<Line<'
                     Span::raw(" "),
                     Span::styled(label, t.status_style(st)),
                     Span::raw("  "),
-                    Span::styled(
-                        e.id.clone(),
-                        if app.pulses.active(&e.id, std::time::Instant::now()) {
-                            t.accent_style()
-                                .add_modifier(Modifier::BOLD | Modifier::REVERSED)
-                        } else {
-                            t.dim()
-                        },
-                    ),
+                    Span::styled(e.id.clone(), t.dim()),
                     Span::raw("  "),
                     Span::styled(
                         trunc(&e.title, width.saturating_sub(used)),

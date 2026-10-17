@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- TUI reuses the ratatui ecosystem instead of hand-rolled pieces: `tachyonfx` for the row-change fade, `tui-input` for the dialog text field, ratatui `Tabs` for the tab bar (same stack as the other clawffice apps).
 - **`tidetable tui` and the `tidetable-tui` binary (`tui/`).** A ratatui front end:
   Now / Upcoming / Done / Review views, standard, side and bottom layouts that follow
   the pane shape, five vendored palettes (`--palette`, `$TIDETABLE_PALETTE`), a review

@@ -670,10 +670,10 @@ fn a_status_change_pulses_one_id_and_reduced_motion_adds_nothing() {
     let mut on = app(ModeArg::Standard);
     on.motion = true;
     moved(&mut on);
-    assert!(on.pulses.active("3.1.1", std::time::Instant::now()));
+    assert!(on.fx.pending(), "changed row queued for a fade");
     let mut off = app(ModeArg::Standard);
     moved(&mut off); // motion defaults to off (NO_COLOR / TIDETABLE_REDUCE_MOTION resolve to false)
-    assert!(!off.pulses.live(std::time::Instant::now()));
+    assert!(!off.fx.live());
     assert!(!tidetable_tui::motion::enabled(
         |k| (k == "NO_COLOR").then(|| "1".to_string())
     ));
@@ -683,6 +683,6 @@ fn a_status_change_pulses_one_id_and_reduced_motion_adds_nothing() {
 fn an_idle_app_owes_no_frame() {
     // The loop in main.rs repaints only when `dirty`; the only timed source is a live pulse.
     let a = app(ModeArg::Standard);
-    assert!(!a.pulses.live(std::time::Instant::now()));
+    assert!(!a.fx.live());
     assert_eq!(a.conn, Conn::Local);
 }
