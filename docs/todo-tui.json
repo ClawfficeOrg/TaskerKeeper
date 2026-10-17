@@ -256,6 +256,156 @@
           "changelog": "TUI docs, 0.12.0 bump, wheel excludes tui/"
         }
       ]
+    },
+    {
+      "id": "4.0",
+      "title": "Remote mode",
+      "goal": "Hub mode does everything local mode does, finds its project without a typed slug, and says plainly who holds what.",
+      "tasks": [
+        {
+          "id": "4.0.1",
+          "title": "Hub routes for look-defer and look-clear",
+          "status": "pending",
+          "goal": "Add POST /api/<slug>/look-defer and POST /api/<slug>/look-clear (with a reject flag) to tidetable/serve.py, mapped to the existing cmd_look_defer / cmd_look_clear handlers, and the matching commands in tidetable/remote.py so `tidetable look-defer SLUG ID` works against a hub. Same auth, slug scope, owner and host handling as the done route. A refusal keeps the CLI's own wording in the JSON error body.",
+          "touches": [
+            "tidetable/serve.py",
+            "tidetable/remote.py",
+            "tests/"
+          ],
+          "success": [
+            "look-defer, look-clear and look-clear --reject over HTTP change the todo exactly as the local CLI does (parity test)",
+            "a token without the slug gets 403; no token gets 401",
+            "the refusal text for a task that is not in the queue matches the local CLI",
+            "docs/integration-guide.md lists the new routes"
+          ],
+          "tests": "python -m pytest tests/test_cli.py tests/test_serve.py -q",
+          "complexity": "Medium",
+          "created_at": "2026-10-17T00:00:00Z",
+          "updated_at": "2026-10-17T00:00:00Z"
+        },
+        {
+          "id": "4.0.2",
+          "title": "TUI defer, clear and reject over the hub",
+          "status": "pending",
+          "goal": "Wire Action::Defer, Clear and Reject in tui/src/hub.rs to the new routes so every action works in hub mode, and drop the 'the hub has no route' error. Keep the single-owner rule: the same owner string for start, done and these actions. The HubFake in the tests asserts the exact POST path and body for each action.",
+          "touches": [
+            "tui/src/hub.rs",
+            "tui/src/source.rs",
+            "tui/tests/"
+          ],
+          "success": [
+            "each of start, done, defer, clear, reject has a hub test with the exact route and body",
+            "hub and local actions produce the same toast wording",
+            "no code path in the TUI writes a todo file",
+            "cargo tree -i ratatui shows one copy"
+          ],
+          "tests": "cd tui && cargo test && cargo clippy --all-targets -- -D warnings",
+          "complexity": "Medium",
+          "created_at": "2026-10-17T00:00:00Z",
+          "updated_at": "2026-10-17T00:00:00Z",
+          "prerequisites": [
+            "4.0.1"
+          ]
+        },
+        {
+          "id": "4.0.3",
+          "title": "Project slug resolution",
+          "status": "pending",
+          "goal": "`tidetable tui` in hub mode must not stop at 'hub mode needs a project slug'. Resolve the slug in this order: argument, $TIDETABLE_PROJECT, a `slug` key in a `.tidetable/config.json` at the repo root, and if none, the picker from 4.0.4. Do not read git remotes: the suite is not tied to one host. Document the order.",
+          "touches": [
+            "tui/src/main.rs",
+            "tidetable/tui.py",
+            "tests/test_tui.py",
+            "docs/integration-guide.md"
+          ],
+          "success": [
+            "argument beats env beats config file, covered by a test for each pair",
+            "a missing slug with a reachable hub opens the picker instead of exiting",
+            "no code path runs git or reads .git/config"
+          ],
+          "tests": "cd tui && cargo test && cargo clippy --all-targets -- -D warnings && python -m pytest tests/test_tui.py -q",
+          "complexity": "Medium",
+          "created_at": "2026-10-17T00:00:00Z",
+          "updated_at": "2026-10-17T00:00:00Z"
+        },
+        {
+          "id": "4.0.4",
+          "title": "Hub project list and TUI project picker",
+          "status": "pending",
+          "goal": "Add GET /api/projects returning the slugs and titles the calling token may see (never a slug it cannot access), and a picker state in the TUI that lists them, with j/k and Enter, when hub mode has no slug. The picker lives in the same view system as the todo-file picker.",
+          "touches": [
+            "tidetable/serve.py",
+            "tidetable/remote.py",
+            "tui/src/",
+            "tests/"
+          ],
+          "success": [
+            "a scoped token sees only its slugs; the full-access token sees all",
+            "the TUI picker selects a project and the list loads without restarting",
+            "an empty list shows copy that says what to do, not a blank screen"
+          ],
+          "tests": "cd tui && cargo test && cargo clippy --all-targets -- -D warnings && python -m pytest tests/test_cli.py tests/test_serve.py -q",
+          "complexity": "Medium",
+          "created_at": "2026-10-17T00:00:00Z",
+          "updated_at": "2026-10-17T00:00:00Z",
+          "prerequisites": [
+            "4.0.3"
+          ]
+        },
+        {
+          "id": "4.0.5",
+          "title": "Remote claim details and auth errors",
+          "status": "pending",
+          "goal": "Show the claim owner and lease time left on in-progress rows in hub mode, so a task held by someone else reads as such before you press d. Separate 'cannot reach the hub' (offline, dimmed last snapshot) from 'token rejected' (401) and 'no access to this project' (403): the latter two say what to change and never keep retrying. The token never appears in a frame, an error or a log.",
+          "touches": [
+            "tui/src/refresh.rs",
+            "tui/src/hub.rs",
+            "tui/src/ui.rs",
+            "tui/tests/"
+          ],
+          "success": [
+            "401 and 403 each show their own message and stop the backoff loop",
+            "an in-progress row shows owner and lease left; an expired lease reads as stale",
+            "token-never-in-a-frame test covers the new states"
+          ],
+          "tests": "cd tui && cargo test && cargo clippy --all-targets -- -D warnings",
+          "complexity": "Medium",
+          "created_at": "2026-10-17T00:00:00Z",
+          "updated_at": "2026-10-17T00:00:00Z",
+          "prerequisites": [
+            "4.0.2"
+          ]
+        },
+        {
+          "id": "4.0.6",
+          "title": "Remote-mode docs, version and release",
+          "status": "pending",
+          "goal": "Update README, docs/integration-guide.md (the local-or-hub table now says every action works in both), skills/tidetable/SKILL.md and AGENTS.md; add a CHANGELOG entry and bump to 0.13.0 in pyproject.toml and tidetable/__init__.py. List what a person must still check by eye against a real hub.",
+          "touches": [
+            "README.md",
+            "docs/",
+            "skills/tidetable/SKILL.md",
+            "AGENTS.md",
+            "CHANGELOG.md",
+            "pyproject.toml",
+            "tidetable/__init__.py"
+          ],
+          "success": [
+            "docs no longer say the hub lacks routes for any TUI action",
+            "version is 0.13.0 in pyproject.toml, __init__.py and the todo release_version",
+            "full python suite and cargo test pass"
+          ],
+          "tests": "python -m pytest -q && cd tui && cargo test",
+          "complexity": "Medium",
+          "created_at": "2026-10-17T00:00:00Z",
+          "updated_at": "2026-10-17T00:00:00Z",
+          "prerequisites": [
+            "4.0.2",
+            "4.0.4",
+            "4.0.5"
+          ]
+        }
+      ]
     }
   ]
 }
