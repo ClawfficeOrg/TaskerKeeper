@@ -11,3 +11,5 @@
 {"at": "2026-10-17T07:38:46Z", "event": "start", "task": "3.2.1", "owner": "tui-agent", "from": "pending", "to": "in_progress", "lease_expires_at": "2026-10-17T08:38:46Z"}
 {"at": "2026-10-17T07:40:55Z", "event": "done", "task": "3.2.1", "owner": "tui-agent", "from": "in_progress", "to": "done", "changelog": "TUI actions: d/l on Now, c/x on Review via confirm dialog and toast; --read-only and --owner"}
 {"at": "2026-10-17T07:41:02Z", "event": "start", "task": "3.2.2", "owner": "tui-agent", "from": "pending", "to": "in_progress", "lease_expires_at": "2026-10-17T08:41:02Z"}
+{"at": "2026-10-17T07:55:38Z", "event": "done", "task": "3.2.2", "owner": "tui-agent", "from": "in_progress", "to": "done", "changelog": "TUI hub source (--server/--token/slug), look-queue hub route, stream/poll refresh, offline dim+label"}
+{"at": "2026-10-17T07:56:08Z", "event": "start", "task": "3.2.3", "owner": "tui-agent", "from": "pending", "to": "in_progress", "lease_expires_at": "2026-10-17T08:56:08Z"}

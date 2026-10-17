@@ -5,6 +5,7 @@
 
 pub mod app;
 pub mod hub;
+pub mod motion;
 pub mod refresh;
 pub mod review;
 pub mod source;

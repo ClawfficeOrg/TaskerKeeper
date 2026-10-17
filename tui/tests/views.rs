@@ -650,3 +650,39 @@ fn a_token_never_reaches_a_frame_even_in_a_failure_message() {
     }
     assert_eq!(redact_url("https://a:b@h/x"), "https://h/x");
 }
+
+// ---------------------------------------------------------------- motion
+
+#[test]
+fn a_status_change_pulses_one_id_and_reduced_motion_adds_nothing() {
+    let moved = |a: &mut App| {
+        let mut s = snap();
+        let r = s.in_progress.remove(0);
+        s.done.insert(
+            0,
+            TaskRef {
+                id: r.id,
+                title: r.title,
+            },
+        );
+        a.set_snapshot(s);
+    };
+    let mut on = app(ModeArg::Standard);
+    on.motion = true;
+    moved(&mut on);
+    assert!(on.pulses.active("3.1.1", std::time::Instant::now()));
+    let mut off = app(ModeArg::Standard);
+    moved(&mut off); // motion defaults to off (NO_COLOR / TIDETABLE_REDUCE_MOTION resolve to false)
+    assert!(!off.pulses.live(std::time::Instant::now()));
+    assert!(!tidetable_tui::motion::enabled(
+        |k| (k == "NO_COLOR").then(|| "1".to_string())
+    ));
+}
+
+#[test]
+fn an_idle_app_owes_no_frame() {
+    // The loop in main.rs repaints only when `dirty`; the only timed source is a live pulse.
+    let a = app(ModeArg::Standard);
+    assert!(!a.pulses.live(std::time::Instant::now()));
+    assert_eq!(a.conn, Conn::Local);
+}

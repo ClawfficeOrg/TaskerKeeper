@@ -5,6 +5,9 @@ use std::collections::HashMap;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
 
+use std::time::Instant;
+
+use crate::motion::{self, Pulses};
 use crate::refresh::Conn;
 use crate::review::Ticks;
 use crate::source::{phase_of, Action, Snapshot, Source};
@@ -178,6 +181,9 @@ pub struct App {
     pub read_only: bool,
     /// Connection state shown in the footer; `Local` shows nothing.
     pub conn: Conn,
+    /// Motion on/off (see motion.rs); off by default so tests and NO_COLOR stay still.
+    pub motion: bool,
+    pub pulses: Pulses,
     /// Epoch seconds of the last successful snapshot, for the offline label.
     pub last_ok: Option<i64>,
     pub dialog: Option<Dialog>,
@@ -221,6 +227,8 @@ impl App {
             want_refresh: false,
             read_only: false,
             conn: Conn::Local,
+            motion: false,
+            pulses: Pulses::default(),
             last_ok: None,
             dialog: None,
             pending: None,
@@ -230,6 +238,11 @@ impl App {
     }
 
     pub fn set_snapshot(&mut self, snap: Snapshot) {
+        if self.motion && self.load == Load::Ready {
+            let before = motion::lanes(&self.snap);
+            self.pulses
+                .start(motion::changed(&before, &snap), Instant::now());
+        }
         self.snap = snap;
         self.load = Load::Ready;
         for t in Tab::ALL {

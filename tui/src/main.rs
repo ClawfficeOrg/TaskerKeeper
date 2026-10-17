@@ -5,6 +5,7 @@ use std::time::{Duration, Instant};
 use crossterm::event::{self, Event, KeyEventKind};
 use tidetable_tui::app::{run_pending, App, Load, ModeArg};
 use tidetable_tui::hub::{spawn_stream, HubSource, StreamMsg, UreqHttp};
+use tidetable_tui::motion;
 use tidetable_tui::refresh::{Refresher, Watcher};
 use tidetable_tui::review::Ticks;
 use tidetable_tui::source::{Action, CliRunner, LocalSource, Snapshot, Source, SourceError};
@@ -164,6 +165,7 @@ fn main() {
     let hub = rx.is_some();
     let mut app = App::new(theme, args.mode, Ticks::load(&cwd));
     app.read_only = args.read_only;
+    app.motion = motion::enabled(|k| std::env::var(k).ok());
 
     // ratatui::init installs a panic hook that restores the terminal.
     let mut terminal = ratatui::init();
@@ -180,7 +182,13 @@ fn main() {
             break;
         }
         dirty = false;
-        match event::poll(Duration::from_millis(250)) {
+        // Fast wake-ups only while a pulse is live; otherwise block for the housekeeping tick.
+        let wait = if app.pulses.live(Instant::now()) {
+            50
+        } else {
+            250
+        };
+        match event::poll(Duration::from_millis(wait)) {
             Ok(true) => {
                 match event::read() {
                     Ok(Event::Key(k)) if k.kind == KeyEventKind::Press => app.on_key(k),
@@ -195,6 +203,9 @@ fn main() {
         }
 
         let now = Instant::now();
+        if app.pulses.live(now) || app.pulses.expire(now) {
+            dirty = true;
+        }
         let mut pushed = false;
         if let Some(rx) = &rx {
             for m in rx.try_iter() {

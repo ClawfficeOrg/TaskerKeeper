@@ -465,7 +465,15 @@ fn entry_lines(app: &App, e: &Entry, selected: bool, width: usize) -> Vec<Line<'
                     Span::raw(" "),
                     Span::styled(label, t.status_style(st)),
                     Span::raw("  "),
-                    Span::styled(e.id.clone(), t.dim()),
+                    Span::styled(
+                        e.id.clone(),
+                        if app.pulses.active(&e.id, std::time::Instant::now()) {
+                            t.accent_style()
+                                .add_modifier(Modifier::BOLD | Modifier::REVERSED)
+                        } else {
+                            t.dim()
+                        },
+                    ),
                     Span::raw("  "),
                     Span::styled(
                         trunc(&e.title, width.saturating_sub(used)),
