@@ -1,25 +1,43 @@
 use std::path::PathBuf;
-use std::time::Duration;
+use std::sync::mpsc;
+use std::time::{Duration, Instant};
 
 use crossterm::event::{self, Event, KeyEventKind};
 use tidetable_tui::app::{run_pending, App, Load, ModeArg};
+use tidetable_tui::hub::{spawn_stream, HubSource, StreamMsg, UreqHttp};
+use tidetable_tui::refresh::{Refresher, Watcher};
 use tidetable_tui::review::Ticks;
-use tidetable_tui::source::{CliRunner, LocalSource, Source, SourceError};
+use tidetable_tui::source::{Action, CliRunner, LocalSource, Snapshot, Source, SourceError};
 use tidetable_tui::theme::Theme;
 use tidetable_tui::ui;
 
-const USAGE: &str = "usage: tidetable-tui [TODO_FILE] [--mode auto|standard|side|bottom] [--palette NAME] [--read-only] [--owner NAME]";
+const USAGE: &str = "usage: tidetable-tui [TODO_FILE | SLUG] [--mode auto|standard|side|bottom] [--palette NAME]\n\
+                     \x20                   [--read-only] [--owner NAME] [--server URL] [--token TOKEN] [--local]\n\
+                     hub: with --server (or $TIDETABLE_SERVER) the argument is the project slug;\n\
+                     prefer $TIDETABLE_TOKEN over --token, which shows up in process listings";
 
 struct Args {
-    file: Option<PathBuf>,
+    file: Option<String>,
     mode: ModeArg,
     palette: Option<String>,
     read_only: bool,
     owner: Option<String>,
+    server: Option<String>,
+    token: Option<String>,
+    local: bool,
 }
 
 fn parse_args() -> Result<Args, String> {
-    let mut a = Args { file: None, mode: ModeArg::Auto, palette: None, read_only: false, owner: None };
+    let mut a = Args {
+        file: None,
+        mode: ModeArg::Auto,
+        palette: None,
+        read_only: false,
+        owner: None,
+        server: None,
+        token: None,
+        local: false,
+    };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
         match arg.as_str() {
@@ -29,9 +47,12 @@ fn parse_args() -> Result<Args, String> {
             }
             "--palette" => a.palette = Some(it.next().ok_or("--palette needs a value")?),
             "--read-only" => a.read_only = true,
+            "--local" => a.local = true,
             "--owner" => a.owner = Some(it.next().ok_or("--owner needs a value")?),
+            "--server" => a.server = Some(it.next().ok_or("--server needs a value")?),
+            "--token" => a.token = Some(it.next().ok_or("--token needs a value")?),
             "-h" | "--help" => return Err(String::new()),
-            f if !f.starts_with('-') => a.file = Some(PathBuf::from(f)),
+            f if !f.starts_with('-') => a.file = Some(f.to_string()),
             other => return Err(format!("unknown option {other}")),
         }
     }
@@ -44,12 +65,45 @@ fn now_epoch() -> i64 {
         .map_or(0, |d| d.as_secs() as i64)
 }
 
-fn refresh(app: &mut App, source: &mut LocalSource<CliRunner>) {
+enum Backend {
+    Local(LocalSource<CliRunner>),
+    Hub(HubSource<UreqHttp>),
+}
+
+impl Source for Backend {
+    fn snapshot(&mut self) -> Result<Snapshot, SourceError> {
+        match self {
+            Backend::Local(s) => s.snapshot(),
+            Backend::Hub(s) => s.snapshot(),
+        }
+    }
+    fn act(&mut self, action: &Action) -> Result<String, String> {
+        match self {
+            Backend::Local(s) => s.act(action),
+            Backend::Hub(s) => s.act(action),
+        }
+    }
+}
+
+/// One snapshot into the app. `true` when the data is fresh.
+fn refresh(app: &mut App, source: &mut Backend) -> bool {
     app.now_epoch = now_epoch();
     match source.snapshot() {
-        Ok(s) => app.set_snapshot(s),
-        Err(SourceError::Pick(files)) => app.load = Load::Pick(files),
-        Err(e) => app.load = Load::Failed(e.to_string()),
+        Ok(s) => {
+            app.set_snapshot(s);
+            app.last_ok = Some(app.now_epoch);
+            true
+        }
+        Err(SourceError::Pick(files)) => {
+            app.load = Load::Pick(files);
+            true
+        }
+        // A hub that drops out keeps the last snapshot on screen; the footer says it is stale.
+        Err(_) if matches!(source, Backend::Hub(_)) && app.load == Load::Ready => false,
+        Err(e) => {
+            app.load = Load::Failed(e.to_string());
+            false
+        }
     }
 }
 
@@ -68,49 +122,118 @@ fn main() {
     if let Some(w) = warn {
         eprintln!("{w}");
     }
+    let env = |k: &str| std::env::var(k).ok().filter(|v| !v.trim().is_empty());
+    let server = if args.local {
+        None
+    } else {
+        args.server.clone().or_else(|| env("TIDETABLE_SERVER"))
+    };
+    let token = args.token.clone().or_else(|| env("TIDETABLE_TOKEN"));
+
     let cwd = std::env::current_dir().unwrap_or_default();
-    let mut source = LocalSource::new(CliRunner::default(), cwd.clone()).with_owner(args.owner);
-    if let Some(f) = args.file {
-        source.choose(f);
-    }
+    let (rx, mut source) = match &server {
+        Some(url) => {
+            let Some(slug) = args.file.clone() else {
+                eprintln!("hub mode needs a project slug\n{USAGE}");
+                std::process::exit(2);
+            };
+            let http = |t: Option<String>| UreqHttp::new(url, t);
+            let (main_http, stream_http) = match (http(token.clone()), http(token.clone())) {
+                (Ok(a), Ok(b)) => (a, b),
+                (Err(e), _) | (_, Err(e)) => {
+                    eprintln!("{e}");
+                    std::process::exit(2);
+                }
+            };
+            let (tx, rx) = mpsc::channel();
+            spawn_stream(stream_http, slug.clone(), tx);
+            (
+                Some(rx),
+                Backend::Hub(HubSource::new(main_http, slug).with_owner(args.owner.clone())),
+            )
+        }
+        None => {
+            let mut local =
+                LocalSource::new(CliRunner::default(), cwd.clone()).with_owner(args.owner.clone());
+            if let Some(f) = &args.file {
+                local.choose(PathBuf::from(f));
+            }
+            (None, Backend::Local(local))
+        }
+    };
+    let hub = rx.is_some();
     let mut app = App::new(theme, args.mode, Ticks::load(&cwd));
     app.read_only = args.read_only;
 
     // ratatui::init installs a panic hook that restores the terminal.
     let mut terminal = ratatui::init();
     let _ = crossterm::execute!(std::io::stdout(), crossterm::event::EnableMouseCapture);
-    refresh_first(&mut terminal, &mut app, &mut source);
+    let _ = terminal.draw(|f| ui::draw(f, &mut app));
+    let mut refresher = Refresher::new(hub, Instant::now());
+    refresher.record(refresh(&mut app, &mut source) || !hub, Instant::now());
+    let mut watcher = Watcher::default();
+    let mut dirty = true;
+
     while !app.quit {
-        if terminal.draw(|f| ui::draw(f, &mut app)).is_err() {
+        // Repaint only when something changed: an idle TUI costs no frames.
+        if dirty && terminal.draw(|f| ui::draw(f, &mut app)).is_err() {
             break;
         }
-        // Block on input; the timeout is the periodic refresh (3.2.2 makes this smarter).
-        match event::poll(Duration::from_secs(5)) {
-            Ok(true) => match event::read() {
-                Ok(Event::Key(k)) if k.kind == KeyEventKind::Press => app.on_key(k),
-                Ok(Event::Mouse(m)) => app.on_mouse(m),
-                Ok(_) => {}
-                Err(_) => break,
-            },
-            Ok(false) => app.want_refresh = true,
+        dirty = false;
+        match event::poll(Duration::from_millis(250)) {
+            Ok(true) => {
+                match event::read() {
+                    Ok(Event::Key(k)) if k.kind == KeyEventKind::Press => app.on_key(k),
+                    Ok(Event::Mouse(m)) => app.on_mouse(m),
+                    Ok(_) => {}
+                    Err(_) => break,
+                }
+                dirty = true;
+            }
+            Ok(false) => {}
             Err(_) => break,
         }
-        run_pending(&mut app, &mut source);
+
+        let now = Instant::now();
+        let mut pushed = false;
+        if let Some(rx) = &rx {
+            for m in rx.try_iter() {
+                match m {
+                    StreamMsg::Connected => refresher.set_stream(true),
+                    StreamMsg::Changed => pushed = true,
+                    StreamMsg::Disconnected | StreamMsg::Unsupported => refresher.set_stream(false),
+                }
+            }
+        } else if !app.snap.todo_file.is_empty() {
+            if !watcher.is_for(&app.snap.todo_file) {
+                watcher = Watcher::for_todo(&app.snap.todo_file);
+            }
+            pushed = watcher.changed();
+        }
+
+        if app.pending.is_some() {
+            run_pending(&mut app, &mut source);
+            dirty = true;
+        }
         if let Some(f) = app.chosen.take() {
-            source.choose(f);
+            if let Backend::Local(l) = &mut source {
+                l.choose(f);
+            }
             app.want_refresh = true;
         }
-        if app.want_refresh {
+        if app.want_refresh || refresher.due(now, pushed) {
             app.want_refresh = false;
-            refresh(&mut app, &mut source);
+            let ok = refresh(&mut app, &mut source);
+            refresher.record(ok || !hub, Instant::now());
+            dirty = true;
+        }
+        let conn = refresher.conn(Instant::now());
+        if conn != app.conn {
+            app.conn = conn;
+            app.now_epoch = now_epoch();
+            dirty = true;
         }
     }
     let _ = crossterm::execute!(std::io::stdout(), crossterm::event::DisableMouseCapture);
     ratatui::restore();
-}
-
-/// Paint the Loading state once before the first (slow, Python-spawning) snapshot.
-fn refresh_first(terminal: &mut ratatui::DefaultTerminal, app: &mut App, source: &mut LocalSource<CliRunner>) {
-    let _ = terminal.draw(|f| ui::draw(f, app));
-    refresh(app, source);
 }

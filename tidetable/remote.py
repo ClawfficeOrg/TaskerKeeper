@@ -33,6 +33,7 @@ ROUTES = {
     "parallel": ("GET", "parallel"),
     "deps": ("GET", "deps"),
     "history": ("GET", "history"),
+    "look-queue": ("GET", "look-queue"),
     "sidebar": ("GET", "sidebar"),
     "start": ("POST", "start"),
     "done": ("POST", "done"),

@@ -40,6 +40,7 @@ ROUTES: dict[tuple[str, str], str] = {
     ("GET", "/api/{slug}/list"): "cmd_list",
     ("GET", "/api/{slug}/deps"): "cmd_deps",
     ("GET", "/api/{slug}/history"): "cmd_history",
+    ("GET", "/api/{slug}/look-queue"): "cmd_look_queue",
     ("GET", "/api/{slug}/validate"): "cmd_validate",
     ("GET", "/api/{slug}/parallel"): "cmd_parallel",
     ("GET", "/api/{slug}/sessions"): "sessions",
@@ -450,6 +451,9 @@ def handle_get(route: str, slug: str | None, query: Mapping[str, str],
         if limit and limit > 0:
             events = events[-limit:]
         return 200, {"path": str(cli.events_path(todo_path)), "events": events}
+
+    if route == "/api/{slug}/look-queue":
+        return 200, {"queue": cli.look_queue(data)}
 
     if route == "/api/{slug}/validate":
         schema_status: str = "skipped"

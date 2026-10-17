@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
 
+use crate::refresh::Conn;
 use crate::review::Ticks;
 use crate::source::{phase_of, Action, Snapshot, Source};
 use crate::theme::{Status, Theme};
@@ -95,7 +96,12 @@ pub enum Kind {
     Header,
     Task,
     /// One success criterion of a Review item, with its tick.
-    Check { task: String, idx: usize, total: usize, on: bool },
+    Check {
+        task: String,
+        idx: usize,
+        total: usize,
+        on: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -112,10 +118,24 @@ pub struct Entry {
 
 impl Entry {
     fn header(title: String) -> Self {
-        Self { kind: Kind::Header, id: String::new(), title, status: None, sub: vec![], note: None }
+        Self {
+            kind: Kind::Header,
+            id: String::new(),
+            title,
+            status: None,
+            sub: vec![],
+            note: None,
+        }
     }
     fn task(id: &str, title: &str, status: Status, sub: Vec<String>) -> Self {
-        Self { kind: Kind::Task, id: id.into(), title: title.into(), status: Some(status), sub, note: None }
+        Self {
+            kind: Kind::Task,
+            id: id.into(),
+            title: title.into(),
+            status: Some(status),
+            sub,
+            note: None,
+        }
     }
     pub fn selectable(&self) -> bool {
         self.kind != Kind::Header
@@ -156,6 +176,10 @@ pub struct App {
     pub want_refresh: bool,
     /// `--read-only`: no action keys, no action hints.
     pub read_only: bool,
+    /// Connection state shown in the footer; `Local` shows nothing.
+    pub conn: Conn,
+    /// Epoch seconds of the last successful snapshot, for the offline label.
+    pub last_ok: Option<i64>,
     pub dialog: Option<Dialog>,
     /// Confirmed by the user; [`run_pending`] executes it through the Source.
     pub pending: Option<Action>,
@@ -196,6 +220,8 @@ impl App {
             quit: false,
             want_refresh: false,
             read_only: false,
+            conn: Conn::Local,
+            last_ok: None,
             dialog: None,
             pending: None,
             toast: None,
@@ -222,10 +248,18 @@ impl App {
                 .in_progress
                 .iter()
                 .map(|r| {
-                    let status = if r.lease_expired { Status::StaleLease } else { Status::InProgress };
+                    let status = if r.lease_expired {
+                        Status::StaleLease
+                    } else {
+                        Status::InProgress
+                    };
                     let age = r.age_secs(self.now_epoch).map_or("?".into(), fmt_age);
                     let owner = r.owner.as_deref().unwrap_or("unclaimed");
-                    let lease = if r.lease_expired { "lease expired" } else { "lease ok" };
+                    let lease = if r.lease_expired {
+                        "lease expired"
+                    } else {
+                        "lease ok"
+                    };
                     let mut sub = vec![format!("{owner} · {age} · {lease}")];
                     if let Some(d) = s.details.get(&r.id).filter(|d| !d.goal.is_empty()) {
                         sub.push(d.goal.clone());
@@ -236,14 +270,23 @@ impl App {
             Tab::Upcoming => {
                 let mut out = vec![];
                 for p in &s.phases {
-                    let ready: Vec<_> = s.ready.iter().filter(|t| phase_of(&t.id) == p.id).collect();
-                    let blocked: Vec<_> = s.blocked.iter().filter(|t| phase_of(&t.id) == p.id).collect();
+                    let ready: Vec<_> =
+                        s.ready.iter().filter(|t| phase_of(&t.id) == p.id).collect();
+                    let blocked: Vec<_> = s
+                        .blocked
+                        .iter()
+                        .filter(|t| phase_of(&t.id) == p.id)
+                        .collect();
                     if ready.is_empty() && blocked.is_empty() {
                         continue;
                     }
                     out.push(Entry::header(format!("Phase {} · {}", p.id, p.title)));
                     for t in ready {
-                        let sub = if s.disjoint.contains(&t.id) { vec!["∥ safe to run in parallel".into()] } else { vec![] };
+                        let sub = if s.disjoint.contains(&t.id) {
+                            vec!["∥ safe to run in parallel".into()]
+                        } else {
+                            vec![]
+                        };
                         out.push(Entry::task(&t.id, &t.title, Status::Pending, sub));
                     }
                     for t in blocked {
@@ -257,7 +300,11 @@ impl App {
                 let mut out = vec![];
                 for q in &s.look_queue {
                     let total = q.success.len();
-                    let sub = if q.note.is_empty() || is_pointer(&q.note) { vec![] } else { vec![format!("check: {}", q.note)] };
+                    let sub = if q.note.is_empty() || is_pointer(&q.note) {
+                        vec![]
+                    } else {
+                        vec![format!("check: {}", q.note)]
+                    };
                     let mut item = Entry::task(&q.id, &q.title, Status::NeedsLook, sub);
                     if self.ticks.all(&s.project, &q.id, total) {
                         item.note = Some((Status::Done, "all checked, ready to clear".into()));
@@ -266,7 +313,12 @@ impl App {
                     for (idx, text) in q.success.iter().enumerate() {
                         let on = self.ticks.get(&s.project, &q.id, idx);
                         out.push(Entry {
-                            kind: Kind::Check { task: q.id.clone(), idx, total, on },
+                            kind: Kind::Check {
+                                task: q.id.clone(),
+                                idx,
+                                total,
+                                on,
+                            },
                             id: q.id.clone(),
                             title: text.clone(),
                             status: None,
@@ -281,7 +333,11 @@ impl App {
                 .done
                 .iter()
                 .map(|t| {
-                    let sub = s.changelog.get(&t.id).map(|c| vec![c.clone()]).unwrap_or_default();
+                    let sub = s
+                        .changelog
+                        .get(&t.id)
+                        .map(|c| vec![c.clone()])
+                        .unwrap_or_default();
                     Entry::task(&t.id, &t.title, Status::Done, sub)
                 })
                 .collect(),
@@ -297,13 +353,17 @@ impl App {
     }
 
     pub fn selected_entry(&self) -> Option<Entry> {
-        self.entries(self.tab).into_iter().filter(Entry::selectable).nth(self.selected_index(self.tab))
+        self.entries(self.tab)
+            .into_iter()
+            .filter(Entry::selectable)
+            .nth(self.selected_index(self.tab))
     }
 
     fn clamp(&mut self, tab: Tab) {
         let n = self.selectable_count(tab);
         let cur = self.selected_index(tab);
-        self.sel.insert(tab, if n == 0 { 0 } else { cur.min(n - 1) });
+        self.sel
+            .insert(tab, if n == 0 { 0 } else { cur.min(n - 1) });
     }
 
     pub fn move_sel(&mut self, by: isize) {
@@ -312,7 +372,8 @@ impl App {
             return;
         }
         let cur = self.selected_index(self.tab) as isize;
-        self.sel.insert(self.tab, (cur + by).clamp(0, n - 1) as usize);
+        self.sel
+            .insert(self.tab, (cur + by).clamp(0, n - 1) as usize);
     }
 
     pub fn set_sel(&mut self, idx: usize) {
@@ -321,8 +382,15 @@ impl App {
     }
 
     pub fn toggle_tick(&mut self) {
-        if let Some(Entry { kind: Kind::Check { task, idx, total, .. }, .. }) = self.selected_entry() {
-            self.ticks.toggle(&self.snap.project.clone(), &task, idx, total);
+        if let Some(Entry {
+            kind: Kind::Check {
+                task, idx, total, ..
+            },
+            ..
+        }) = self.selected_entry()
+        {
+            self.ticks
+                .toggle(&self.snap.project.clone(), &task, idx, total);
         }
     }
 
@@ -342,7 +410,9 @@ impl App {
     }
 
     fn begin(&mut self, verb: char) {
-        let Some(e) = self.selected_entry() else { return };
+        let Some(e) = self.selected_entry() else {
+            return;
+        };
         let on_now = matches!(verb, 'd' | 'l');
         if (on_now && self.tab != Tab::Now) || (!on_now && self.tab != Tab::Review) {
             let at = if on_now { "Now" } else { "Review" };
@@ -350,10 +420,36 @@ impl App {
             return;
         }
         let (action, title, body, input) = match verb {
-            'd' => (Action::Done { id: e.id.clone(), changelog: None }, "Mark done", "Finish this task?", Some("Changelog (optional)")),
-            'l' => (Action::Defer { id: e.id.clone(), note: String::new() }, "Defer to human look", "Park it in the review queue?", Some("What should be checked")),
-            'c' => (Action::Clear { id: e.id.clone() }, "Clear", "A human looked: mark it done?", None),
-            _ => (Action::Reject { id: e.id.clone() }, "Reject", "The check failed: send it back to pending?", None),
+            'd' => (
+                Action::Done {
+                    id: e.id.clone(),
+                    changelog: None,
+                },
+                "Mark done",
+                "Finish this task?",
+                Some("Changelog (optional)"),
+            ),
+            'l' => (
+                Action::Defer {
+                    id: e.id.clone(),
+                    note: String::new(),
+                },
+                "Defer to human look",
+                "Park it in the review queue?",
+                Some("What should be checked"),
+            ),
+            'c' => (
+                Action::Clear { id: e.id.clone() },
+                "Clear",
+                "A human looked: mark it done?",
+                None,
+            ),
+            _ => (
+                Action::Reject { id: e.id.clone() },
+                "Reject",
+                "The check failed: send it back to pending?",
+                None,
+            ),
         };
         self.dialog = Some(Dialog {
             action,
@@ -364,13 +460,22 @@ impl App {
     }
 
     fn on_dialog_key(&mut self, k: KeyEvent) {
-        let Some(d) = self.dialog.as_mut() else { return };
+        let Some(d) = self.dialog.as_mut() else {
+            return;
+        };
         match k.code {
             KeyCode::Esc => self.dialog = None,
             KeyCode::Enter => {
-                let text = d.input.as_ref().map(|(_, v)| v.trim().to_string()).unwrap_or_default();
+                let text = d
+                    .input
+                    .as_ref()
+                    .map(|(_, v)| v.trim().to_string())
+                    .unwrap_or_default();
                 let action = match d.action.clone() {
-                    Action::Done { id, .. } => Action::Done { id, changelog: (!text.is_empty()).then_some(text) },
+                    Action::Done { id, .. } => Action::Done {
+                        id,
+                        changelog: (!text.is_empty()).then_some(text),
+                    },
                     Action::Defer { id, .. } => Action::Defer { id, note: text },
                     other => other,
                 };
@@ -402,14 +507,20 @@ impl App {
             return;
         }
         match (k.code, k.modifiers) {
-            (KeyCode::Char('q'), _) | (KeyCode::Esc, _) | (KeyCode::Char('c'), KeyModifiers::CONTROL) => self.quit = true,
+            (KeyCode::Char('q'), _)
+            | (KeyCode::Esc, _)
+            | (KeyCode::Char('c'), KeyModifiers::CONTROL) => self.quit = true,
             (KeyCode::Char('j'), _) | (KeyCode::Down, _) => self.move_sel(1),
             (KeyCode::Char('k'), _) | (KeyCode::Up, _) => self.move_sel(-1),
             (KeyCode::Char('g'), _) | (KeyCode::Home, _) => self.set_sel(0),
             (KeyCode::Char('G'), _) | (KeyCode::End, _) => self.set_sel(usize::MAX),
-            (KeyCode::Char(c @ ('d' | 'l' | 'c' | 'x')), KeyModifiers::NONE) if !self.read_only => self.begin(c),
+            (KeyCode::Char(c @ ('d' | 'l' | 'c' | 'x')), KeyModifiers::NONE) if !self.read_only => {
+                self.begin(c)
+            }
             (KeyCode::Tab, _) | (KeyCode::Right, _) => self.tab = self.tab.shift(1),
-            (KeyCode::BackTab, _) | (KeyCode::Left, _) | (KeyCode::Char('h'), _) => self.tab = self.tab.shift(-1),
+            (KeyCode::BackTab, _) | (KeyCode::Left, _) | (KeyCode::Char('h'), _) => {
+                self.tab = self.tab.shift(-1)
+            }
             (KeyCode::Char(' '), _) => self.toggle_tick(),
             (KeyCode::Char('r'), _) => self.want_refresh = true,
             (KeyCode::Char(c @ '1'..='4'), _) => self.tab = Tab::ALL[c as usize - '1' as usize],
@@ -425,7 +536,12 @@ impl App {
                 let hit = self
                     .hits
                     .iter()
-                    .find(|(r, _)| m.column >= r.x && m.column < r.x + r.width && m.row >= r.y && m.row < r.y + r.height)
+                    .find(|(r, _)| {
+                        m.column >= r.x
+                            && m.column < r.x + r.width
+                            && m.row >= r.y
+                            && m.row < r.y + r.height
+                    })
                     .map(|(_, h)| *h);
                 match hit {
                     Some(Hit::Tab(t)) => self.tab = t,
@@ -441,13 +557,36 @@ impl App {
 /// Carry out the confirmed action through the source. A refusal is shown as the CLI worded it
 /// and leaves the snapshot untouched; success asks for a refresh.
 pub fn run_pending(app: &mut App, source: &mut impl Source) {
-    let Some(action) = app.pending.take() else { return };
+    let Some(action) = app.pending.take() else {
+        return;
+    };
     match source.act(&action) {
         Ok(msg) => {
             app.toast = Some((msg, false));
             app.want_refresh = true;
         }
         Err(msg) => app.toast = Some((msg, true)),
+    }
+}
+
+impl App {
+    /// Footer label for the connection: icon + word, never colour alone.
+    pub fn conn_label(&self) -> Option<(Status, String)> {
+        match self.conn {
+            Conn::Local => None,
+            Conn::Live => Some((Status::Done, "live".into())),
+            Conn::Polling => Some((Status::Pending, "polling".into())),
+            Conn::Offline { retry_in } => {
+                let age = self.last_ok.map_or(String::new(), |t| {
+                    format!(" · data {} old", fmt_age((self.now_epoch - t).max(0)))
+                });
+                Some((Status::Blocked, format!("offline · retry {retry_in}s{age}")))
+            }
+        }
+    }
+
+    pub fn is_offline(&self) -> bool {
+        matches!(self.conn, Conn::Offline { .. })
     }
 }
 

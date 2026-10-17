@@ -11,30 +11,86 @@ use tidetable_tui::theme::{Depth, Theme};
 use tidetable_tui::ui;
 
 fn snap() -> Snapshot {
-    let t = |id: &str, title: &str| TaskRef { id: id.into(), title: title.into() };
+    let t = |id: &str, title: &str| TaskRef {
+        id: id.into(),
+        title: title.into(),
+    };
     let mut details = HashMap::new();
     details.insert(
         "3.1.2".into(),
-        Detail { goal: "Render the views".into(), touches: vec!["tui/".into()], prerequisites: vec!["3.1.1".into()], success: vec!["views render".into()] },
+        Detail {
+            goal: "Render the views".into(),
+            touches: vec!["tui/".into()],
+            prerequisites: vec!["3.1.1".into()],
+            success: vec!["views render".into()],
+        },
     );
     Snapshot {
         project: "todo-tui".into(),
         todo_file: "docs/todo-tui.json".into(),
         in_progress: vec![
-            Running { id: "3.1.1".into(), title: "Layout modes".into(), owner: Some("bot:1".into()), claimed_at: Some("2026-10-17T06:00:00Z".into()), lease_expired: false },
-            Running { id: "3.0.9".into(), title: "Stale thing".into(), owner: Some("bot:2".into()), claimed_at: Some("2026-10-17T01:00:00Z".into()), lease_expired: true },
+            Running {
+                id: "3.1.1".into(),
+                title: "Layout modes".into(),
+                owner: Some("bot:1".into()),
+                claimed_at: Some("2026-10-17T06:00:00Z".into()),
+                lease_expired: false,
+            },
+            Running {
+                id: "3.0.9".into(),
+                title: "Stale thing".into(),
+                owner: Some("bot:2".into()),
+                claimed_at: Some("2026-10-17T01:00:00Z".into()),
+                lease_expired: true,
+            },
         ],
         ready: vec![t("3.1.2", "Now, Upcoming and Done views")],
-        blocked: vec![Blocked { id: "3.2.1".into(), title: "Actions".into(), blocked_by: vec!["task 3.1.2".into()] }],
+        blocked: vec![Blocked {
+            id: "3.2.1".into(),
+            title: "Actions".into(),
+            blocked_by: vec!["task 3.1.2".into()],
+        }],
         done: vec![t("3.0.2", "Theme"), t("3.0.1", "Crate")],
         look_queue: vec![
-            LookItem { id: "3.0.5".into(), title: "Eyeball it".into(), phase: "3.0".into(), note: "see the task's success criteria".into(), goal: "g".into(), success: vec!["colours look right".into(), "motion is calm".into()] },
-            LookItem { id: "3.0.6".into(), title: "Other".into(), phase: "3.0".into(), note: "check the footer".into(), goal: "g".into(), success: vec![] },
+            LookItem {
+                id: "3.0.5".into(),
+                title: "Eyeball it".into(),
+                phase: "3.0".into(),
+                note: "see the task's success criteria".into(),
+                goal: "g".into(),
+                success: vec!["colours look right".into(), "motion is calm".into()],
+            },
+            LookItem {
+                id: "3.0.6".into(),
+                title: "Other".into(),
+                phase: "3.0".into(),
+                note: "check the footer".into(),
+                goal: "g".into(),
+                success: vec![],
+            },
         ],
         phases: vec![
-            PhaseProgress { id: "3.0".into(), title: "Foundation".into(), done: 2, total: 4, complete: false },
-            PhaseProgress { id: "3.1".into(), title: "Views".into(), done: 0, total: 3, complete: false },
-            PhaseProgress { id: "3.2".into(), title: "Actions".into(), done: 0, total: 1, complete: false },
+            PhaseProgress {
+                id: "3.0".into(),
+                title: "Foundation".into(),
+                done: 2,
+                total: 4,
+                complete: false,
+            },
+            PhaseProgress {
+                id: "3.1".into(),
+                title: "Views".into(),
+                done: 0,
+                total: 3,
+                complete: false,
+            },
+            PhaseProgress {
+                id: "3.2".into(),
+                title: "Actions".into(),
+                done: 0,
+                total: 1,
+                complete: false,
+            },
         ],
         details,
         disjoint: HashSet::from(["3.1.2".to_string()]),
@@ -114,7 +170,12 @@ fn review_badge_is_visible_in_all_three_modes() {
 
 #[test]
 fn nothing_panics_at_tiny_sizes() {
-    for mode in [ModeArg::Auto, ModeArg::Standard, ModeArg::Side, ModeArg::Bottom] {
+    for mode in [
+        ModeArg::Auto,
+        ModeArg::Standard,
+        ModeArg::Side,
+        ModeArg::Bottom,
+    ] {
         for tab in Tab::ALL {
             for (w, h) in [(20, 6), (1, 1), (12, 3), (5, 40), (200, 1), (30, 2)] {
                 let mut a = app(mode);
@@ -133,7 +194,11 @@ fn nothing_panics_at_tiny_sizes() {
 
 #[test]
 fn every_view_renders_in_every_mode() {
-    for (mode, w, h) in [(ModeArg::Standard, 100, 30), (ModeArg::Side, 36, 30), (ModeArg::Bottom, 100, 10)] {
+    for (mode, w, h) in [
+        (ModeArg::Standard, 100, 30),
+        (ModeArg::Side, 36, 30),
+        (ModeArg::Bottom, 100, 10),
+    ] {
         for tab in Tab::ALL {
             let mut a = app(mode);
             a.tab = tab;
@@ -170,7 +235,10 @@ fn upcoming_groups_by_phase_ready_first_then_blocked() {
     assert!(text.contains("∥ safe to run in parallel"));
     assert!(text.contains("→ waits on task 3.1.2"));
     assert!(text.contains("⊘ blocked"));
-    assert!(!text.contains("Phase 3.0 ·"), "a phase with nothing upcoming has no heading");
+    assert!(
+        !text.contains("Phase 3.0 ·"),
+        "a phase with nothing upcoming has no heading"
+    );
 }
 
 #[test]
@@ -211,7 +279,10 @@ fn empty_loading_and_error_states_have_copy() {
     let text = render(&mut a, 100, 30).1;
     assert!(text.contains("2 todo files found") && text.contains("todo-b.json"));
     a.on_key(key(KeyCode::Char('2')));
-    assert_eq!(a.chosen.as_deref(), Some(std::path::Path::new("docs/todo-b.json")));
+    assert_eq!(
+        a.chosen.as_deref(),
+        Some(std::path::Path::new("docs/todo-b.json"))
+    );
 }
 
 #[test]
@@ -223,7 +294,11 @@ fn selection_survives_reflow_between_modes() {
     let id = a.selected_entry().unwrap().id;
     for (w, h) in [(100, 30), (30, 40), (120, 8), (100, 30)] {
         let _ = render(&mut a, w, h);
-        assert_eq!(a.selected_entry().unwrap().id, id, "lost selection at {w}x{h}");
+        assert_eq!(
+            a.selected_entry().unwrap().id,
+            id,
+            "lost selection at {w}x{h}"
+        );
     }
 }
 
@@ -246,20 +321,35 @@ fn keys_move_and_clamp() {
 }
 
 fn click(x: u16, y: u16) -> MouseEvent {
-    MouseEvent { kind: MouseEventKind::Down(MouseButton::Left), column: x, row: y, modifiers: KeyModifiers::NONE }
+    MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: x,
+        row: y,
+        modifiers: KeyModifiers::NONE,
+    }
 }
 
 #[test]
 fn click_and_wheel_hit_test_against_stored_rects() {
     let mut a = app(ModeArg::Standard);
     let _ = render(&mut a, 100, 30);
-    let tab = a.hits.iter().find(|(_, h)| *h == Hit::Tab(Tab::Done)).expect("tab rect").0;
+    let tab = a
+        .hits
+        .iter()
+        .find(|(_, h)| *h == Hit::Tab(Tab::Done))
+        .expect("tab rect")
+        .0;
     a.on_mouse(click(tab.x + 1, tab.y));
     assert_eq!(a.tab, Tab::Done);
 
     a.tab = Tab::Now;
     let _ = render(&mut a, 100, 30);
-    let row = a.hits.iter().find(|(_, h)| *h == Hit::Row(1)).expect("row rect").0;
+    let row = a
+        .hits
+        .iter()
+        .find(|(_, h)| *h == Hit::Row(1))
+        .expect("row rect")
+        .0;
     a.on_mouse(click(row.x + 2, row.y));
     assert_eq!(a.selected_index(Tab::Now), 1);
 
@@ -267,7 +357,12 @@ fn click_and_wheel_hit_test_against_stored_rects() {
     a.on_mouse(click(99, 29));
     assert_eq!(a.selected_index(Tab::Now), 1);
 
-    let wheel = |kind| MouseEvent { kind, column: 5, row: 5, modifiers: KeyModifiers::NONE };
+    let wheel = |kind| MouseEvent {
+        kind,
+        column: 5,
+        row: 5,
+        modifiers: KeyModifiers::NONE,
+    };
     a.on_mouse(wheel(MouseEventKind::ScrollUp));
     assert_eq!(a.selected_index(Tab::Now), 0);
     a.on_mouse(wheel(MouseEventKind::ScrollDown));
@@ -277,7 +372,12 @@ fn click_and_wheel_hit_test_against_stored_rects() {
 #[test]
 fn long_lists_scroll_to_keep_the_selection_visible() {
     let mut s = snap();
-    s.done = (0..60).map(|i| TaskRef { id: format!("9.{i}"), title: format!("task number {i}") }).collect();
+    s.done = (0..60)
+        .map(|i| TaskRef {
+            id: format!("9.{i}"),
+            title: format!("task number {i}"),
+        })
+        .collect();
     let mut a = app(ModeArg::Standard);
     a.snap = s;
     a.tab = Tab::Done;
@@ -294,10 +394,20 @@ fn review_checklist_matches_look_queue_verbose() {
     a.tab = Tab::Review;
     let (_, text) = render(&mut a, 100, 30);
     // Items, criteria as boxes, and the note only when it is not a pointer at the criteria.
-    assert!(text.contains("3.0.5") && text.contains("[ ] colours look right") && text.contains("[ ] motion is calm"));
-    assert!(!text.contains("see the task's success criteria"), "pointer notes are noise");
+    assert!(
+        text.contains("3.0.5")
+            && text.contains("[ ] colours look right")
+            && text.contains("[ ] motion is calm")
+    );
+    assert!(
+        !text.contains("see the task's success criteria"),
+        "pointer notes are noise"
+    );
     assert!(text.contains("check: check the footer"));
-    assert!(text.find("3.0.5").unwrap() < text.find("3.0.6").unwrap(), "oldest first");
+    assert!(
+        text.find("3.0.5").unwrap() < text.find("3.0.6").unwrap(),
+        "oldest first"
+    );
 }
 
 #[test]
@@ -328,7 +438,10 @@ fn no_color_frames_contain_no_fixed_colours() {
             for x in 0..w {
                 let c = &buf[(x, y)];
                 for col in [c.fg, c.bg] {
-                    assert!(!matches!(col, Color::Rgb(..) | Color::Indexed(_)), "colour at {x},{y} in {w}x{h}");
+                    assert!(
+                        !matches!(col, Color::Rgb(..) | Color::Indexed(_)),
+                        "colour at {x},{y} in {w}x{h}"
+                    );
                 }
             }
         }
@@ -369,12 +482,24 @@ fn done_dialog_collects_a_changelog_and_hands_the_action_to_the_source() {
     a.on_key(key(KeyCode::Char('d')));
     assert!(a.dialog.is_some());
     let (_, text) = render(&mut a, 100, 30);
-    assert!(text.contains("Mark done 3.1.1") && text.contains("Enter confirm"), "{text}");
+    assert!(
+        text.contains("Mark done 3.1.1") && text.contains("Enter confirm"),
+        "{text}"
+    );
     typed(&mut a, "shipped it");
     a.on_key(key(KeyCode::Enter));
-    let mut src = Rec { seen: vec![], refuse: None };
+    let mut src = Rec {
+        seen: vec![],
+        refuse: None,
+    };
     run_pending(&mut a, &mut src);
-    assert_eq!(src.seen, vec![Action::Done { id: "3.1.1".into(), changelog: Some("shipped it".into()) }]);
+    assert_eq!(
+        src.seen,
+        vec![Action::Done {
+            id: "3.1.1".into(),
+            changelog: Some("shipped it".into())
+        }]
+    );
     assert!(a.want_refresh && a.dialog.is_none());
     assert_eq!(a.toast.as_ref().map(|t| t.1), Some(false));
 }
@@ -395,7 +520,10 @@ fn a_refused_action_shows_the_cli_message_and_leaves_state_alone() {
     a.on_key(key(KeyCode::Char('c')));
     a.on_key(key(KeyCode::Enter));
     let before = a.snap.clone();
-    let mut src = Rec { seen: vec![], refuse: Some("3.0.5 is not awaiting a look".into()) };
+    let mut src = Rec {
+        seen: vec![],
+        refuse: Some("3.0.5 is not awaiting a look".into()),
+    };
     run_pending(&mut a, &mut src);
     assert_eq!(src.seen, vec![Action::Clear { id: "3.0.5".into() }]);
     assert!(a.snap == before && !a.want_refresh);
@@ -424,7 +552,13 @@ fn read_only_removes_action_keys_and_hints() {
     for t in [Tab::Now, Tab::Review] {
         a.tab = t;
         let h = a.hints();
-        assert!(h.contains("read-only") && !h.contains("done") && !h.contains("clear") && !h.contains("reject"), "{h}");
+        assert!(
+            h.contains("read-only")
+                && !h.contains("done")
+                && !h.contains("clear")
+                && !h.contains("reject"),
+            "{h}"
+        );
         for c in ['d', 'l', 'c', 'x'] {
             a.on_key(key(KeyCode::Char(c)));
             assert!(a.dialog.is_none());
@@ -445,5 +579,74 @@ fn dialog_fits_small_panes_and_leaves_the_list_visible() {
     let mut a = app(ModeArg::Standard);
     a.on_key(key(KeyCode::Char('d')));
     let (_, text) = render(&mut a, 100, 30);
-    assert!(text.contains("Now") && text.contains("Upcoming"), "tabs stay visible under the dialog");
+    assert!(
+        text.contains("Now") && text.contains("Upcoming"),
+        "tabs stay visible under the dialog"
+    );
+}
+
+// ---------------------------------------------------------------- connection
+
+use tidetable_tui::refresh::Conn;
+
+#[test]
+fn offline_keeps_stale_data_visible_dim_and_labelled_in_every_mode() {
+    for (mode, w, h) in [
+        (ModeArg::Standard, 100u16, 30u16),
+        (ModeArg::Side, 30, 40),
+        (ModeArg::Bottom, 100, 8),
+    ] {
+        let mut a = app(mode);
+        a.last_ok = Some(a.now_epoch - 125);
+        a.conn = Conn::Offline { retry_in: 8 };
+        let (term, text) = render(&mut a, w, h);
+        assert!(
+            text.contains("offline") || text.contains("offli"),
+            "{mode:?}: {text}"
+        );
+        assert!(
+            text.contains("3.1.1"),
+            "{mode:?}: stale data stays on screen"
+        );
+        let buf = term.backend().buffer();
+        assert!(
+            buf[(0, 1)].modifier.contains(ratatui::style::Modifier::DIM),
+            "{mode:?}: body is dimmed"
+        );
+    }
+    let mut a = app(ModeArg::Standard);
+    a.last_ok = Some(a.now_epoch - 125);
+    a.conn = Conn::Offline { retry_in: 8 };
+    let t = render(&mut a, 100, 30).1;
+    assert!(
+        t.contains("retry 8s") && t.contains("2m") && t.contains("old"),
+        "{t}"
+    );
+}
+
+#[test]
+fn live_and_polling_get_icon_and_word_and_local_shows_nothing() {
+    let mut a = app(ModeArg::Standard);
+    let local = render(&mut a, 100, 30).1;
+    assert!(!local.contains("live") && !local.contains("polling"));
+    a.conn = Conn::Live;
+    assert!(render(&mut a, 100, 30).1.contains("✓ live"));
+    a.conn = Conn::Polling;
+    assert!(render(&mut a, 100, 30).1.contains("· polling"));
+}
+
+#[test]
+fn a_token_never_reaches_a_frame_even_in_a_failure_message() {
+    use tidetable_tui::hub::{redact_url, UreqHttp};
+    let secret = "tk_SECRET.value";
+    let h = UreqHttp::new("http://user:pw@127.0.0.1:1", Some(secret.into())).unwrap();
+    let err = tidetable_tui::hub::Http::get(&h, "/api/x/list").unwrap_err();
+    let mut a = app(ModeArg::Standard);
+    a.load = Load::Failed(err.clone());
+    a.conn = Conn::Offline { retry_in: 2 };
+    let t = render(&mut a, 120, 30).1;
+    for hay in [t.as_str(), err.as_str(), format!("{h:?}").as_str()] {
+        assert!(!hay.contains("SECRET") && !hay.contains("pw@"), "{hay}");
+    }
+    assert_eq!(redact_url("https://a:b@h/x"), "https://h/x");
 }

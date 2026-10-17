@@ -1506,6 +1506,19 @@ class TestRemoteClient(unittest.TestCase):
             cli.main(["ready", self.todo_path, "--json"])
         self.assertEqual(json.loads(out), json.loads(local.getvalue()))
 
+    def test_look_queue_matches_local_json(self):
+        data = json.loads(Path(self.todo_path).read_text(encoding="utf-8"))
+        data["phases"][0]["tasks"][0]["status"] = "needs_human_look"
+        data["phases"][0]["tasks"][0]["human_look"] = "check it"
+        Path(self.todo_path).write_text(json.dumps(data), encoding="utf-8")
+        code, out, _ = self.run_cli("look-queue", "demo", "--json")
+        self.assertEqual(code, 0, out)
+        local = io.StringIO()
+        with redirect_stdout(local):
+            cli.main(["look-queue", self.todo_path, "--json"])
+        self.assertEqual(json.loads(out), json.loads(local.getvalue()))
+        self.assertEqual([q["id"] for q in json.loads(out)["queue"]], ["1.0.1"])
+
     def test_sidebar_matches_local_json_and_renders_text_without_it(self):
         code, out, _ = self.run_cli("sidebar", "demo", "--json", "--width", "60", "--height", "20")
         self.assertEqual(code, 0)

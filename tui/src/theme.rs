@@ -33,7 +33,8 @@ pub enum Depth {
 impl Depth {
     /// `NO_COLOR` (any non-empty value, per no-color.org) and `TERM=dumb` win over everything.
     pub fn detect(get: impl Fn(&str) -> Option<String>) -> Self {
-        if get("NO_COLOR").is_some_and(|v| !v.is_empty()) || get("TERM").as_deref() == Some("dumb") {
+        if get("NO_COLOR").is_some_and(|v| !v.is_empty()) || get("TERM").as_deref() == Some("dumb")
+        {
             return Self::Mono;
         }
         let truecolor = get("COLORTERM").is_some_and(|v| v == "truecolor" || v == "24bit");
@@ -88,7 +89,11 @@ pub fn contrast(a: (u8, u8, u8), b: (u8, u8, u8)) -> f32 {
     let lum = |c: (u8, u8, u8)| {
         let ch = |v: u8| {
             let v = v as f32 / 255.0;
-            if v <= 0.03928 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
+            if v <= 0.03928 {
+                v / 12.92
+            } else {
+                ((v + 0.055) / 1.055).powf(2.4)
+            }
         };
         0.2126 * ch(c.0) + 0.7152 * ch(c.1) + 0.0722 * ch(c.2)
     };
@@ -99,7 +104,11 @@ pub fn contrast(a: (u8, u8, u8), b: (u8, u8, u8)) -> f32 {
 /// Nearest xterm-256 index: the 6x6x6 cube for colour, the grey ramp for near-greys.
 pub fn to_ansi256(c: (u8, u8, u8)) -> u8 {
     const LEVELS: [u8; 6] = [0, 95, 135, 175, 215, 255];
-    let near = |v: u8| (0..6).min_by_key(|&i| (LEVELS[i] as i32 - v as i32).abs()).unwrap_or(0);
+    let near = |v: u8| {
+        (0..6)
+            .min_by_key(|&i| (LEVELS[i] as i32 - v as i32).abs())
+            .unwrap_or(0)
+    };
     let (r, g, b) = (near(c.0), near(c.1), near(c.2));
     let cube = (LEVELS[r], LEVELS[g], LEVELS[b]);
     let avg = (c.0 as u16 + c.1 as u16 + c.2 as u16) / 3;
@@ -128,7 +137,9 @@ impl Theme {
             theme = Self::mono(name, theme.light);
         }
         if known.is_none() {
-            return Err(format!("unknown palette {palette:?}; using {DEFAULT_PALETTE}"));
+            return Err(format!(
+                "unknown palette {palette:?}; using {DEFAULT_PALETTE}"
+            ));
         }
         Ok(theme)
     }
@@ -143,7 +154,10 @@ impl Theme {
         let want = want.unwrap_or_else(|| DEFAULT_PALETTE.into());
         match Self::build(&want, depth) {
             Ok(t) => (t, None),
-            Err(w) => (Self::build(DEFAULT_PALETTE, depth).expect("default palette exists"), Some(w)),
+            Err(w) => (
+                Self::build(DEFAULT_PALETTE, depth).expect("default palette exists"),
+                Some(w),
+            ),
         }
     }
 
@@ -151,7 +165,8 @@ impl Theme {
         let v: Value = serde_json::from_str(raw).expect("vendored palette is valid JSON");
         let light = v["scheme"] == "light";
         let role = |k: &str| hex(v["role"][k].as_str().unwrap_or("#000000")).unwrap_or((0, 0, 0));
-        let status = |k: &str| hex(v["status-color"][k].as_str().unwrap_or("#000000")).unwrap_or((0, 0, 0));
+        let status =
+            |k: &str| hex(v["status-color"][k].as_str().unwrap_or("#000000")).unwrap_or((0, 0, 0));
         let bg = role("window-background");
         let surface = role("surface");
         let border = role("border");
@@ -208,9 +223,20 @@ impl Theme {
     /// True when any token is a fixed colour (used by the NO_COLOR test).
     pub fn has_colour(&self) -> bool {
         [
-            self.bg, self.surface, self.surface_raised, self.border, self.border_focus, self.text,
-            self.text_dim, self.text_strong, self.accent, self.second, self.success, self.warn,
-            self.danger, self.info,
+            self.bg,
+            self.surface,
+            self.surface_raised,
+            self.border,
+            self.border_focus,
+            self.text,
+            self.text_dim,
+            self.text_strong,
+            self.accent,
+            self.second,
+            self.success,
+            self.warn,
+            self.danger,
+            self.info,
         ]
         .iter()
         .any(|c| !matches!(c, Color::Reset))
@@ -226,7 +252,11 @@ impl Theme {
     }
 
     fn mono_mod(&self, style: Style, m: Modifier) -> Style {
-        if self.depth == Depth::Mono { style.add_modifier(m) } else { style }
+        if self.depth == Depth::Mono {
+            style.add_modifier(m)
+        } else {
+            style
+        }
     }
 
     pub fn base(&self) -> Style {
@@ -242,18 +272,28 @@ impl Theme {
         self.mono_mod(Style::new().fg(self.text_strong), Modifier::BOLD)
     }
     pub fn accent_style(&self) -> Style {
-        self.mono_mod(Style::new().fg(self.accent).add_modifier(Modifier::BOLD), Modifier::UNDERLINED)
+        self.mono_mod(
+            Style::new().fg(self.accent).add_modifier(Modifier::BOLD),
+            Modifier::UNDERLINED,
+        )
     }
     /// Selected row: reversed in mono, where colour cannot carry selection.
     pub fn selected(&self) -> Style {
         if self.depth == Depth::Mono {
             Style::new().add_modifier(Modifier::REVERSED)
         } else {
-            Style::new().fg(self.text_strong).bg(self.surface_raised).add_modifier(Modifier::BOLD)
+            Style::new()
+                .fg(self.text_strong)
+                .bg(self.surface_raised)
+                .add_modifier(Modifier::BOLD)
         }
     }
     pub fn border_style(&self, focused: bool) -> Style {
-        Style::new().fg(if focused { self.border_focus } else { self.border })
+        Style::new().fg(if focused {
+            self.border_focus
+        } else {
+            self.border
+        })
     }
 
     pub fn status_style(&self, s: Status) -> Style {
@@ -371,7 +411,10 @@ mod tests {
             assert!(!t.has_colour());
         }
         // An empty NO_COLOR does not count.
-        assert_ne!(Depth::detect(|k| (k == "NO_COLOR").then(String::new)), Depth::Mono);
+        assert_ne!(
+            Depth::detect(|k| (k == "NO_COLOR").then(String::new)),
+            Depth::Mono
+        );
     }
 
     #[test]

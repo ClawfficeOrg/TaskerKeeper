@@ -31,11 +31,19 @@ impl Ticks {
             .and_then(|s| serde_json::from_str::<Value>(&s).ok())
             .and_then(|v| serde_json::from_value(v).ok())
             .unwrap_or_default();
-        Self { path: Some(path), map }
+        Self {
+            path: Some(path),
+            map,
+        }
     }
 
     pub fn get(&self, project: &str, task: &str, idx: usize) -> bool {
-        self.map.get(project).and_then(|t| t.get(task)).and_then(|v| v.get(idx)).copied().unwrap_or(false)
+        self.map
+            .get(project)
+            .and_then(|t| t.get(task))
+            .and_then(|v| v.get(idx))
+            .copied()
+            .unwrap_or(false)
     }
 
     /// True when the task has criteria and every one is ticked.
@@ -44,7 +52,12 @@ impl Ticks {
     }
 
     pub fn toggle(&mut self, project: &str, task: &str, idx: usize, total: usize) {
-        let v = self.map.entry(project.into()).or_default().entry(task.into()).or_default();
+        let v = self
+            .map
+            .entry(project.into())
+            .or_default()
+            .entry(task.into())
+            .or_default();
         v.resize(total.max(idx + 1), false);
         v[idx] = !v[idx];
         self.save();
@@ -53,7 +66,9 @@ impl Ticks {
     /// Best effort: a failed save costs the user a tick on restart, not a crash.
     fn save(&self) {
         let Some(path) = &self.path else { return };
-        let Ok(text) = serde_json::to_string_pretty(&self.map) else { return };
+        let Ok(text) = serde_json::to_string_pretty(&self.map) else {
+            return;
+        };
         if let Some(dir) = path.parent() {
             let _ = std::fs::create_dir_all(dir);
         }

@@ -147,7 +147,7 @@
         {
           "id": "3.2.1",
           "title": "Actions: done, clear, reject, defer",
-          "status": "in_progress",
+          "status": "done",
           "goal": "From a selected task: `d` marks an in_progress task done (optional changelog line), `c` clears a needs_human_look task to done (look-clear), `x` rejects it back to pending (look-clear --reject), `l` defers an in_progress task to the human queue with a note (look-defer). Each action shows a confirm dialog sized to content, anchored near the row and leaving the list visible, runs through the Source (CLI locally, hub route with --server), reports the CLI's own refusal text in a toast on failure, and refreshes. `--read-only` disables all of them. Owner defaults to the same identity the CLI uses.",
           "touches": [
             "tui/src/actions.rs",
@@ -161,19 +161,17 @@
           "tests": "cd tui && cargo test actions",
           "complexity": "High",
           "created_at": "2026-10-16T00:00:00Z",
-          "updated_at": "2026-10-17T07:38:46Z",
+          "updated_at": "2026-10-17T07:40:55Z",
           "prerequisites": [
             "3.1.2",
             "3.1.3"
           ],
-          "claimed_by": "tui-agent",
-          "claimed_at": "2026-10-17T07:38:46Z",
-          "lease_expires_at": "2026-10-17T08:38:46Z"
+          "changelog": "TUI actions: d/l on Now, c/x on Review via confirm dialog and toast; --read-only and --owner"
         },
         {
           "id": "3.2.2",
           "title": "Hub connection and live refresh",
-          "status": "pending",
+          "status": "in_progress",
           "goal": "HubSource talks to a TideTable hub: --server URL, --token, $TIDETABLE_SERVER and $TIDETABLE_TOKEN, project slug as the argument, mapped to the same serve routes remote.py uses (add a row to remote.ROUTES with a TestRemoteClient test only if a needed read is missing). Refresh by the hub's event stream when available, else poll every 2 s. Local mode refreshes when the todo file or its .events.jsonl mtime changes, else every 5 s. A visible connection state (live, polling, offline with retry countdown) lives in the header or footer. Tokens are never printed or written to disk, and an offline hub keeps the last snapshot on screen, dimmed and labelled.",
           "touches": [
             "tui/src/source/",
@@ -188,10 +186,13 @@
           "tests": "cd tui && cargo test source; python -m unittest tests.test_cli",
           "complexity": "High",
           "created_at": "2026-10-16T00:00:00Z",
-          "updated_at": "2026-10-16T00:00:00Z",
+          "updated_at": "2026-10-17T07:41:02Z",
           "prerequisites": [
             "3.0.1"
-          ]
+          ],
+          "claimed_by": "tui-agent",
+          "claimed_at": "2026-10-17T07:41:02Z",
+          "lease_expires_at": "2026-10-17T08:41:02Z"
         },
         {
           "id": "3.2.3",

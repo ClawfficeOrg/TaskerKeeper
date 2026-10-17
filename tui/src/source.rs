@@ -120,7 +120,9 @@ pub enum SourceError {
 impl fmt::Display for SourceError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::NoTodo { searched } => write!(f, "no todo*.json found in {}", searched.join(", ")),
+            Self::NoTodo { searched } => {
+                write!(f, "no todo*.json found in {}", searched.join(", "))
+            }
             Self::Pick(files) => write!(f, "{} todo files found; pick one", files.len()),
             Self::Cli(m) => write!(f, "tidetable failed: {m}"),
             Self::Parse(m) => write!(f, "unexpected tidetable output: {m}"),
@@ -133,7 +135,10 @@ impl std::error::Error for SourceError {}
 /// A change the human asks for. The CLI (or a hub) performs it; this crate never edits a todo.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
-    Done { id: String, changelog: Option<String> },
+    Done {
+        id: String,
+        changelog: Option<String>,
+    },
     /// `look-clear`: a human looked, the task becomes done.
     Clear { id: String },
     /// `look-clear --reject`: the check failed, back to pending.
@@ -145,7 +150,10 @@ pub enum Action {
 impl Action {
     pub fn id(&self) -> &str {
         match self {
-            Action::Done { id, .. } | Action::Clear { id } | Action::Reject { id } | Action::Defer { id, .. } => id,
+            Action::Done { id, .. }
+            | Action::Clear { id }
+            | Action::Reject { id }
+            | Action::Defer { id, .. } => id,
         }
     }
 
@@ -162,13 +170,19 @@ impl Action {
     pub fn argv(&self, file: &str, owner: Option<&str>) -> Vec<String> {
         let mut a: Vec<String> = match self {
             Action::Done { id, .. } => vec!["done".into(), file.into(), id.clone()],
-            Action::Clear { id } | Action::Reject { id } => vec!["look-clear".into(), file.into(), id.clone()],
+            Action::Clear { id } | Action::Reject { id } => {
+                vec!["look-clear".into(), file.into(), id.clone()]
+            }
             Action::Defer { id, .. } => vec!["look-defer".into(), file.into(), id.clone()],
         };
         match self {
-            Action::Done { changelog: Some(c), .. } if !c.trim().is_empty() => a.extend(["--changelog".into(), c.trim().into()]),
+            Action::Done {
+                changelog: Some(c), ..
+            } if !c.trim().is_empty() => a.extend(["--changelog".into(), c.trim().into()]),
             Action::Reject { .. } => a.push("--reject".into()),
-            Action::Defer { note, .. } if !note.trim().is_empty() => a.extend(["--note".into(), note.trim().into()]),
+            Action::Defer { note, .. } if !note.trim().is_empty() => {
+                a.extend(["--note".into(), note.trim().into()])
+            }
             _ => {}
         }
         if let Some(o) = owner {
@@ -197,7 +211,9 @@ pub struct CliRunner {
 
 impl Default for CliRunner {
     fn default() -> Self {
-        Self { program: "tidetable".into() }
+        Self {
+            program: "tidetable".into(),
+        }
     }
 }
 
@@ -220,15 +236,23 @@ impl Runner for CliRunner {
 /// First search directory with any `todo*.json` wins, matching the CLI. Never prompts.
 pub fn resolve_todo(base: &Path) -> Result<PathBuf, SourceError> {
     for sub in TODO_SEARCH_DIRS {
-        let dir = if sub == "." { base.to_path_buf() } else { base.join(sub) };
-        let Ok(entries) = std::fs::read_dir(dir) else { continue };
+        let dir = if sub == "." {
+            base.to_path_buf()
+        } else {
+            base.join(sub)
+        };
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            continue;
+        };
         let mut found: Vec<PathBuf> = entries
             .filter_map(Result::ok)
             .map(|e| e.path())
             .filter(|p| {
                 p.is_file()
                     && p.extension().is_some_and(|x| x == "json")
-                    && p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("todo"))
+                    && p.file_name()
+                        .and_then(|n| n.to_str())
+                        .is_some_and(|n| n.starts_with("todo"))
             })
             .collect();
         found.sort();
@@ -238,7 +262,9 @@ pub fn resolve_todo(base: &Path) -> Result<PathBuf, SourceError> {
             _ => return Err(SourceError::Pick(found)),
         }
     }
-    Err(SourceError::NoTodo { searched: TODO_SEARCH_DIRS.iter().map(|s| s.to_string()).collect() })
+    Err(SourceError::NoTodo {
+        searched: TODO_SEARCH_DIRS.iter().map(|s| s.to_string()).collect(),
+    })
 }
 
 pub struct LocalSource<R: Runner> {
@@ -250,7 +276,12 @@ pub struct LocalSource<R: Runner> {
 
 impl<R: Runner> LocalSource<R> {
     pub fn new(runner: R, base: PathBuf) -> Self {
-        Self { runner, base, todo: None, owner: None }
+        Self {
+            runner,
+            base,
+            todo: None,
+            owner: None,
+        }
     }
 
     /// Identity passed as `--owner`; unset means the CLI's own default (`$TIDETABLE_OWNER`, else host:pid).
@@ -303,14 +334,18 @@ impl<R: Runner> Source for LocalSource<R> {
     }
 }
 
-fn parse_vec<T: for<'de> Deserialize<'de>>(v: Option<&Value>, what: &str) -> Result<Vec<T>, SourceError> {
+fn parse_vec<T: for<'de> Deserialize<'de>>(
+    v: Option<&Value>,
+    what: &str,
+) -> Result<Vec<T>, SourceError> {
     match v {
         None | Some(Value::Null) => Ok(Vec::new()),
-        Some(v) => serde_json::from_value(v.clone()).map_err(|e| SourceError::Parse(format!("{what}: {e}"))),
+        Some(v) => serde_json::from_value(v.clone())
+            .map_err(|e| SourceError::Parse(format!("{what}: {e}"))),
     }
 }
 
-fn ids_of(v: Option<&Value>) -> HashSet<String> {
+pub(crate) fn ids_of(v: Option<&Value>) -> HashSet<String> {
     v.and_then(Value::as_array)
         .into_iter()
         .flatten()
@@ -318,11 +353,20 @@ fn ids_of(v: Option<&Value>) -> HashSet<String> {
         .collect()
 }
 
-fn changelog_of(history: &Value) -> HashMap<String, String> {
+pub(crate) fn changelog_of(history: &Value) -> HashMap<String, String> {
     let mut out = HashMap::new();
-    for e in history.get("events").and_then(Value::as_array).into_iter().flatten() {
+    for e in history
+        .get("events")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
         if e.get("event").and_then(Value::as_str) == Some("done") {
-            if let Some(c) = e.get("changelog").and_then(Value::as_str).filter(|c| !c.is_empty()) {
+            if let Some(c) = e
+                .get("changelog")
+                .and_then(Value::as_str)
+                .filter(|c| !c.is_empty())
+            {
                 out.insert(str_of(e, "task"), c.to_string());
             }
         }
@@ -331,19 +375,40 @@ fn changelog_of(history: &Value) -> HashMap<String, String> {
 }
 
 fn str_of(v: &Value, key: &str) -> String {
-    v.get(key).and_then(Value::as_str).unwrap_or_default().to_string()
+    v.get(key)
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string()
 }
 
-pub fn build_snapshot(todo: &Path, list: &Value, ready: &Value, look: &Value) -> Result<Snapshot, SourceError> {
+pub fn build_snapshot(
+    todo: &Path,
+    list: &Value,
+    ready: &Value,
+    look: &Value,
+) -> Result<Snapshot, SourceError> {
     let mut snap = Snapshot {
-        project: todo.file_stem().and_then(|s| s.to_str()).unwrap_or("todo").to_string(),
+        project: todo
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("todo")
+            .to_string(),
         todo_file: todo.to_string_lossy().into_owned(),
         ..Snapshot::default()
     };
 
     let is_done = |t: &Value| t.get("status").and_then(Value::as_str) == Some("done");
-    for p in list.get("phases").and_then(Value::as_array).into_iter().flatten() {
-        let tasks = p.get("tasks").and_then(Value::as_array).cloned().unwrap_or_default();
+    for p in list
+        .get("phases")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let tasks = p
+            .get("tasks")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
         snap.phases.push(PhaseProgress {
             id: str_of(p, "id"),
             title: str_of(p, "title"),
@@ -352,23 +417,46 @@ pub fn build_snapshot(todo: &Path, list: &Value, ready: &Value, look: &Value) ->
             complete: p.get("complete").and_then(Value::as_bool).unwrap_or(false),
         });
         for t in tasks.iter().filter(|t| is_done(t)) {
-            snap.done.push(TaskRef { id: str_of(t, "id"), title: str_of(t, "title") });
+            snap.done.push(TaskRef {
+                id: str_of(t, "id"),
+                title: str_of(t, "title"),
+            });
         }
     }
     // File order runs oldest to newest; show the tail, newest first.
     snap.done.reverse();
     snap.done.truncate(RECENT_DONE);
 
-    for t in ready.get("in_progress").and_then(Value::as_array).into_iter().flatten() {
+    for t in ready
+        .get("in_progress")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
         snap.in_progress.push(Running {
             id: str_of(t, "id"),
             title: str_of(t, "title"),
-            owner: t.get("claimed_by").and_then(Value::as_str).map(String::from),
-            claimed_at: t.get("claimed_at").and_then(Value::as_str).map(String::from),
-            lease_expired: t.get("lease_expired").and_then(Value::as_bool).unwrap_or(false),
+            owner: t
+                .get("claimed_by")
+                .and_then(Value::as_str)
+                .map(String::from),
+            claimed_at: t
+                .get("claimed_at")
+                .and_then(Value::as_str)
+                .map(String::from),
+            lease_expired: t
+                .get("lease_expired")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
         });
     }
-    for t in ready.get("ready").and_then(Value::as_array).into_iter().chain(ready.get("in_progress").and_then(Value::as_array)).flatten() {
+    for t in ready
+        .get("ready")
+        .and_then(Value::as_array)
+        .into_iter()
+        .chain(ready.get("in_progress").and_then(Value::as_array))
+        .flatten()
+    {
         let d: Detail = serde_json::from_value(t.clone()).unwrap_or_default();
         snap.details.insert(str_of(t, "id"), d);
     }
@@ -440,12 +528,56 @@ mod tests {
         d
     }
 
+    struct HubFake;
+
+    impl crate::hub::Http for HubFake {
+        fn get(&self, path: &str) -> Result<Value, String> {
+            let body = match path {
+                "/api/todo-x/list" => LIST,
+                "/api/todo-x/ready" => READY,
+                "/api/todo-x/ready?disjoint=1" => DISJOINT,
+                "/api/todo-x/look-queue" => LOOK,
+                "/api/todo-x/history?limit=50" => HISTORY,
+                other => return Err(format!("unexpected {other}")),
+            };
+            Ok(serde_json::from_str(body).unwrap())
+        }
+        fn post(&self, _: &str, _: &Value) -> Result<Value, String> {
+            Err("read-only fixture".into())
+        }
+    }
+
+    #[test]
+    fn hub_and_local_sources_yield_identical_snapshots() {
+        let base = tmp("parity");
+        std::fs::write(base.join("todo-x.json"), "{}").unwrap();
+        let mut local = LocalSource::new(
+            Fake {
+                calls: RefCell::new(vec![]),
+            },
+            base,
+        )
+        .snapshot()
+        .unwrap();
+        let hub = crate::hub::HubSource::new(HubFake, "todo-x")
+            .snapshot()
+            .unwrap();
+        // The only legitimate difference is where the data came from.
+        local.todo_file = hub.todo_file.clone();
+        assert_eq!(local, hub);
+    }
+
     #[test]
     fn snapshot_from_fake_cli() {
         let base = tmp("snap");
         std::fs::create_dir_all(base.join("docs")).unwrap();
         std::fs::write(base.join("docs/todo-x.json"), "{}").unwrap();
-        let mut src = LocalSource::new(Fake { calls: RefCell::new(vec![]) }, base.clone());
+        let mut src = LocalSource::new(
+            Fake {
+                calls: RefCell::new(vec![]),
+            },
+            base.clone(),
+        );
         let s = src.snapshot().unwrap();
         assert_eq!(s.project, "todo-x");
         assert_eq!(s.in_progress[0].owner.as_deref(), Some("bot:1"));
@@ -453,7 +585,10 @@ mod tests {
         assert_eq!(s.details["1.4"].success, vec!["ok"]);
         assert_eq!(s.details["1.3"].touches, vec!["a/"]);
         assert_eq!(s.blocked[0].blocked_by, vec!["task 1.4"]);
-        assert_eq!(s.done.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(), ["1.2", "1.1"]);
+        assert_eq!(
+            s.done.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(),
+            ["1.2", "1.1"]
+        );
         assert_eq!(s.look_queue[0].success, vec!["a", "b"]);
         assert_eq!((s.phases[0].done, s.phases[0].total), (2, 4));
         let calls = src.runner.calls.borrow();
@@ -462,20 +597,28 @@ mod tests {
         assert_eq!(s.changelog.get("1.1").map(String::as_str), Some("did it"));
         assert_eq!(phase_of("3.1.2"), "3.1");
         // Every call is --local so an exported hub variable cannot reroute reads.
-        assert!(calls.iter().all(|c| c[0] == "--local" && c[2].ends_with("todo-x.json")));
+        assert!(calls
+            .iter()
+            .all(|c| c[0] == "--local" && c[2].ends_with("todo-x.json")));
         let _ = std::fs::remove_dir_all(base);
     }
 
     #[test]
     fn resolution_matches_cli_rules() {
         let base = tmp("res");
-        assert!(matches!(resolve_todo(&base), Err(SourceError::NoTodo { .. })));
+        assert!(matches!(
+            resolve_todo(&base),
+            Err(SourceError::NoTodo { .. })
+        ));
         std::fs::create_dir_all(base.join("docs")).unwrap();
         std::fs::create_dir_all(base.join(".tidetable")).unwrap();
         std::fs::write(base.join(".tidetable/todo.json"), "{}").unwrap();
         std::fs::write(base.join("docs/todo-a.json"), "{}").unwrap();
         // docs/ is searched before .tidetable/, and a single match resolves.
-        assert_eq!(resolve_todo(&base).unwrap().file_name().unwrap(), "todo-a.json");
+        assert_eq!(
+            resolve_todo(&base).unwrap().file_name().unwrap(),
+            "todo-a.json"
+        );
         std::fs::write(base.join("docs/todo-b.json"), "{}").unwrap();
         match resolve_todo(&base) {
             Err(SourceError::Pick(f)) => assert_eq!(f.len(), 2),
@@ -484,7 +627,10 @@ mod tests {
         // "." wins over docs/, and a non-todo json is ignored.
         std::fs::write(base.join("other.json"), "{}").unwrap();
         std::fs::write(base.join("todo.json"), "{}").unwrap();
-        assert_eq!(resolve_todo(&base).unwrap().file_name().unwrap(), "todo.json");
+        assert_eq!(
+            resolve_todo(&base).unwrap().file_name().unwrap(),
+            "todo.json"
+        );
         let _ = std::fs::remove_dir_all(base);
     }
 
@@ -500,14 +646,45 @@ mod tests {
         let base = tmp("act");
         std::fs::write(base.join("todo.json"), "{}").unwrap();
         let f = base.join("todo.json").to_string_lossy().into_owned();
-        let mut src = LocalSource::new(Rec(RefCell::new(vec![]), Ok("✓ Task 1 marked as done.
-more".into())), base.clone());
+        let mut src = LocalSource::new(
+            Rec(
+                RefCell::new(vec![]),
+                Ok("✓ Task 1 marked as done.
+more"
+                    .into()),
+            ),
+            base.clone(),
+        );
         let cases: Vec<(Action, Vec<&str>)> = vec![
-            (Action::Done { id: "1.1".into(), changelog: None }, vec!["done", &f, "1.1"]),
-            (Action::Done { id: "1.1".into(), changelog: Some(" shipped ".into()) }, vec!["done", &f, "1.1", "--changelog", "shipped"]),
-            (Action::Clear { id: "1.2".into() }, vec!["look-clear", &f, "1.2"]),
-            (Action::Reject { id: "1.2".into() }, vec!["look-clear", &f, "1.2", "--reject"]),
-            (Action::Defer { id: "1.3".into(), note: "eyeball".into() }, vec!["look-defer", &f, "1.3", "--note", "eyeball"]),
+            (
+                Action::Done {
+                    id: "1.1".into(),
+                    changelog: None,
+                },
+                vec!["done", &f, "1.1"],
+            ),
+            (
+                Action::Done {
+                    id: "1.1".into(),
+                    changelog: Some(" shipped ".into()),
+                },
+                vec!["done", &f, "1.1", "--changelog", "shipped"],
+            ),
+            (
+                Action::Clear { id: "1.2".into() },
+                vec!["look-clear", &f, "1.2"],
+            ),
+            (
+                Action::Reject { id: "1.2".into() },
+                vec!["look-clear", &f, "1.2", "--reject"],
+            ),
+            (
+                Action::Defer {
+                    id: "1.3".into(),
+                    note: "eyeball".into(),
+                },
+                vec!["look-defer", &f, "1.3", "--note", "eyeball"],
+            ),
         ];
         for (action, want) in &cases {
             assert_eq!(src.act(action).unwrap(), "✓ Task 1 marked as done.");
@@ -517,16 +694,31 @@ more".into())), base.clone());
         }
         src.owner = Some("mike".into());
         src.act(&cases[2].0).unwrap();
-        assert_eq!(&src.runner.0.borrow().last().unwrap()[4..], ["--owner", "mike"]);
-        let mut refused = LocalSource::new(Rec(RefCell::new(vec![]), Err("Error: task 1.1 is held by bot".into())), base.clone());
-        assert_eq!(refused.act(&cases[0].0).unwrap_err(), "Error: task 1.1 is held by bot");
+        assert_eq!(
+            &src.runner.0.borrow().last().unwrap()[4..],
+            ["--owner", "mike"]
+        );
+        let mut refused = LocalSource::new(
+            Rec(
+                RefCell::new(vec![]),
+                Err("Error: task 1.1 is held by bot".into()),
+            ),
+            base.clone(),
+        );
+        assert_eq!(
+            refused.act(&cases[0].0).unwrap_err(),
+            "Error: task 1.1 is held by bot"
+        );
         let _ = std::fs::remove_dir_all(base);
     }
 
     #[test]
     fn parses_claim_age() {
         let t = parse_utc("2026-10-17T06:29:33Z").unwrap();
-        let r = Running { claimed_at: Some("2026-10-17T06:29:33Z".into()), ..Running::default() };
+        let r = Running {
+            claimed_at: Some("2026-10-17T06:29:33Z".into()),
+            ..Running::default()
+        };
         assert_eq!(r.age_secs(t + 90), Some(90));
         assert_eq!(parse_utc("1970-01-01T00:00:00Z"), Some(0));
         assert_eq!(parse_utc("junk"), None);
@@ -535,10 +727,15 @@ more".into())), base.clone());
     #[test]
     fn data_layer_never_opens_for_writing() {
         // Guard for the single-writer rule: no write APIs in the non-test source.
-        let src = include_str!("source.rs");
-        let prod = src.split("#[cfg(test)]").next().unwrap();
-        for banned in ["File::create", "fs::write", "OpenOptions", "remove_file"] {
-            assert!(!prod.contains(banned), "{banned} in data layer");
+        for src in [
+            include_str!("source.rs"),
+            include_str!("hub.rs"),
+            include_str!("refresh.rs"),
+        ] {
+            let prod = src.split("#[cfg(test)]").next().unwrap();
+            for banned in ["File::create", "fs::write", "OpenOptions", "remove_file"] {
+                assert!(!prod.contains(banned), "{banned} in data layer");
+            }
         }
     }
 }
