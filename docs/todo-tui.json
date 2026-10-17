@@ -230,7 +230,7 @@
         {
           "id": "3.3.1",
           "title": "Docs, packaging and 0.12.0",
-          "status": "in_progress",
+          "status": "done",
           "goal": "Document modes, keys, hub use, palettes, the tmux recipe and how to build tidetable-tui in README.md, skills/tidetable/SKILL.md, docs/integration-guide.md and AGENTS.md (layout table, plus the rule that the TUI never writes a todo). Record what was not visually verified and the exact things a person should look at (colours, motion timing, reflow on a tmux resize), since PTY output may screenshot blank. CHANGELOG entry, bump pyproject and __init__ together to 0.12.0, and confirm `pip install .` still works with tui/ excluded from the wheel.",
           "touches": [
             "README.md",
@@ -249,13 +249,11 @@
           "tests": "python -m unittest discover -s tests; pip install .",
           "complexity": "Low",
           "created_at": "2026-10-16T00:00:00Z",
-          "updated_at": "2026-10-17T08:08:06Z",
+          "updated_at": "2026-10-17T08:15:14Z",
           "prerequisites": [
             "3.2.3"
           ],
-          "claimed_by": "tui-agent",
-          "claimed_at": "2026-10-17T08:08:06Z",
-          "lease_expires_at": "2026-10-17T09:08:06Z"
+          "changelog": "TUI docs, 0.12.0 bump, wheel excludes tui/"
         }
       ]
     }
