@@ -22,7 +22,7 @@ Local path form (this repo):
 ```json
 {
   "plugin": [
-    ["./integrations/opencode/tk-sidebar.ts", { "todoFile": "docs/todo-sidebars.json" }]
+    ["./integrations/opencode/tk-sidebar.ts", { "todoFile": "docs/todo.json" }]
   ]
 }
 ```
@@ -34,7 +34,7 @@ at startup, so edits only take effect on the next launch.
 
 | Key        | Default                        | Meaning                                          |
 | ---------- | ------------------------------ | ------------------------------------------------ |
-| `todoFile` | `$TIDETABLE_TODO`, else `docs/todo-sidebars.json` under the session directory | Which todo file the sidebar reads |
+| `todoFile` | `$TIDETABLE_TODO`, else `docs/todo.json` under the session directory | Which todo file the sidebar reads |
 | `width`    | `60`                           | Forwarded to `sidebar --width` (line truncation) |
 | `height`   | `40`                           | Forwarded to `sidebar --height` (row budgets)    |
 | `order`    | `400`                          | Slot order (internal blocks use 100–500)         |
@@ -79,6 +79,6 @@ verdict all throw. It never sees the decision-model API key — only `host:port`
 ## Verify without opencode
 
 ```powershell
-tidetable sidebar docs/todo-sidebars.json --json --width 60 --height 40
+tidetable sidebar docs/todo.json --json --width 60 --height 40
 npx -y typescript@5.6.3 tsc --noEmit --strict --skipLibCheck --target es2022 --module nodenext integrations/opencode/tk-sidebar.ts
 ```

@@ -27,7 +27,7 @@ fn snap() -> Snapshot {
     );
     Snapshot {
         project: "todo-tui".into(),
-        todo_file: "docs/todo-tui.json".into(),
+        todo_file: "docs/todo.json".into(),
         in_progress: vec![
             Running {
                 id: "3.1.1".into(),

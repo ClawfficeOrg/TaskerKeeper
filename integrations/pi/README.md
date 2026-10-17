@@ -59,7 +59,7 @@ Panel auto-refreshes on `session_start`, `turn_end`, and `message_end`.
 
 | Source | Default | Purpose |
 | --- | --- | --- |
-| option `todo` / `$TIDETABLE_TODO` | `docs/todo-sidebars.json` | todo file passed to the CLI |
+| option `todo` / `$TIDETABLE_TODO` | `docs/todo.json` | todo file passed to the CLI |
 | option `width` / `$TIDETABLE_SIDEBAR_WIDTH` | `45` | sidebar line width |
 | option `height` / `$TIDETABLE_SIDEBAR_HEIGHT` | `40` | row budget sent to the CLI |
 

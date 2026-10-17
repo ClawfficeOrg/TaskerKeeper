@@ -213,6 +213,11 @@ review-tick sidecar. A test greps the data layer for write APIs. A new hub read 
 
 ## Working on a TideTable todo file
 
+One project, one todo file (`docs/todo.json` here). Add new work as a phase in
+that file; never split by size or topic, because separate files overlap and make
+the bare `tidetable ready` refuse ("more than one todo file found"). Size costs
+nothing: query with `tidetable ready|list` or `jq`, don't read the whole file.
+
 When driving a project's roadmap (this repo's own, or another's):
 
 ```bash
