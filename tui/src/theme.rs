@@ -216,6 +216,15 @@ impl Theme {
         .any(|c| !matches!(c, Color::Reset))
     }
 
+    /// A fixed brand colour (sprite ink, mist) quantised to this theme's depth.
+    pub fn paint(&self, c: (u8, u8, u8)) -> Color {
+        match self.depth {
+            Depth::TrueColor => Color::Rgb(c.0, c.1, c.2),
+            Depth::Ansi256 => Color::Indexed(to_ansi256(c)),
+            Depth::Mono => Color::Reset,
+        }
+    }
+
     fn mono_mod(&self, style: Style, m: Modifier) -> Style {
         if self.depth == Depth::Mono { style.add_modifier(m) } else { style }
     }

@@ -2,6 +2,8 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use std::collections::{HashMap, HashSet};
+
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -16,6 +18,24 @@ pub struct TaskRef {
     pub id: String,
     #[serde(default)]
     pub title: String,
+}
+
+/// What the detail pane shows for a task. Only ready and running tasks carry it today.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Default)]
+pub struct Detail {
+    #[serde(default)]
+    pub goal: String,
+    #[serde(default)]
+    pub touches: Vec<String>,
+    #[serde(default)]
+    pub prerequisites: Vec<String>,
+    #[serde(default)]
+    pub success: Vec<String>,
+}
+
+/// `3.1.2` lives in phase `3.1`; the validator guarantees task ids agree with their phase.
+pub fn phase_of(task_id: &str) -> &str {
+    task_id.rsplit_once('.').map_or(task_id, |(p, _)| p)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -78,6 +98,11 @@ pub struct Snapshot {
     pub done: Vec<TaskRef>,
     pub look_queue: Vec<LookItem>,
     pub phases: Vec<PhaseProgress>,
+    pub details: HashMap<String, Detail>,
+    /// Ready tasks that `ready --disjoint` would dispatch together (no shared `touches`).
+    pub disjoint: HashSet<String>,
+    /// Last `done` changelog line per task, from the append-only event log.
+    pub changelog: HashMap<String, String>,
 }
 
 #[derive(Debug)]
@@ -198,8 +223,13 @@ impl<R: Runner> Source for LocalSource<R> {
         let file = todo.to_string_lossy().into_owned();
         let list = self.json("list", &file, &["--json"])?;
         let ready = self.json("ready", &file, &["--json"])?;
+        let disjoint = self.json("ready", &file, &["--disjoint", "--json"])?;
         let look = self.json("look-queue", &file, &["-v", "--json"])?;
-        build_snapshot(&todo, &list, &ready, &look)
+        let history = self.json("history", &file, &["--json"])?;
+        let mut snap = build_snapshot(&todo, &list, &ready, &look)?;
+        snap.disjoint = ids_of(disjoint.get("ready"));
+        snap.changelog = changelog_of(&history);
+        Ok(snap)
     }
 }
 
@@ -208,6 +238,26 @@ fn parse_vec<T: for<'de> Deserialize<'de>>(v: Option<&Value>, what: &str) -> Res
         None | Some(Value::Null) => Ok(Vec::new()),
         Some(v) => serde_json::from_value(v.clone()).map_err(|e| SourceError::Parse(format!("{what}: {e}"))),
     }
+}
+
+fn ids_of(v: Option<&Value>) -> HashSet<String> {
+    v.and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .map(|t| str_of(t, "id"))
+        .collect()
+}
+
+fn changelog_of(history: &Value) -> HashMap<String, String> {
+    let mut out = HashMap::new();
+    for e in history.get("events").and_then(Value::as_array).into_iter().flatten() {
+        if e.get("event").and_then(Value::as_str) == Some("done") {
+            if let Some(c) = e.get("changelog").and_then(Value::as_str).filter(|c| !c.is_empty()) {
+                out.insert(str_of(e, "task"), c.to_string());
+            }
+        }
+    }
+    out
 }
 
 fn str_of(v: &Value, key: &str) -> String {
@@ -248,6 +298,10 @@ pub fn build_snapshot(todo: &Path, list: &Value, ready: &Value, look: &Value) ->
             lease_expired: t.get("lease_expired").and_then(Value::as_bool).unwrap_or(false),
         });
     }
+    for t in ready.get("ready").and_then(Value::as_array).into_iter().chain(ready.get("in_progress").and_then(Value::as_array)).flatten() {
+        let d: Detail = serde_json::from_value(t.clone()).unwrap_or_default();
+        snap.details.insert(str_of(t, "id"), d);
+    }
     snap.ready = parse_vec(ready.get("ready"), "ready")?;
     snap.blocked = parse_vec(ready.get("blocked"), "blocked")?;
     snap.look_queue = parse_vec(look.get("queue"), "queue")?;
@@ -284,9 +338,11 @@ mod tests {
         {"id":"1.3","title":"third","status":"in_progress"},
         {"id":"1.4","title":"fourth","status":"pending"}]}],
       "summary":{}}"#;
-    const READY: &str = r#"{"ready":[{"id":"1.4","title":"fourth"}],
-      "in_progress":[{"id":"1.3","title":"third","claimed_by":"bot:1","claimed_at":"2026-10-17T06:29:33Z","lease_expired":false}],
+    const READY: &str = r#"{"ready":[{"id":"1.4","title":"fourth","goal":"g4","success":["ok"],"prerequisites":["1.3"]}],
+      "in_progress":[{"id":"1.3","title":"third","goal":"g3","touches":["a/"],"claimed_by":"bot:1","claimed_at":"2026-10-17T06:29:33Z","lease_expired":false}],
       "blocked":[{"id":"1.5","title":"fifth","blocked_by":["task 1.4"]}]}"#;
+    const DISJOINT: &str = r#"{"ready":[{"id":"1.4"}]}"#;
+    const HISTORY: &str = r#"{"events":[{"event":"start","task":"1.1"},{"event":"done","task":"1.1","changelog":"did it"}]}"#;
     const LOOK: &str = r#"{"queue":[{"id":"1.2","title":"second","phase":"1","note":"eyeball","goal":"g","success":["a","b"]}]}"#;
 
     struct Fake {
@@ -298,7 +354,9 @@ mod tests {
             self.calls.borrow_mut().push(args.to_vec());
             match args.get(1).map(String::as_str) {
                 Some("list") => Ok(LIST.into()),
+                Some("ready") if args.iter().any(|a| a == "--disjoint") => Ok(DISJOINT.into()),
                 Some("ready") => Ok(READY.into()),
+                Some("history") => Ok(HISTORY.into()),
                 Some("look-queue") => Ok(LOOK.into()),
                 other => Err(format!("unexpected {other:?}")),
             }
@@ -322,12 +380,17 @@ mod tests {
         assert_eq!(s.project, "todo-x");
         assert_eq!(s.in_progress[0].owner.as_deref(), Some("bot:1"));
         assert_eq!(s.ready[0].id, "1.4");
+        assert_eq!(s.details["1.4"].success, vec!["ok"]);
+        assert_eq!(s.details["1.3"].touches, vec!["a/"]);
         assert_eq!(s.blocked[0].blocked_by, vec!["task 1.4"]);
         assert_eq!(s.done.iter().map(|t| t.id.as_str()).collect::<Vec<_>>(), ["1.2", "1.1"]);
         assert_eq!(s.look_queue[0].success, vec!["a", "b"]);
         assert_eq!((s.phases[0].done, s.phases[0].total), (2, 4));
         let calls = src.runner.calls.borrow();
-        assert_eq!(calls.len(), 3);
+        assert_eq!(calls.len(), 5);
+        assert!(s.disjoint.contains("1.4"));
+        assert_eq!(s.changelog.get("1.1").map(String::as_str), Some("did it"));
+        assert_eq!(phase_of("3.1.2"), "3.1");
         // Every call is --local so an exported hub variable cannot reroute reads.
         assert!(calls.iter().all(|c| c[0] == "--local" && c[2].ends_with("todo-x.json")));
         let _ = std::fs::remove_dir_all(base);

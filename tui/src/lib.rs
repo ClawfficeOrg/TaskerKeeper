@@ -3,10 +3,13 @@
 //! The crate never writes a todo file. AGENTS.md makes the CLI (or the hub) the
 //! single writer, so every mutation goes through a `Source`, never `File::create`.
 
+pub mod app;
+pub mod review;
 pub mod source;
 pub mod theme;
+pub mod ui;
 
 pub use source::{
-    build_snapshot, parse_utc, resolve_todo, Blocked, CliRunner, LocalSource, LookItem,
+    build_snapshot, parse_utc, resolve_todo, Blocked, CliRunner, Detail, phase_of, LocalSource, LookItem,
     PhaseProgress, Runner, Running, Snapshot, Source, SourceError, TaskRef, TODO_SEARCH_DIRS,
 };
