@@ -130,9 +130,60 @@ impl fmt::Display for SourceError {
 
 impl std::error::Error for SourceError {}
 
-/// Anything that can produce a [`Snapshot`]: local files via the CLI, or a hub.
+/// A change the human asks for. The CLI (or a hub) performs it; this crate never edits a todo.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Action {
+    Done { id: String, changelog: Option<String> },
+    /// `look-clear`: a human looked, the task becomes done.
+    Clear { id: String },
+    /// `look-clear --reject`: the check failed, back to pending.
+    Reject { id: String },
+    /// `look-defer`: park a finished task in the human queue.
+    Defer { id: String, note: String },
+}
+
+impl Action {
+    pub fn id(&self) -> &str {
+        match self {
+            Action::Done { id, .. } | Action::Clear { id } | Action::Reject { id } | Action::Defer { id, .. } => id,
+        }
+    }
+
+    pub fn verb(&self) -> &'static str {
+        match self {
+            Action::Done { .. } => "done",
+            Action::Clear { .. } => "clear",
+            Action::Reject { .. } => "reject",
+            Action::Defer { .. } => "defer",
+        }
+    }
+
+    /// The exact CLI argv (after `--local`) for this action against `file`.
+    pub fn argv(&self, file: &str, owner: Option<&str>) -> Vec<String> {
+        let mut a: Vec<String> = match self {
+            Action::Done { id, .. } => vec!["done".into(), file.into(), id.clone()],
+            Action::Clear { id } | Action::Reject { id } => vec!["look-clear".into(), file.into(), id.clone()],
+            Action::Defer { id, .. } => vec!["look-defer".into(), file.into(), id.clone()],
+        };
+        match self {
+            Action::Done { changelog: Some(c), .. } if !c.trim().is_empty() => a.extend(["--changelog".into(), c.trim().into()]),
+            Action::Reject { .. } => a.push("--reject".into()),
+            Action::Defer { note, .. } if !note.trim().is_empty() => a.extend(["--note".into(), note.trim().into()]),
+            _ => {}
+        }
+        if let Some(o) = owner {
+            a.extend(["--owner".into(), o.into()]);
+        }
+        a
+    }
+}
+
+/// Anything that can produce a [`Snapshot`] and carry out an [`Action`]: local files via the
+/// CLI, or a hub.
 pub trait Source {
     fn snapshot(&mut self) -> Result<Snapshot, SourceError>;
+    /// `Ok` is the CLI's confirmation line, `Err` its own refusal text.
+    fn act(&mut self, action: &Action) -> Result<String, String>;
 }
 
 /// Runs one `tidetable` invocation and returns stdout. A trait so tests inject a fake.
@@ -169,7 +220,8 @@ impl Runner for CliRunner {
 /// First search directory with any `todo*.json` wins, matching the CLI. Never prompts.
 pub fn resolve_todo(base: &Path) -> Result<PathBuf, SourceError> {
     for sub in TODO_SEARCH_DIRS {
-        let Ok(entries) = std::fs::read_dir(base.join(sub)) else { continue };
+        let dir = if sub == "." { base.to_path_buf() } else { base.join(sub) };
+        let Ok(entries) = std::fs::read_dir(dir) else { continue };
         let mut found: Vec<PathBuf> = entries
             .filter_map(Result::ok)
             .map(|e| e.path())
@@ -193,11 +245,18 @@ pub struct LocalSource<R: Runner> {
     runner: R,
     base: PathBuf,
     todo: Option<PathBuf>,
+    owner: Option<String>,
 }
 
 impl<R: Runner> LocalSource<R> {
     pub fn new(runner: R, base: PathBuf) -> Self {
-        Self { runner, base, todo: None }
+        Self { runner, base, todo: None, owner: None }
+    }
+
+    /// Identity passed as `--owner`; unset means the CLI's own default (`$TIDETABLE_OWNER`, else host:pid).
+    pub fn with_owner(mut self, owner: Option<String>) -> Self {
+        self.owner = owner;
+        self
     }
 
     /// The picker's answer; skips the search chain.
@@ -215,6 +274,17 @@ impl<R: Runner> LocalSource<R> {
 }
 
 impl<R: Runner> Source for LocalSource<R> {
+    fn act(&mut self, action: &Action) -> Result<String, String> {
+        let todo = match &self.todo {
+            Some(t) => t.clone(),
+            None => resolve_todo(&self.base).map_err(|e| e.to_string())?,
+        };
+        let mut args: Vec<String> = vec!["--local".into()];
+        args.extend(action.argv(&todo.to_string_lossy(), self.owner.as_deref()));
+        let out = self.runner.run(&args)?;
+        Ok(out.lines().next().unwrap_or("done").trim().to_string())
+    }
+
     fn snapshot(&mut self) -> Result<Snapshot, SourceError> {
         let todo = match &self.todo {
             Some(t) => t.clone(),
@@ -415,6 +485,41 @@ mod tests {
         std::fs::write(base.join("other.json"), "{}").unwrap();
         std::fs::write(base.join("todo.json"), "{}").unwrap();
         assert_eq!(resolve_todo(&base).unwrap().file_name().unwrap(), "todo.json");
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn actions_invoke_exactly_the_expected_argv() {
+        struct Rec(RefCell<Vec<Vec<String>>>, Result<String, String>);
+        impl Runner for Rec {
+            fn run(&self, args: &[String]) -> Result<String, String> {
+                self.0.borrow_mut().push(args.to_vec());
+                self.1.clone()
+            }
+        }
+        let base = tmp("act");
+        std::fs::write(base.join("todo.json"), "{}").unwrap();
+        let f = base.join("todo.json").to_string_lossy().into_owned();
+        let mut src = LocalSource::new(Rec(RefCell::new(vec![]), Ok("✓ Task 1 marked as done.
+more".into())), base.clone());
+        let cases: Vec<(Action, Vec<&str>)> = vec![
+            (Action::Done { id: "1.1".into(), changelog: None }, vec!["done", &f, "1.1"]),
+            (Action::Done { id: "1.1".into(), changelog: Some(" shipped ".into()) }, vec!["done", &f, "1.1", "--changelog", "shipped"]),
+            (Action::Clear { id: "1.2".into() }, vec!["look-clear", &f, "1.2"]),
+            (Action::Reject { id: "1.2".into() }, vec!["look-clear", &f, "1.2", "--reject"]),
+            (Action::Defer { id: "1.3".into(), note: "eyeball".into() }, vec!["look-defer", &f, "1.3", "--note", "eyeball"]),
+        ];
+        for (action, want) in &cases {
+            assert_eq!(src.act(action).unwrap(), "✓ Task 1 marked as done.");
+            let mut expect = vec!["--local".to_string()];
+            expect.extend(want.iter().map(|s| s.to_string()));
+            assert_eq!(src.runner.0.borrow().last().unwrap(), &expect);
+        }
+        src.owner = Some("mike".into());
+        src.act(&cases[2].0).unwrap();
+        assert_eq!(&src.runner.0.borrow().last().unwrap()[4..], ["--owner", "mike"]);
+        let mut refused = LocalSource::new(Rec(RefCell::new(vec![]), Err("Error: task 1.1 is held by bot".into())), base.clone());
+        assert_eq!(refused.act(&cases[0].0).unwrap_err(), "Error: task 1.1 is held by bot");
         let _ = std::fs::remove_dir_all(base);
     }
 

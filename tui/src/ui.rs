@@ -7,7 +7,7 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{
-    Block, BorderType, Padding, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap,
+    Block, BorderType, Clear, Padding, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap,
 };
 use ratatui::Frame;
 
@@ -73,6 +73,51 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         Mode::Side => draw_side(f, app, area),
         Mode::Bottom => draw_bottom(f, app, area),
     }
+    draw_toast(f, app, area);
+    draw_dialog(f, app, area);
+}
+
+/// The last action's result over the bottom row; a refusal keeps the CLI's own words.
+fn draw_toast(f: &mut Frame, app: &App, area: Rect) {
+    let Some((msg, err)) = &app.toast else { return };
+    let row = Rect::new(area.x, area.y + area.height - 1, area.width, 1);
+    let st = if *err { Status::Blocked } else { Status::Done };
+    let text = trunc(&format!("{} {}", st.icon(), msg.replace('\n', " ")), area.width as usize);
+    f.render_widget(Paragraph::new(Span::styled(text, app.theme.status_style(st).add_modifier(Modifier::BOLD))).style(app.theme.panel()), row);
+}
+
+/// Sized to content, anchored under the selected row, list left visible around it.
+fn draw_dialog(f: &mut Frame, app: &App, area: Rect) {
+    let Some(d) = &app.dialog else { return };
+    let w = area.width.saturating_sub(2).clamp(1, 60);
+    let inner = w.saturating_sub(4) as usize;
+    let mut lines: Vec<Line> = d.body.lines().map(|l| Line::from(Span::styled(trunc(l, inner), app.theme.base()))).collect();
+    if let Some((label, v)) = &d.input {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(trunc(&format!("{label}:"), inner), app.theme.dim())));
+        let tail: String = v.chars().rev().take(inner.saturating_sub(3)).collect::<Vec<_>>().into_iter().rev().collect();
+        lines.push(Line::from(vec![Span::styled(format!("> {tail}"), app.theme.strong()), Span::styled("▏", app.theme.accent_style())]));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled("Enter confirm · Esc cancel", app.theme.dim())));
+    let h = (lines.len() as u16 + 2).min(area.height);
+    let want = Hit::Row(app.selected_index(app.tab));
+    let anchor = app.hits.iter().find(|(_, hit)| *hit == want).map(|(r, _)| *r);
+    let y = match anchor {
+        Some(r) if r.y + r.height + h <= area.y + area.height => r.y + r.height,
+        Some(r) if r.y >= area.y + h => r.y - h,
+        _ => area.y + area.height.saturating_sub(h) / 2,
+    };
+    let x = anchor.map_or(area.x, |r| r.x).min(area.x + area.width.saturating_sub(w));
+    let rect = Rect::new(x, y, w, h);
+    f.render_widget(Clear, rect);
+    let block = Block::bordered()
+        .border_type(BorderType::Rounded)
+        .border_style(app.theme.border_style(true))
+        .title(Span::styled(format!(" {} ", trunc(&d.title, inner)), app.theme.strong()))
+        .style(app.theme.panel())
+        .padding(Padding::horizontal(1));
+    f.render_widget(Paragraph::new(lines).block(block), rect);
 }
 
 // ---------------------------------------------------------------- standard
@@ -105,8 +150,8 @@ fn draw_standard(f: &mut Frame, app: &mut App, area: Rect) {
         draw_list(f, app, body, app.tab, true);
     }
 
-    let hints = "j/k move · tab/1-4 view · space tick · r refresh · q quit";
-    f.render_widget(Paragraph::new(Line::from(Span::styled(trunc(hints, foot.width as usize), app.theme.dim()))), foot);
+    let hints = app.hints();
+    f.render_widget(Paragraph::new(Line::from(Span::styled(trunc(&hints, foot.width as usize), app.theme.dim()))), foot);
 }
 
 fn draw_header(f: &mut Frame, app: &App, area: Rect, big: bool) {

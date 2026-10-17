@@ -334,3 +334,116 @@ fn no_color_frames_contain_no_fixed_colours() {
         }
     }
 }
+
+// ---------------------------------------------------------------- actions
+
+use tidetable_tui::app::run_pending;
+
+struct Rec {
+    seen: Vec<Action>,
+    refuse: Option<String>,
+}
+
+impl Source for Rec {
+    fn snapshot(&mut self) -> Result<Snapshot, SourceError> {
+        Ok(snap())
+    }
+    fn act(&mut self, a: &Action) -> Result<String, String> {
+        self.seen.push(a.clone());
+        match &self.refuse {
+            Some(m) => Err(m.clone()),
+            None => Ok(format!("{} {}", a.verb(), a.id())),
+        }
+    }
+}
+
+fn typed(a: &mut App, s: &str) {
+    for c in s.chars() {
+        a.on_key(key(KeyCode::Char(c)));
+    }
+}
+
+#[test]
+fn done_dialog_collects_a_changelog_and_hands_the_action_to_the_source() {
+    let mut a = app(ModeArg::Standard);
+    a.on_key(key(KeyCode::Char('d')));
+    assert!(a.dialog.is_some());
+    let (_, text) = render(&mut a, 100, 30);
+    assert!(text.contains("Mark done 3.1.1") && text.contains("Enter confirm"), "{text}");
+    typed(&mut a, "shipped it");
+    a.on_key(key(KeyCode::Enter));
+    let mut src = Rec { seen: vec![], refuse: None };
+    run_pending(&mut a, &mut src);
+    assert_eq!(src.seen, vec![Action::Done { id: "3.1.1".into(), changelog: Some("shipped it".into()) }]);
+    assert!(a.want_refresh && a.dialog.is_none());
+    assert_eq!(a.toast.as_ref().map(|t| t.1), Some(false));
+}
+
+#[test]
+fn escape_cancels_without_touching_the_source() {
+    let mut a = app(ModeArg::Standard);
+    a.on_key(key(KeyCode::Char('l')));
+    typed(&mut a, "look");
+    a.on_key(key(KeyCode::Esc));
+    assert!(a.dialog.is_none() && a.pending.is_none() && !a.quit);
+}
+
+#[test]
+fn a_refused_action_shows_the_cli_message_and_leaves_state_alone() {
+    let mut a = app(ModeArg::Standard);
+    a.tab = Tab::Review;
+    a.on_key(key(KeyCode::Char('c')));
+    a.on_key(key(KeyCode::Enter));
+    let before = a.snap.clone();
+    let mut src = Rec { seen: vec![], refuse: Some("3.0.5 is not awaiting a look".into()) };
+    run_pending(&mut a, &mut src);
+    assert_eq!(src.seen, vec![Action::Clear { id: "3.0.5".into() }]);
+    assert!(a.snap == before && !a.want_refresh);
+    let (_, text) = render(&mut a, 100, 30);
+    assert!(text.contains("3.0.5 is not awaiting a look"), "{text}");
+}
+
+#[test]
+fn action_keys_only_work_on_their_tab() {
+    let mut a = app(ModeArg::Standard);
+    a.on_key(key(KeyCode::Char('c')));
+    assert!(a.dialog.is_none());
+    assert!(a.toast.as_ref().is_some_and(|t| t.1));
+    a.tab = Tab::Review;
+    a.on_key(key(KeyCode::Char('d')));
+    assert!(a.dialog.is_none());
+}
+
+#[test]
+fn read_only_removes_action_keys_and_hints() {
+    let mut a = app(ModeArg::Standard);
+    assert!(a.hints().contains("d done") && a.hints().contains("l defer"));
+    a.tab = Tab::Review;
+    assert!(a.hints().contains("c clear") && a.hints().contains("x reject"));
+    a.read_only = true;
+    for t in [Tab::Now, Tab::Review] {
+        a.tab = t;
+        let h = a.hints();
+        assert!(h.contains("read-only") && !h.contains("done") && !h.contains("clear") && !h.contains("reject"), "{h}");
+        for c in ['d', 'l', 'c', 'x'] {
+            a.on_key(key(KeyCode::Char(c)));
+            assert!(a.dialog.is_none());
+        }
+    }
+    assert!(render(&mut a, 100, 30).1.contains("read-only"));
+}
+
+#[test]
+fn dialog_fits_small_panes_and_leaves_the_list_visible() {
+    for (w, h) in [(28u16, 40u16), (40, 24), (80, 10), (120, 8), (14, 4)] {
+        let mut a = app(ModeArg::Auto);
+        a.on_key(key(KeyCode::Char('d')));
+        typed(&mut a, &"x".repeat(200));
+        let (_, text) = render(&mut a, w, h);
+        assert_eq!(text.lines().count(), h as usize);
+    }
+    let mut a = app(ModeArg::Standard);
+    a.on_key(key(KeyCode::Char('d')));
+    let (_, text) = render(&mut a, 100, 30);
+    assert!(text.contains("Now") && text.contains("Upcoming"), "tabs stay visible under the dialog");
+}

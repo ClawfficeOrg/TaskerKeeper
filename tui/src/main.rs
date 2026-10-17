@@ -2,22 +2,24 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use crossterm::event::{self, Event, KeyEventKind};
-use tidetable_tui::app::{App, Load, ModeArg};
+use tidetable_tui::app::{run_pending, App, Load, ModeArg};
 use tidetable_tui::review::Ticks;
 use tidetable_tui::source::{CliRunner, LocalSource, Source, SourceError};
 use tidetable_tui::theme::Theme;
 use tidetable_tui::ui;
 
-const USAGE: &str = "usage: tidetable-tui [TODO_FILE] [--mode auto|standard|side|bottom] [--palette NAME]";
+const USAGE: &str = "usage: tidetable-tui [TODO_FILE] [--mode auto|standard|side|bottom] [--palette NAME] [--read-only] [--owner NAME]";
 
 struct Args {
     file: Option<PathBuf>,
     mode: ModeArg,
     palette: Option<String>,
+    read_only: bool,
+    owner: Option<String>,
 }
 
 fn parse_args() -> Result<Args, String> {
-    let mut a = Args { file: None, mode: ModeArg::Auto, palette: None };
+    let mut a = Args { file: None, mode: ModeArg::Auto, palette: None, read_only: false, owner: None };
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
         match arg.as_str() {
@@ -26,6 +28,8 @@ fn parse_args() -> Result<Args, String> {
                 a.mode = ModeArg::parse(&v).ok_or(format!("unknown mode {v:?}"))?;
             }
             "--palette" => a.palette = Some(it.next().ok_or("--palette needs a value")?),
+            "--read-only" => a.read_only = true,
+            "--owner" => a.owner = Some(it.next().ok_or("--owner needs a value")?),
             "-h" | "--help" => return Err(String::new()),
             f if !f.starts_with('-') => a.file = Some(PathBuf::from(f)),
             other => return Err(format!("unknown option {other}")),
@@ -65,11 +69,12 @@ fn main() {
         eprintln!("{w}");
     }
     let cwd = std::env::current_dir().unwrap_or_default();
-    let mut source = LocalSource::new(CliRunner::default(), cwd.clone());
+    let mut source = LocalSource::new(CliRunner::default(), cwd.clone()).with_owner(args.owner);
     if let Some(f) = args.file {
         source.choose(f);
     }
     let mut app = App::new(theme, args.mode, Ticks::load(&cwd));
+    app.read_only = args.read_only;
 
     // ratatui::init installs a panic hook that restores the terminal.
     let mut terminal = ratatui::init();
@@ -90,6 +95,7 @@ fn main() {
             Ok(false) => app.want_refresh = true,
             Err(_) => break,
         }
+        run_pending(&mut app, &mut source);
         if let Some(f) = app.chosen.take() {
             source.choose(f);
             app.want_refresh = true;

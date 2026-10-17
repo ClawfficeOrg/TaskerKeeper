@@ -6,7 +6,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent,
 use ratatui::layout::Rect;
 
 use crate::review::Ticks;
-use crate::source::{phase_of, Snapshot};
+use crate::source::{phase_of, Action, Snapshot, Source};
 use crate::theme::{Status, Theme};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -154,8 +154,24 @@ pub struct App {
     pub now_epoch: i64,
     pub quit: bool,
     pub want_refresh: bool,
+    /// `--read-only`: no action keys, no action hints.
+    pub read_only: bool,
+    pub dialog: Option<Dialog>,
+    /// Confirmed by the user; [`run_pending`] executes it through the Source.
+    pub pending: Option<Action>,
+    /// Last action result; `true` marks a refusal. Cleared by the next key.
+    pub toast: Option<(String, bool)>,
     /// A todo file the user chose in the picker; main hands it to the source.
     pub chosen: Option<std::path::PathBuf>,
+}
+
+/// A confirm box for one [`Action`]; `input` is the optional changelog / note line.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Dialog {
+    pub action: Action,
+    pub title: String,
+    pub body: String,
+    pub input: Option<(String, String)>,
 }
 
 /// An agent note that only points at the criteria is noise once the criteria are listed
@@ -179,6 +195,10 @@ impl App {
             now_epoch: 0,
             quit: false,
             want_refresh: false,
+            read_only: false,
+            dialog: None,
+            pending: None,
+            toast: None,
             chosen: None,
         }
     }
@@ -306,7 +326,77 @@ impl App {
         }
     }
 
+    pub fn hints(&self) -> String {
+        let mut h = String::from("j/k move · tab/1-4 view · space tick · r refresh");
+        if self.read_only {
+            h.push_str(" · read-only");
+        } else {
+            match self.tab {
+                Tab::Now => h.push_str(" · d done · l defer"),
+                Tab::Review => h.push_str(" · c clear · x reject"),
+                _ => {}
+            }
+        }
+        h.push_str(" · q quit");
+        h
+    }
+
+    fn begin(&mut self, verb: char) {
+        let Some(e) = self.selected_entry() else { return };
+        let on_now = matches!(verb, 'd' | 'l');
+        if (on_now && self.tab != Tab::Now) || (!on_now && self.tab != Tab::Review) {
+            let at = if on_now { "Now" } else { "Review" };
+            self.toast = Some((format!("{verb}: select a task in {at} first"), true));
+            return;
+        }
+        let (action, title, body, input) = match verb {
+            'd' => (Action::Done { id: e.id.clone(), changelog: None }, "Mark done", "Finish this task?", Some("Changelog (optional)")),
+            'l' => (Action::Defer { id: e.id.clone(), note: String::new() }, "Defer to human look", "Park it in the review queue?", Some("What should be checked")),
+            'c' => (Action::Clear { id: e.id.clone() }, "Clear", "A human looked: mark it done?", None),
+            _ => (Action::Reject { id: e.id.clone() }, "Reject", "The check failed: send it back to pending?", None),
+        };
+        self.dialog = Some(Dialog {
+            action,
+            title: format!("{title} {}", e.id),
+            body: format!("{body}\n{}", e.title),
+            input: input.map(|l| (l.to_string(), String::new())),
+        });
+    }
+
+    fn on_dialog_key(&mut self, k: KeyEvent) {
+        let Some(d) = self.dialog.as_mut() else { return };
+        match k.code {
+            KeyCode::Esc => self.dialog = None,
+            KeyCode::Enter => {
+                let text = d.input.as_ref().map(|(_, v)| v.trim().to_string()).unwrap_or_default();
+                let action = match d.action.clone() {
+                    Action::Done { id, .. } => Action::Done { id, changelog: (!text.is_empty()).then_some(text) },
+                    Action::Defer { id, .. } => Action::Defer { id, note: text },
+                    other => other,
+                };
+                self.pending = Some(action);
+                self.dialog = None;
+            }
+            KeyCode::Backspace => {
+                if let Some((_, v)) = d.input.as_mut() {
+                    v.pop();
+                }
+            }
+            KeyCode::Char(c) if !k.modifiers.contains(KeyModifiers::CONTROL) => {
+                if let Some((_, v)) = d.input.as_mut() {
+                    v.push(c);
+                }
+            }
+            _ => {}
+        }
+    }
+
     pub fn on_key(&mut self, k: KeyEvent) {
+        if self.dialog.is_some() {
+            self.on_dialog_key(k);
+            return;
+        }
+        self.toast = None;
         if let (Load::Pick(files), KeyCode::Char(c @ '1'..='9')) = (&self.load, k.code) {
             self.chosen = files.get(c as usize - '1' as usize).cloned();
             return;
@@ -317,7 +407,8 @@ impl App {
             (KeyCode::Char('k'), _) | (KeyCode::Up, _) => self.move_sel(-1),
             (KeyCode::Char('g'), _) | (KeyCode::Home, _) => self.set_sel(0),
             (KeyCode::Char('G'), _) | (KeyCode::End, _) => self.set_sel(usize::MAX),
-            (KeyCode::Tab, _) | (KeyCode::Right, _) | (KeyCode::Char('l'), _) => self.tab = self.tab.shift(1),
+            (KeyCode::Char(c @ ('d' | 'l' | 'c' | 'x')), KeyModifiers::NONE) if !self.read_only => self.begin(c),
+            (KeyCode::Tab, _) | (KeyCode::Right, _) => self.tab = self.tab.shift(1),
             (KeyCode::BackTab, _) | (KeyCode::Left, _) | (KeyCode::Char('h'), _) => self.tab = self.tab.shift(-1),
             (KeyCode::Char(' '), _) => self.toggle_tick(),
             (KeyCode::Char('r'), _) => self.want_refresh = true,
@@ -344,6 +435,19 @@ impl App {
             }
             _ => {}
         }
+    }
+}
+
+/// Carry out the confirmed action through the source. A refusal is shown as the CLI worded it
+/// and leaves the snapshot untouched; success asks for a refresh.
+pub fn run_pending(app: &mut App, source: &mut impl Source) {
+    let Some(action) = app.pending.take() else { return };
+    match source.act(&action) {
+        Ok(msg) => {
+            app.toast = Some((msg, false));
+            app.want_refresh = true;
+        }
+        Err(msg) => app.toast = Some((msg, true)),
     }
 }
 

@@ -10,6 +10,6 @@ pub mod theme;
 pub mod ui;
 
 pub use source::{
-    build_snapshot, parse_utc, resolve_todo, Blocked, CliRunner, Detail, phase_of, LocalSource, LookItem,
+    build_snapshot, Action, parse_utc, resolve_todo, Blocked, CliRunner, Detail, phase_of, LocalSource, LookItem,
     PhaseProgress, Runner, Running, Snapshot, Source, SourceError, TaskRef, TODO_SEARCH_DIRS,
 };
