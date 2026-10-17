@@ -1,0 +1,16 @@
+[package]
+name = "tidetable-tui"
+version = "0.12.0"
+edition = "2021"
+rust-version = "1.88"
+description = "Ratatui front end for TideTable todo files and hubs"
+publish = false
+
+[dependencies]
+ratatui = "0.30.2"
+crossterm = "0.29"
+serde_json = "1"
+# serde: derive for Snapshot and the CLI JSON shapes; serde_json needs it anyway.
+serde = { version = "1", features = ["derive"] }
+# ureq: small blocking HTTP client for the hub source (3.2.2); no async runtime.
+ureq = { version = "2", features = ["json"] }

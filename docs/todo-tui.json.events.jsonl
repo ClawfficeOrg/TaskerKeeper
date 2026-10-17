@@ -1,0 +1,2 @@
+{"at": "2026-10-17T06:29:33Z", "event": "start", "task": "3.0.1", "owner": "Morrissey5070Ti:53660", "from": "pending", "to": "in_progress", "lease_expires_at": "2026-10-17T07:29:33Z"}
+{"at": "2026-10-17T06:36:19Z", "event": "done", "task": "3.0.1", "owner": "Morrissey5070Ti:53660", "from": "in_progress", "to": "done", "changelog": "tui/ crate: Source trait, Snapshot, LocalSource over the CLI (ratatui 0.30.2)"}

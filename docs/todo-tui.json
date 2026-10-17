@@ -1,0 +1,253 @@
+{
+  "schema_version": "1.0.0",
+  "project": {
+    "name": "TideTable TUI",
+    "version": {
+      "milestone": "tui",
+      "release_version": "0.12.0"
+    },
+    "description": "Ratatui app for TideTable: launches as a standard screen, a side pane or a bottom pane (tmux-friendly), reads local todo files or a hub, shows in progress, upcoming and done work plus the human review checklist, and can mark tasks done or clear reviews. Styled from clawffice-design tokens and the ratatui-modern-ui skill."
+  },
+  "phases": [
+    {
+      "id": "3.0",
+      "title": "Foundation",
+      "goal": "A Rust crate that reads a todo through one data trait and renders it with the suite theme. No UI chrome yet.",
+      "tasks": [
+        {
+          "id": "3.0.1",
+          "title": "tidetable-tui crate and data layer",
+          "status": "done",
+          "goal": "Create tui/ as a standalone Cargo crate (bin tidetable-tui, not part of the pip package) with ratatui 0.30, crossterm 0.29, serde_json and a small blocking HTTP client only; each crate beyond ratatui/crossterm is named and justified in the commit. Define a Source trait returning a Snapshot (project, in_progress with claim owner and age, ready, blocked with the blocking ids, recently done, human look queue with goal and success criteria, phase progress). LocalSource shells out to `tidetable --local <cmd> --json` (list, ready, look-queue -v --json) and resolves the todo file with the same ., docs/, .tidetable/ chain as the CLI, never prompting (the TUI shows a picker state instead). The crate never writes a todo file itself: AGENTS.md single-writer rule, every mutation goes through the CLI or the hub.",
+          "touches": [
+            "tui/"
+          ],
+          "success": [
+            "cargo build, clippy and test pass in tui/",
+            "Snapshot built from a fixture todo via a fake CLI runner in tests",
+            "no code path opens a todo file for writing",
+            "cargo tree -i ratatui shows one copy"
+          ],
+          "tests": "cd tui && cargo test && cargo clippy -- -D warnings",
+          "complexity": "High",
+          "created_at": "2026-10-16T00:00:00Z",
+          "updated_at": "2026-10-17T06:36:19Z",
+          "changelog": "tui/ crate: Source trait, Snapshot, LocalSource over the CLI (ratatui 0.30.2)"
+        },
+        {
+          "id": "3.0.2",
+          "title": "Theme from clawffice-design tokens",
+          "status": "pending",
+          "goal": "Add a Theme struct of true-colour tokens (bg, surface, surface_raised, border, border_focus, text, text_dim, text_strong, accent = Tidetable product hue tide-300 (dark #8CC4F0, light #2F6FA8), second = Claw orange, success, warn, danger, info) loaded from vendored copies of the five clawffice-design palettes (biolume default, deep-tide, sea-glass, phosphor, boiled) embedded with include_str!. --palette and TIDETABLE_PALETTE select one; the palette scheme picks the dark or light product hue. Provide a 256-colour fallback and a monochrome theme for NO_COLOR and TERM=dumb. Every render goes through the theme. State is never colour alone (suite rule 8): define a status glyph set (icon plus word) for pending, in progress, done, needs look, blocked, claimed, stale lease, matching the CLI's glyph habits. Follow the ratatui-modern-ui skill (clawffice-design/skills/ratatui-modern-ui/SKILL.md) and the Clawffice suite rules in clawffice-design/README.md.",
+          "touches": [
+            "tui/src/theme.rs",
+            "tui/assets/"
+          ],
+          "success": [
+            "all five palettes load and body and muted text meet 4.5:1 against window-background",
+            "NO_COLOR yields a theme with no Rgb colours",
+            "every status renders icon and word"
+          ],
+          "tests": "cd tui && cargo test theme",
+          "complexity": "Medium",
+          "created_at": "2026-10-16T00:00:00Z",
+          "updated_at": "2026-10-16T00:00:00Z",
+          "prerequisites": [
+            "3.0.1"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "3.1",
+      "title": "Layouts and views",
+      "goal": "The three launch modes and the four views, all rendering headless-testable frames.",
+      "prerequisites": [
+        "3.0"
+      ],
+      "tasks": [
+        {
+          "id": "3.1.1",
+          "title": "Layout modes: standard, side, bottom",
+          "status": "pending",
+          "goal": "Add --mode standard|side|bottom|auto (default auto). auto picks side for a tall narrow pane (width < 60 and height > width/2), bottom for a short wide pane (height <= 14 and width >= 80), else standard, and re-evaluates on resize so a tmux pane resize reflows live. side: one column of stacked sections (current, review, upcoming, then a phase bar) cut to room with `+N more` counts, no tab bar, designed for roughly 28-48 columns. bottom: a 1-3 row band (current | review count | next up | progress gauge) with a detail row on selection, designed for 6-14 rows. standard: header with the clock-crab cell sprite (tokens/cells.json, 12x6 half-blocks) and project and phase, tabs for Now, Upcoming, Review, Done, a detail pane beside the list, key hint footer. Surfaces use bg/surface rather than a border on every region; only the focused pane gets border_focus. Follow the ratatui-modern-ui skill (clawffice-design/skills/ratatui-modern-ui/SKILL.md) and the Clawffice suite rules in clawffice-design/README.md.",
+          "touches": [
+            "tui/src/layout.rs",
+            "tui/src/app.rs"
+          ],
+          "success": [
+            "TestBackend frames asserted at 28x40, 40x24, 80x24, 120x8 and 200x50",
+            "resize between modes reflows without losing the selection",
+            "no region overflows or panics at 20x6"
+          ],
+          "tests": "cd tui && cargo test layout",
+          "complexity": "High",
+          "created_at": "2026-10-16T00:00:00Z",
+          "updated_at": "2026-10-16T00:00:00Z",
+          "prerequisites": [
+            "3.0.2"
+          ]
+        },
+        {
+          "id": "3.1.2",
+          "title": "Now, Upcoming and Done views",
+          "status": "pending",
+          "goal": "Now lists in_progress tasks with owner, claim age, lease state (stale shown with icon and word) and goal. Upcoming shows ready tasks first, then blocked ones with what blocks them, grouped by phase, with disjoint-safe tasks marked. Done shows the last N finished tasks with changelog lines. Selecting a row fills the detail pane (standard) or the detail row (bottom) with goal, touches, prerequisites and success criteria. Empty, loading and error states each have copy. Scroll with Scrollbar; j/k, arrows, g/G, mouse wheel and click via hit-testing stored Rects.",
+          "touches": [
+            "tui/src/views/"
+          ],
+          "success": [
+            "each view renders at standard, side and bottom sizes",
+            "empty and error states tested",
+            "click and wheel hit-test tests against stored Rects"
+          ],
+          "tests": "cd tui && cargo test views",
+          "complexity": "High",
+          "created_at": "2026-10-16T00:00:00Z",
+          "updated_at": "2026-10-16T00:00:00Z",
+          "prerequisites": [
+            "3.1.1"
+          ]
+        },
+        {
+          "id": "3.1.3",
+          "title": "Human review checklist view",
+          "status": "pending",
+          "goal": "Review lists the needs_human_look queue as a checklist: each item shows id, title and its success criteria as [ ] / [x] boxes the human ticks locally (space), with the task note under it unless it only points at the criteria (same rule as `look-queue -v`). Items sort oldest first; a count badge appears in side, bottom and the tab bar so pending checks are never hidden. Ticks are a local aid that persists per task in a sidecar file under .tidetable/ (never the todo); an item whose every box is ticked is highlighted as ready to clear. Clearing is an action (3.2.1), not implied by the ticks.",
+          "touches": [
+            "tui/src/views/review.rs"
+          ],
+          "success": [
+            "checklist matches `tidetable look-queue -v` content for a fixture",
+            "ticks persist across restart through the sidecar",
+            "count badge visible in all three modes"
+          ],
+          "tests": "cd tui && cargo test review",
+          "complexity": "Medium",
+          "created_at": "2026-10-16T00:00:00Z",
+          "updated_at": "2026-10-16T00:00:00Z",
+          "prerequisites": [
+            "3.1.1"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "3.2",
+      "title": "Actions, sources and launch",
+      "goal": "Mark work done from the TUI, work against a hub or local files, and open it in a tmux pane.",
+      "prerequisites": [
+        "3.1"
+      ],
+      "tasks": [
+        {
+          "id": "3.2.1",
+          "title": "Actions: done, clear, reject, defer",
+          "status": "pending",
+          "goal": "From a selected task: `d` marks an in_progress task done (optional changelog line), `c` clears a needs_human_look task to done (look-clear), `x` rejects it back to pending (look-clear --reject), `l` defers an in_progress task to the human queue with a note (look-defer). Each action shows a confirm dialog sized to content, anchored near the row and leaving the list visible, runs through the Source (CLI locally, hub route with --server), reports the CLI's own refusal text in a toast on failure, and refreshes. `--read-only` disables all of them. Owner defaults to the same identity the CLI uses.",
+          "touches": [
+            "tui/src/actions.rs",
+            "tui/src/dialog.rs"
+          ],
+          "success": [
+            "each action invokes exactly the expected CLI argv in tests via the fake runner",
+            "a refused action surfaces the message and leaves state unchanged",
+            "--read-only removes the action keys from the hints"
+          ],
+          "tests": "cd tui && cargo test actions",
+          "complexity": "High",
+          "created_at": "2026-10-16T00:00:00Z",
+          "updated_at": "2026-10-16T00:00:00Z",
+          "prerequisites": [
+            "3.1.2",
+            "3.1.3"
+          ]
+        },
+        {
+          "id": "3.2.2",
+          "title": "Hub connection and live refresh",
+          "status": "pending",
+          "goal": "HubSource talks to a TideTable hub: --server URL, --token, $TIDETABLE_SERVER and $TIDETABLE_TOKEN, project slug as the argument, mapped to the same serve routes remote.py uses (add a row to remote.ROUTES with a TestRemoteClient test only if a needed read is missing). Refresh by the hub's event stream when available, else poll every 2 s. Local mode refreshes when the todo file or its .events.jsonl mtime changes, else every 5 s. A visible connection state (live, polling, offline with retry countdown) lives in the header or footer. Tokens are never printed or written to disk, and an offline hub keeps the last snapshot on screen, dimmed and labelled.",
+          "touches": [
+            "tui/src/source/",
+            "tidetable/remote.py",
+            "tests/test_cli.py"
+          ],
+          "success": [
+            "hub and local sources yield identical Snapshots for the same fixture",
+            "offline state keeps stale data visible and labelled",
+            "the token never appears in any rendered frame or log"
+          ],
+          "tests": "cd tui && cargo test source; python -m unittest tests.test_cli",
+          "complexity": "High",
+          "created_at": "2026-10-16T00:00:00Z",
+          "updated_at": "2026-10-16T00:00:00Z",
+          "prerequisites": [
+            "3.0.1"
+          ]
+        },
+        {
+          "id": "3.2.3",
+          "title": "tmux launcher and motion polish",
+          "status": "pending",
+          "goal": "Add `tidetable tui [--mode side|bottom|standard] [--tmux]` (Python, forwards to the tidetable-tui binary, with a clear error naming how to build it when missing). With --tmux inside a tmux session it runs split-window for side (-h, 40 columns) or bottom (-v, 10 rows) and runs the TUI there; outside tmux it runs in place. Add restrained motion via tachyonfx only if the crate is proposed and justified in the commit: fade-in on open, short pulse on a task that just changed, spinner on in-progress rows, all <= 600 ms, scoped to small Rects, disabled by TIDETABLE_REDUCE_MOTION and NO_COLOR, and the loop blocks on input when idle.",
+          "touches": [
+            "tui/src/motion.rs",
+            "tidetable/tui.py",
+            "tidetable/cli.py"
+          ],
+          "success": [
+            "`tidetable tui --tmux --mode side` issues the expected split-window argv (tested by capturing the command)",
+            "reduced motion adds no effects",
+            "the idle loop does not redraw without events"
+          ],
+          "tests": "python -m unittest discover -s tests; cd tui && cargo test",
+          "complexity": "Medium",
+          "created_at": "2026-10-16T00:00:00Z",
+          "updated_at": "2026-10-16T00:00:00Z",
+          "prerequisites": [
+            "3.2.1",
+            "3.2.2"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "3.3",
+      "title": "Docs and release",
+      "goal": "Document the TUI and ship it as 0.12.0.",
+      "prerequisites": [
+        "3.2"
+      ],
+      "tasks": [
+        {
+          "id": "3.3.1",
+          "title": "Docs, packaging and 0.12.0",
+          "status": "pending",
+          "goal": "Document modes, keys, hub use, palettes, the tmux recipe and how to build tidetable-tui in README.md, skills/tidetable/SKILL.md, docs/integration-guide.md and AGENTS.md (layout table, plus the rule that the TUI never writes a todo). Record what was not visually verified and the exact things a person should look at (colours, motion timing, reflow on a tmux resize), since PTY output may screenshot blank. CHANGELOG entry, bump pyproject and __init__ together to 0.12.0, and confirm `pip install .` still works with tui/ excluded from the wheel.",
+          "touches": [
+            "README.md",
+            "CHANGELOG.md",
+            "AGENTS.md",
+            "docs/integration-guide.md",
+            "skills/tidetable/SKILL.md",
+            "pyproject.toml",
+            "tidetable/__init__.py"
+          ],
+          "success": [
+            "every new command and flag documented",
+            "the wheel contains no tui/ sources",
+            "python -m unittest discover -s tests and cargo test are both green"
+          ],
+          "tests": "python -m unittest discover -s tests; pip install .",
+          "complexity": "Low",
+          "created_at": "2026-10-16T00:00:00Z",
+          "updated_at": "2026-10-16T00:00:00Z",
+          "prerequisites": [
+            "3.2.3"
+          ]
+        }
+      ]
+    }
+  ]
+}
