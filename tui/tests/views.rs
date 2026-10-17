@@ -708,3 +708,56 @@ fn s_outside_upcoming_only_toasts() {
     a.on_key(key(KeyCode::Char('s')));
     assert!(a.dialog.is_none() && a.toast.is_some());
 }
+
+fn mouse(kind: MouseEventKind, column: u16, row: u16) -> MouseEvent {
+    MouseEvent {
+        kind,
+        column,
+        row,
+        modifiers: KeyModifiers::NONE,
+    }
+}
+
+#[test]
+fn narrow_width_puts_detail_under_the_list_wide_puts_it_beside() {
+    let mut a = app(ModeArg::Standard);
+    render(&mut a, 100, 40);
+    assert!(a.divider.is_some_and(|d| d.vertical), "100 cols: stacked");
+    render(&mut a, 140, 40);
+    assert!(
+        a.divider.is_some_and(|d| !d.vertical),
+        "140 cols: side by side"
+    );
+}
+
+#[test]
+fn dragging_the_divider_moves_the_split_and_clamps() {
+    let mut a = app(ModeArg::Standard);
+    render(&mut a, 140, 40);
+    let d = a.divider.unwrap();
+    a.on_mouse(mouse(
+        MouseEventKind::Down(MouseButton::Left),
+        d.grab.x + 1,
+        10,
+    ));
+    assert!(a.dragging);
+    a.on_mouse(mouse(MouseEventKind::Drag(MouseButton::Left), 28, 10));
+    assert_eq!(a.split, 20, "28/140 is 20%");
+    a.on_mouse(mouse(MouseEventKind::Drag(MouseButton::Left), 139, 10));
+    assert_eq!(a.split, 80, "clamped");
+    a.on_mouse(mouse(MouseEventKind::Up(MouseButton::Left), 139, 10));
+    assert!(!a.dragging);
+    // Not grabbed: a drag elsewhere changes nothing.
+    a.on_mouse(mouse(MouseEventKind::Drag(MouseButton::Left), 40, 10));
+    assert_eq!(a.split, 80);
+}
+
+#[test]
+fn bracket_keys_resize_too() {
+    let mut a = app(ModeArg::Standard);
+    a.on_key(key(KeyCode::Char(']')));
+    assert_eq!(a.split, 60);
+    a.on_key(key(KeyCode::Char('[')));
+    a.on_key(key(KeyCode::Char('[')));
+    assert_eq!(a.split, 50);
+}

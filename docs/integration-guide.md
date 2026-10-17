@@ -305,6 +305,19 @@ ready, what is done, and the human-look checklist. It is a separate Rust binary 
 change goes through the `tidetable` CLI (local) or the hub (`POST /api/<slug>/done`);
 the only file it writes is the review-tick sidecar `.tidetable/review-ticks.json`.
 
+**Local or hub?** One rule: a todo file path means local, a project slug means hub.
+
+| You run | It reads and writes | Actions it can do |
+| --- | --- | --- |
+| `tidetable tui docs/todo.json` | that file, through the `tidetable` CLI (always `--local`) | start, done, defer, clear, reject |
+| `tidetable tui` | the first `todo*.json` the CLI finds | same |
+| `tidetable tui my-slug --server URL` (or `$TIDETABLE_SERVER`) | the hub project, with live updates on its event stream | start and done only; the hub has no routes for the rest |
+| any of the above plus `--local` | forces local even when `$TIDETABLE_SERVER` is exported | local set |
+
+Claims and finishes use one owner: `--owner`, else `$TIDETABLE_OWNER`, else `tui@<host>`. A task started by someone else must be finished by them, or by running the TUI with their `--owner`.
+
+In the list/detail view the divider drags with the mouse, or `[` and `]` nudge it. Under 110 columns the detail panel sits under the list instead of beside it.
+
 Build and launch (Rust 1.88+):
 
 ```bash

@@ -12,7 +12,7 @@ use ratatui::widgets::{
 };
 use ratatui::Frame;
 
-use crate::app::{App, Entry, Hit, Kind, Load, Mode, Tab};
+use crate::app::{App, Divider, Entry, Hit, Kind, Load, Mode, Tab};
 use crate::source::PhaseProgress;
 use crate::theme::{Depth, Status};
 
@@ -78,6 +78,7 @@ pub fn wordmark(app: &App) -> Vec<Span<'static>> {
 pub fn draw(f: &mut Frame, app: &mut App) {
     let area = f.area();
     app.hits.clear();
+    app.divider = None;
     f.render_widget(Block::new().style(app.theme.base()), area);
     if area.width < 12 || area.height < 3 {
         // Too small for any layout: say who we are and nothing else.
@@ -201,6 +202,9 @@ fn draw_dialog(f: &mut Frame, app: &App, area: Rect) {
 
 // ---------------------------------------------------------------- standard
 
+/// Below this width the detail panel goes under the list instead of beside it.
+const SIDE_BY_SIDE_MIN: u16 = 110;
+
 fn draw_standard(f: &mut Frame, app: &mut App, area: Rect) {
     let big = area.width >= 40 && area.height >= 24 && app.theme.depth != Depth::Mono;
     let head_h = if big { 6 } else { 2 };
@@ -217,15 +221,26 @@ fn draw_standard(f: &mut Frame, app: &mut App, area: Rect) {
 
     if app.load != Load::Ready {
         draw_state(f, app, body);
-    } else if body.width >= 80 {
-        let [list, detail] = Layout::horizontal([Constraint::Percentage(55), Constraint::Fill(1)])
-            .spacing(1)
-            .areas(body);
+    } else if body.width >= SIDE_BY_SIDE_MIN {
+        let [list, detail] =
+            Layout::horizontal([Constraint::Percentage(app.split), Constraint::Fill(1)])
+                .spacing(1)
+                .areas(body);
+        app.divider = Some(Divider {
+            grab: Rect::new(list.right().saturating_sub(1), body.y, 3, body.height),
+            body,
+            vertical: false,
+        });
         draw_list(f, app, list, app.tab, true);
         draw_detail(f, app, detail);
     } else if body.height >= 16 {
         let [list, detail] =
-            Layout::vertical([Constraint::Percentage(60), Constraint::Fill(1)]).areas(body);
+            Layout::vertical([Constraint::Percentage(app.split), Constraint::Fill(1)]).areas(body);
+        app.divider = Some(Divider {
+            grab: Rect::new(body.x, list.bottom().saturating_sub(1), body.width, 2),
+            body,
+            vertical: true,
+        });
         draw_list(f, app, list, app.tab, true);
         draw_detail(f, app, detail);
     } else {

@@ -184,6 +184,10 @@ pub struct App {
     /// Motion on/off (see motion.rs); off by default so tests and NO_COLOR stay still.
     pub motion: bool,
     pub fx: Motion,
+    /// List share of the list/detail split, percent.
+    pub split: u16,
+    pub divider: Option<Divider>,
+    pub dragging: bool,
     /// Epoch seconds of the last successful snapshot, for the offline label.
     pub last_ok: Option<i64>,
     pub dialog: Option<Dialog>,
@@ -194,6 +198,19 @@ pub struct App {
     /// A todo file the user chose in the picker; main hands it to the source.
     pub chosen: Option<std::path::PathBuf>,
 }
+
+/// The draggable boundary between list and detail, as drawn last frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Divider {
+    /// Cells that grab it (the border pair either side of the gap).
+    pub grab: Rect,
+    /// The area the two panes share; the drag position is a share of this.
+    pub body: Rect,
+    pub vertical: bool,
+}
+
+pub const SPLIT_MIN: u16 = 20;
+pub const SPLIT_MAX: u16 = 80;
 
 /// A confirm box for one [`Action`]; `input` is the optional changelog / note line.
 #[derive(Debug, Clone)]
@@ -229,6 +246,9 @@ impl App {
             conn: Conn::Local,
             motion: false,
             fx: Motion::default(),
+            split: 55,
+            divider: None,
+            dragging: false,
             last_ok: None,
             dialog: None,
             pending: None,
@@ -435,8 +455,29 @@ impl App {
                 _ => {}
             }
         }
+        if self.divider.is_some() {
+            h.push_str(" · [/] resize");
+        }
         h.push_str(" · q quit");
         h
+    }
+
+    pub fn nudge_split(&mut self, by: i16) {
+        self.split = (self.split as i16 + by).clamp(SPLIT_MIN as i16, SPLIT_MAX as i16) as u16;
+    }
+
+    fn drag_to(&mut self, col: u16, row: u16) {
+        let Some(d) = self.divider else { return };
+        let (pos, origin, len) = if d.vertical {
+            (row, d.body.y, d.body.height)
+        } else {
+            (col, d.body.x, d.body.width)
+        };
+        if len == 0 {
+            return;
+        }
+        let pct = (pos.saturating_sub(origin) as u32 * 100 / len as u32) as u16;
+        self.split = pct.clamp(SPLIT_MIN, SPLIT_MAX);
     }
 
     fn begin(&mut self, verb: char) {
@@ -552,6 +593,8 @@ impl App {
             {
                 self.begin(c)
             }
+            (KeyCode::Char('['), _) => self.nudge_split(-5),
+            (KeyCode::Char(']'), _) => self.nudge_split(5),
             (KeyCode::Tab, _) | (KeyCode::Right, _) => self.tab = self.tab.shift(1),
             (KeyCode::BackTab, _) | (KeyCode::Left, _) | (KeyCode::Char('h'), _) => {
                 self.tab = self.tab.shift(-1)
@@ -568,6 +611,18 @@ impl App {
             MouseEventKind::ScrollDown => self.move_sel(1),
             MouseEventKind::ScrollUp => self.move_sel(-1),
             MouseEventKind::Down(MouseButton::Left) => {
+                if self.dialog.is_none()
+                    && self.divider.is_some_and(|d| {
+                        let g = d.grab;
+                        m.column >= g.x
+                            && m.column < g.x + g.width
+                            && m.row >= g.y
+                            && m.row < g.y + g.height
+                    })
+                {
+                    self.dragging = true;
+                    return;
+                }
                 let hit = self
                     .hits
                     .iter()
@@ -584,6 +639,10 @@ impl App {
                     None => {}
                 }
             }
+            MouseEventKind::Drag(MouseButton::Left) if self.dragging => {
+                self.drag_to(m.column, m.row)
+            }
+            MouseEventKind::Up(MouseButton::Left) => self.dragging = false,
             _ => {}
         }
     }
