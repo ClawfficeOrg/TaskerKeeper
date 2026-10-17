@@ -1,0 +1,25 @@
+{
+  "name": "Boiled",
+  "scheme": "dark",
+  "status": "alternate",
+  "summary": "Aubergine ground, cooked-lobster red primary, butter yellow second.",
+  "role": {
+    "window-background": "#1B1218",
+    "surface": "#281A22",
+    "terminal-background": "#140D12",
+    "border": "#3D2833",
+    "border-strong": "#5C3D4C",
+    "text": "#E3CFD3",
+    "text-muted": "#A88C95",
+    "text-strong": "#FFF1EC",
+    "primary": "#F0483E",
+    "primary-text": "#1B1218",
+    "second": "#F6C85F"
+  },
+  "status-color": {
+    "success": "#7FD18B",
+    "warning": "#F6C85F",
+    "danger": "#FF7B72",
+    "info": "#7FD1C7"
+  }
+}

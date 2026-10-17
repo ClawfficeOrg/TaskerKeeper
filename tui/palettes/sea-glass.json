@@ -1,0 +1,25 @@
+{
+  "name": "Sea Glass",
+  "scheme": "light",
+  "status": "alternate",
+  "summary": "Daylight. Frosted grey-green ground, teal ink.",
+  "role": {
+    "window-background": "#EEF3F1",
+    "surface": "#FFFFFF",
+    "terminal-background": "#FFFFFF",
+    "border": "#CFDAD6",
+    "border-strong": "#8FA39E",
+    "text": "#24393A",
+    "text-muted": "#5A7170",
+    "text-strong": "#0E2224",
+    "primary": "#C7410C",
+    "primary-text": "#FFFFFF",
+    "second": "#0B7285"
+  },
+  "status-color": {
+    "success": "#1E7B4F",
+    "warning": "#8A5A00",
+    "danger": "#B42318",
+    "info": "#1864AB"
+  }
+}

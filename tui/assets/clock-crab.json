@@ -1,0 +1,23 @@
+{
+ "legend": {
+  "#": "product hue",
+  "o": "accent (Claw orange unless the app sets cell-accent)",
+  "w": "Mist 50",
+  "k": "Ink 950",
+  ".": "empty"
+ },
+ "rows": [
+  "...######...",
+  "..########..",
+  ".###wwww###.",
+  ".##wwkwww##.",
+  "##wwwkwwww##",
+  "##wwwkkkww##",
+  "##wwwwwwww##",
+  "##wwwwwwww##",
+  ".##wwwwww##.",
+  ".###wwww###.",
+  "o.########.o",
+  "oo.######.oo"
+ ]
+}
