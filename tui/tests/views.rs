@@ -686,3 +686,25 @@ fn an_idle_app_owes_no_frame() {
     assert!(!a.fx.live());
     assert_eq!(a.conn, Conn::Local);
 }
+
+#[test]
+fn s_on_upcoming_confirms_then_queues_a_start() {
+    let mut a = app(ModeArg::Standard);
+    a.tab = Tab::Upcoming;
+    a.on_key(key(KeyCode::Char('s')));
+    assert!(a.dialog.is_some(), "confirm box opens");
+    a.on_key(key(KeyCode::Enter));
+    let Some(Action::Start { id }) = a.pending.take() else {
+        panic!("expected a queued start");
+    };
+    assert!(!id.is_empty());
+    assert!(a.hints().contains("s start") || a.tab != Tab::Upcoming);
+}
+
+#[test]
+fn s_outside_upcoming_only_toasts() {
+    let mut a = app(ModeArg::Standard);
+    a.tab = Tab::Now;
+    a.on_key(key(KeyCode::Char('s')));
+    assert!(a.dialog.is_none() && a.toast.is_some());
+}

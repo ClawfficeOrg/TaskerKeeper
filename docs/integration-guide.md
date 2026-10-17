@@ -331,7 +331,7 @@ Review (needs-a-human-look items as a checklist; a count badge shows in every mo
 **Keys.** `j`/`k` or arrows move, `g`/`G` top and bottom, `Tab`/`Right` next view,
 `h`/`Left`/`Shift-Tab` previous, `1`-`4` jump, `Space` tick a review criterion, `r`
 refresh, `q` quit. Actions (confirm dialog, `Enter` runs, `Esc` cancels; the CLI's own
-refusal text appears as a toast): on Now `d` done (optional changelog) and `l` defer to a
+refusal text appears as a toast): on Upcoming `s` start; on Now `d` done (optional changelog) and `l` defer to a
 human look (with a note); on Review `c` clear and `x` reject. `--read-only` removes the
 action keys and their hints. The mouse selects rows and tabs and scrolls. Ticks are your
 notes only; `c` is what clears an item.

@@ -280,7 +280,7 @@ tidetable tui [--mode auto|standard|side|bottom] [--tmux] [-- docs/todo.json --r
 tidetable-tui --server https://hub.example myproj        # token from $TIDETABLE_TOKEN
 ```
 
-Keys: `j`/`k` move, `Tab`/`1`-`4` views, `Space` tick a review criterion, `d` done, `l` defer,
+Keys: `j`/`k` move, `Tab`/`1`-`4` views, `Space` tick a review criterion, `s` start (Upcoming), `d` done, `l` defer,
 `c` clear, `x` reject, `r` refresh, `q` quit. `--read-only` removes the action keys.
 Palettes: `--palette biolume|deep-tide|sea-glass|phosphor|boiled`. In tmux,
 `--tmux --mode side` splits a 40-column pane (`bottom` a 10-row one). Full reference in

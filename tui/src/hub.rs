@@ -233,6 +233,11 @@ impl<H: Http> Source for HubSource<H> {
                 self.http.post(&self.route("done"), &body)?;
                 Ok(format!("done {id}"))
             }
+            Action::Start { id } => {
+                let body = json!({ "task": id, "owner": self.owner(), "force": false });
+                self.http.post(&self.route("start"), &body)?;
+                Ok(format!("started {id}"))
+            }
             other => Err(format!(
                 "the hub has no route for {} yet; run it against the checkout",
                 other.verb()

@@ -145,6 +145,24 @@ pub enum Action {
     Reject { id: String },
     /// `look-defer`: park a finished task in the human queue.
     Defer { id: String, note: String },
+    /// `start`: claim a ready task.
+    Start { id: String },
+}
+
+/// One owner for every claim and finish from this TUI, so `done` matches `start`.
+/// `--owner`, then `$TIDETABLE_OWNER`, then `tui@<host>`.
+pub fn default_owner(flag: Option<String>) -> String {
+    flag.or_else(|| {
+        std::env::var("TIDETABLE_OWNER")
+            .ok()
+            .filter(|o| !o.is_empty())
+    })
+    .unwrap_or_else(|| {
+        let host = std::env::var("COMPUTERNAME")
+            .or_else(|_| std::env::var("HOSTNAME"))
+            .unwrap_or_else(|_| "local".into());
+        format!("tui@{host}")
+    })
 }
 
 impl Action {
@@ -153,7 +171,8 @@ impl Action {
             Action::Done { id, .. }
             | Action::Clear { id }
             | Action::Reject { id }
-            | Action::Defer { id, .. } => id,
+            | Action::Defer { id, .. }
+            | Action::Start { id } => id,
         }
     }
 
@@ -163,6 +182,7 @@ impl Action {
             Action::Clear { .. } => "clear",
             Action::Reject { .. } => "reject",
             Action::Defer { .. } => "defer",
+            Action::Start { .. } => "start",
         }
     }
 
@@ -174,6 +194,7 @@ impl Action {
                 vec!["look-clear".into(), file.into(), id.clone()]
             }
             Action::Defer { id, .. } => vec!["look-defer".into(), file.into(), id.clone()],
+            Action::Start { id } => vec!["start".into(), file.into(), id.clone()],
         };
         match self {
             Action::Done {
@@ -703,6 +724,7 @@ more"
                 },
                 vec!["done", &f, "1.1", "--changelog", "shipped"],
             ),
+            (Action::Start { id: "1.4".into() }, vec!["start", &f, "1.4"]),
             (
                 Action::Clear { id: "1.2".into() },
                 vec!["look-clear", &f, "1.2"],

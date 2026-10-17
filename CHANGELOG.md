@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`tidetable tui` and the `tidetable-tui` binary (`tui/`).** A ratatui front end:
   Now / Upcoming / Done / Review views, standard, side and bottom layouts that follow
   the pane shape, five vendored palettes (`--palette`, `$TIDETABLE_PALETTE`), a review
-  checklist with local ticks, confirm-dialog actions (`d` done, `l` defer, `c` clear,
+  checklist with local ticks, confirm-dialog actions (`s` start, `d` done, `l` defer, `c` clear,
   `x` reject; `--read-only` removes them) and a hub mode (`--server URL SLUG`,
   `$TIDETABLE_TOKEN`) that refreshes on the event stream, else polls, and keeps stale
   data dimmed and labelled when the hub is offline. `--tmux` splits a 40-column (side)

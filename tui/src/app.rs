@@ -430,6 +430,7 @@ impl App {
         } else {
             match self.tab {
                 Tab::Now => h.push_str(" · d done · l defer"),
+                Tab::Upcoming => h.push_str(" · s start"),
                 Tab::Review => h.push_str(" · c clear · x reject"),
                 _ => {}
             }
@@ -442,9 +443,12 @@ impl App {
         let Some(e) = self.selected_entry() else {
             return;
         };
-        let on_now = matches!(verb, 'd' | 'l');
-        if (on_now && self.tab != Tab::Now) || (!on_now && self.tab != Tab::Review) {
-            let at = if on_now { "Now" } else { "Review" };
+        let (want, at) = match verb {
+            'd' | 'l' => (Tab::Now, "Now"),
+            's' => (Tab::Upcoming, "Upcoming"),
+            _ => (Tab::Review, "Review"),
+        };
+        if self.tab != want {
             self.toast = Some((format!("{verb}: select a task in {at} first"), true));
             return;
         }
@@ -466,6 +470,12 @@ impl App {
                 "Defer to human look",
                 "Park it in the review queue?",
                 Some("What should be checked"),
+            ),
+            's' => (
+                Action::Start { id: e.id.clone() },
+                "Start",
+                "Claim this task?",
+                None,
             ),
             'c' => (
                 Action::Clear { id: e.id.clone() },
@@ -537,7 +547,9 @@ impl App {
             (KeyCode::Char('k'), _) | (KeyCode::Up, _) => self.move_sel(-1),
             (KeyCode::Char('g'), _) | (KeyCode::Home, _) => self.set_sel(0),
             (KeyCode::Char('G'), _) | (KeyCode::End, _) => self.set_sel(usize::MAX),
-            (KeyCode::Char(c @ ('d' | 'l' | 'c' | 'x')), KeyModifiers::NONE) if !self.read_only => {
+            (KeyCode::Char(c @ ('d' | 'l' | 's' | 'c' | 'x')), KeyModifiers::NONE)
+                if !self.read_only =>
+            {
                 self.begin(c)
             }
             (KeyCode::Tab, _) | (KeyCode::Right, _) => self.tab = self.tab.shift(1),

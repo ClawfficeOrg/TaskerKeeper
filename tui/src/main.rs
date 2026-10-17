@@ -141,6 +141,7 @@ fn main() {
     };
     let token = args.token.clone().or_else(|| env("TIDETABLE_TOKEN"));
 
+    let owner = Some(tidetable_tui::source::default_owner(args.owner.clone()));
     let cwd = std::env::current_dir().unwrap_or_default();
     let (rx, mut source) = match &server {
         Some(url) => {
@@ -160,12 +161,12 @@ fn main() {
             spawn_stream(stream_http, slug.clone(), tx);
             (
                 Some(rx),
-                Backend::Hub(HubSource::new(main_http, slug).with_owner(args.owner.clone())),
+                Backend::Hub(HubSource::new(main_http, slug).with_owner(owner.clone())),
             )
         }
         None => {
             let mut local =
-                LocalSource::new(CliRunner::default(), cwd.clone()).with_owner(args.owner.clone());
+                LocalSource::new(CliRunner::default(), cwd.clone()).with_owner(owner.clone());
             if let Some(f) = &args.file {
                 local.choose(PathBuf::from(f));
             }

@@ -314,7 +314,7 @@ tidetable agents set pro_dev_agent --model claude-opus-5 --scope repo
 `tidetable-tui` binary (build: `cargo build --release --manifest-path tui/Cargo.toml`). It
 shows Now / Upcoming / Done / Review for a todo file or hub project (`--server URL SLUG`,
 token from `$TIDETABLE_TOKEN`). Humans use it; agents keep using the CLI. It never writes a
-todo file: `d` done, `l` defer, `c` clear and `x` reject all run the CLI (`--read-only`
+todo file: `s` start, `d` done, `l` defer, `c` clear and `x` reject all run the CLI (`--read-only`
 disables them). Details: `docs/integration-guide.md`.
 
 ## Attended and unattended runs
